@@ -259,7 +259,8 @@
       }
     </style>
 
-    <link rel="stylesheet" href="/styles.css?v=1.4.211">
+    <link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
+    <link rel="stylesheet" href="/styles.css?v=1.4.224">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -7832,6 +7833,22 @@
                 <line x1="8" x2="14" y1="11" y2="11"/>
               </svg>
             </button>
+            <button
+              type="button"
+              class="secondary compact-btn viewer-icon-btn"
+              id="focusWriteSpreadButton"
+              title="두 페이지 보기 (A4)"
+              data-i18n-title="index.두_페이지_보기_A4"
+              aria-label="두 페이지 보기 (A4)"
+              data-i18n-aria-label="index.두_페이지_보기_A4"
+              aria-pressed="false"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square-split-horizontal" aria-hidden="true" focusable="false">
+                <path d="M12 2v20"/>
+                <path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3"/>
+                <path d="M8 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3"/>
+              </svg>
+            </button>
             <div class="view-mode-control focus-write-view-mode">
               <button
                 type="button"
@@ -7915,17 +7932,30 @@
         </div>
         <div class="focus-write-body" id="focusWriteBody">
           <div class="focus-write-page" id="focusWritePage">
-            <div class="focus-write-sheet">
             <div
-              id="focusWriteEditor"
-              class="rich-editor focus-write-editor"
-              contenteditable="true"
-              spellcheck="true"
-              role="textbox"
-              aria-multiline="true"
-              aria-label="큰 창 원고" data-i18n-aria-label="index.큰_창_원고"
-              data-placeholder="여기에 원고를 이어서 써 보세요." data-i18n-placeholder="index.여기에_원고를_이어서_써_보세요"
-            ></div>
+              class="focus-write-spread-indicator"
+              id="focusWriteSpreadLabel"
+              hidden
+              aria-live="polite"
+            >1–2 / 2</div>
+            <div class="focus-write-spread-fit" id="focusWriteSpreadFit">
+              <div class="focus-write-spread-stack" id="focusWriteSpreadStack" hidden></div>
+              <div class="focus-write-spread-stage" id="focusWriteSpreadStage">
+                <div class="focus-write-spread-clip" id="focusWriteSpreadClip">
+                  <div class="focus-write-sheet">
+                    <div
+                      id="focusWriteEditor"
+                      class="rich-editor focus-write-editor"
+                      contenteditable="true"
+                      spellcheck="true"
+                      role="textbox"
+                      aria-multiline="true"
+                      aria-label="큰 창 원고" data-i18n-aria-label="index.큰_창_원고"
+                      data-placeholder="여기에 원고를 이어서 써 보세요." data-i18n-placeholder="index.여기에_원고를_이어서_써_보세요"
+                    ></div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div
@@ -9648,6 +9678,6 @@
     <script src="/typeset_metrics.js?v=1.4.45"></script>
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
-    <script src="/app.js?v=1.4.188"></script>
+    <script src="/app.js?v=1.4.225"></script>
   </body>
 </html>

@@ -1,0 +1,10 @@
+/* Pretendard Variable — local offline font (pretendard@1.3.9).
+   Bundled under web/fonts/; PyInstaller packs the whole web/ tree. */
+@font-face {
+  font-family: "Pretendard";
+  font-style: normal;
+  font-weight: 45 920;
+  font-display: swap;
+  src: url("./PretendardVariable.woff2") format("woff2-variations"),
+    url("./PretendardVariable.woff2") format("woff2");
+}

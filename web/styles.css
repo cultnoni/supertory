@@ -20,6 +20,11 @@
 }
 
 :root {
+  /* UI chrome font (local Pretendard Variable). Manuscript editors keep Batang. */
+  --font-ui: "Pretendard", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  /* Scene / rich writing editors — do not inherit --font-ui */
+  --font-editor: Batang, "Apple Myungjo", serif;
+
   /* ── Warm Stone Gray (기본) ── */
   --bg-main: #FAFAF9;       /* 앱 바탕 — 따뜻한 웜그레이 */
   --bg-surface: #FFFFFF;    /* 카드·패널 — 순백 */
@@ -862,7 +867,7 @@ body {
   color: var(--ink);
   /* 카드·본문 밖 공통 바탕 = 맨 윗줄 베이지 */
   background: var(--chrome-bg, var(--header-bg));
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  font-family: var(--font-ui);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1231,6 +1236,7 @@ html.is-electron-mac .app-titlebar {
   max-width: 200px;
   padding: 2px 8px;
   font-size: 13px;
+  font-family: var(--font-ui);
 }
 /* Work purpose (소설/에세이…) — changeable anytime */
 .purpose-picker {
@@ -2798,6 +2804,24 @@ aside { padding: 18px 14px; min-width: 0; }
   background: var(--chrome-bg, var(--header-bg)) !important;
   background-image: none !important;
 }
+/*
+ * work-area uses z-index:21 so episode tabs paint over panel edges.
+ * Ambient / 짓시 / theme menus are position:fixed *inside* the binder, so their
+ * local z-index (90) cannot compete with that sibling stacking context — the
+ * manuscript covers the popovers. Lift the whole binder while those menus are
+ * open (still below modal overlays ~95+).
+ */
+.outline-panel:has(.ambient-sound-popup.is-open),
+.outline-panel:has(.gitsi-popover.is-open),
+.outline-panel:has(.ui-theme-rail.is-open) {
+  z-index: 40;
+  overflow: visible;
+}
+.outline-panel:has(.ambient-sound-popup.is-open) .outline-panel-inner,
+.outline-panel:has(.gitsi-popover.is-open) .outline-panel-inner,
+.outline-panel:has(.ui-theme-rail.is-open) .outline-panel-inner {
+  overflow: visible;
+}
 /* 열린 탭 아래 제목 카드와 좌·우 패널(펼침·접힘 도크) 상단을 같은 선에 */
 body:has(.writing-column .episode-tab) .outline-panel,
 body:has(.writing-column .episode-tab) .ai-panel {
@@ -3238,7 +3262,7 @@ body.ai-panel-collapsed .outline-panel-inner {
   z-index: 12;
 }
 .binder-ambient-control:has(.ambient-sound-popup.is-open) {
-  z-index: 14;
+  z-index: 42;
 }
 .header-ambient-btn .ambient-sound-icon {
   display: block;
@@ -7995,7 +8019,7 @@ html[data-ui-scheme="dark"] #toryPriorityInput {
   resize: vertical;
   min-height: min(50vh, 420px);
   max-height: min(70vh, 720px);
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif !important;
+  font-family: var(--font-ui) !important;
 }
 .foreshadow-panel-head {
   display: grid;
@@ -8831,7 +8855,7 @@ html[data-ui-scheme="dark"] .ai-panel-form select.is-coming-mode {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  font-family: var(--font-ui);
   font-size: 14.5px;
   line-height: 1.7;
   /* App UI theme — not manuscript page theme (avoids black text on dark UI) */
@@ -16772,7 +16796,7 @@ body.ai-panel-collapsed .synopsis-writing-column {
   border: 0;
   background: transparent;
   color: var(--page-ink, inherit);
-  font-family: Batang, "Apple Myungjo", serif;
+  font-family: var(--font-editor);
   font-size: 17px;
   line-height: 1.8;
   -webkit-font-smoothing: antialiased;
@@ -19193,7 +19217,7 @@ button.alias-chip.is-tori-draft,
   padding: 4px 2px;
   min-height: 0;
   background: transparent;
-  font-family: Georgia, "Malgun Gothic", serif;
+  font-family: var(--font-ui);
   font-size: 22px;
   font-weight: 700;
 }
@@ -19488,7 +19512,7 @@ button.alias-chip.is-tori-draft,
   border-radius: 0 !important;
   background: transparent !important;
   text-align: left;
-  font-family: Georgia, "Malgun Gothic", serif;
+  font-family: var(--font-ui);
   font-size: 18px !important;
   font-weight: 700;
   color: var(--ink);
@@ -22541,7 +22565,7 @@ html.is-electron .page-write-modal.is-maximized {
   font-size: 11px;
   font-weight: 700;
   line-height: 1.35;
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  font-family: var(--font-ui);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
@@ -22607,18 +22631,60 @@ body.page-write-open #sceneContent {
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  background: var(--page-editor-bg, var(--page-bg, #fffdf8));
+  position: relative;
+}
+.focus-write-spread-indicator {
+  display: none;
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 5;
+  min-width: 6.5em;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #fff 22%, transparent);
+  background: color-mix(in srgb, #1c1917 78%, transparent);
+  box-shadow: 0 4px 14px color-mix(in srgb, #000 28%, transparent);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fafaf9;
+  font-family: var(--font-ui);
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+}
+.focus-write-spread-indicator[hidden] {
+  display: none !important;
+}
+.focus-write-spread-stack {
+  display: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.focus-write-spread-stack[hidden] {
+  display: none !important;
+}
+.focus-write-spread-fit {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
   display: grid;
   grid-template-columns: 1fr 2px min(794px, calc(100% - 48px)) 2px 1fr;
   grid-template-rows: minmax(100%, max-content);
   justify-items: stretch;
   align-items: stretch;
-  padding: 0;
-  margin: 0;
-  box-sizing: border-box;
   background: var(--page-editor-bg, var(--page-bg, #fffdf8));
 }
-.focus-write-page::before,
-.focus-write-page::after {
+.focus-write-spread-fit::before,
+.focus-write-spread-fit::after {
   content: "";
   width: 2px;
   background: #d8b996;
@@ -22627,11 +22693,26 @@ body.page-write-open #sceneContent {
   height: 100%;
   align-self: stretch;
 }
-.focus-write-page::before { grid-column: 2; }
-.focus-write-page::after { grid-column: 4; }
+.focus-write-spread-fit::before { grid-column: 2; }
+.focus-write-spread-fit::after { grid-column: 4; }
+.focus-write-spread-stage {
+  grid-column: 3;
+  position: relative;
+  width: auto;
+  max-width: none;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+.focus-write-spread-clip {
+  flex: 1 1 auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
 .focus-write-sheet {
   /* 뷰어 PDF와 동일: A4 @ 96dpi = 210×297mm → 794×1123. 배율 100% = 이 크기 */
-  grid-column: 3;
   width: auto;
   max-width: none;
   min-height: 100%;
@@ -22659,13 +22740,196 @@ body.page-write-open #sceneContent {
   border: 0;
   box-shadow: none;
   outline: none !important;
-  /* 본문 작성색(--page-ink / 사용자 지정)을 그대로. body --ink 로 떨어지지 않게 */
   color: var(--page-ink, var(--ink)) !important;
   caret-color: var(--page-ink, var(--ink)) !important;
+  font-family: var(--font-editor);
 }
 .focus-write-editor:focus {
   outline: none !important;
   box-shadow: none !important;
+}
+
+/* —— 큰 창: A4 두 페이지(스프레드) 세로 스크롤 스택 —— */
+.focus-write-page.is-a4-spread {
+  background: #5c574f;
+  /* THE only scroll container in spread mode */
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.focus-write-page.is-a4-spread .focus-write-spread-indicator {
+  display: block;
+  position: sticky;
+  top: 10px;
+  float: right;
+  margin: 10px 14px -40px 0;
+}
+.focus-write-page.is-a4-spread .focus-write-spread-fit {
+  display: block;
+  overflow: visible !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  flex: 0 0 auto;
+  padding: 28px 20px 48px;
+  background: transparent;
+  grid-template: none;
+}
+.focus-write-page.is-a4-spread .focus-write-spread-fit::before,
+.focus-write-page.is-a4-spread .focus-write-spread-fit::after {
+  display: none;
+}
+.focus-write-page.is-a4-spread .focus-write-spread-stage {
+  /* Off-screen source of truth (#focusWriteEditor) — no layout / scroll */
+  position: absolute !important;
+  left: 0 !important;
+  top: 0 !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  border: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  box-shadow: none !important;
+  transform: none !important;
+  min-height: 0 !important;
+}
+.focus-write-page.is-a4-spread .focus-write-spread-stack {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  width: auto;
+  max-width: 100%;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+  flex: 0 0 auto;
+}
+.focus-write-page.is-a4-spread .focus-write-sheet,
+.focus-write-page.is-a4-spread .focus-write-spread-clip {
+  overflow: visible !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+.focus-write-page.is-a4-spread .focus-write-editor {
+  font-family: var(--font-editor) !important;
+  column-width: auto !important;
+  column-gap: normal !important;
+  height: auto !important;
+  max-height: none !important;
+  min-width: 0 !important;
+  width: auto !important;
+  padding: 48px 56px 72px !important;
+}
+
+.fw-spread-row {
+  --fw-page-w: 420px;
+  --fw-bind-w: 2px;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  flex: 0 0 auto;
+  width: calc(var(--fw-page-w) * 2 + var(--fw-bind-w));
+  max-width: 100%;
+  margin: 0 auto 52px;
+  box-sizing: border-box;
+  overflow: visible;
+  height: auto;
+}
+.fw-spread-row:last-child {
+  margin-bottom: 24px;
+}
+.fw-spread-page {
+  flex: 0 0 auto;
+  width: var(--fw-page-w);
+  aspect-ratio: 210 / 297;
+  height: auto;
+  max-height: none;
+  box-sizing: border-box;
+  background: #fffef9;
+  color: var(--page-ink, #1c1917);
+  border: 1px solid color-mix(in srgb, #000 8%, transparent);
+  border-radius: 1px;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, #000 12%, transparent),
+    0 14px 36px color-mix(in srgb, #000 28%, transparent);
+  overflow: hidden;
+  position: relative;
+}
+.fw-spread-page.is-blank .fw-spread-page-body:empty::before {
+  content: "";
+}
+.fw-spread-bind {
+  flex: 0 0 auto;
+  width: var(--fw-bind-w);
+  align-self: stretch;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, #000 28%, transparent),
+      color-mix(in srgb, #000 8%, transparent) 45%,
+      color-mix(in srgb, #000 8%, transparent) 55%,
+      color-mix(in srgb, #000 28%, transparent)
+    );
+}
+.fw-spread-page-body {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  /* ~25mm margins on A4 (94/794) */
+  padding: 11.84%;
+  margin: 0;
+  border: 0;
+  outline: none;
+  overflow: hidden;
+  font-family: var(--font-editor) !important;
+  font-size: calc(var(--fw-editor-font-size, 16px) * var(--fw-page-scale, 1));
+  line-height: 1.85;
+  color: var(--page-ink, #1c1917);
+  caret-color: var(--page-ink, #1c1917);
+  white-space: pre-wrap;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  background: transparent;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.fw-spread-page-body[contenteditable="true"] {
+  -webkit-user-modify: read-write;
+}
+.fw-spread-page-body[contenteditable="false"] {
+  cursor: default;
+  -webkit-user-modify: read-only;
+}
+.fw-spread-page-body:focus {
+  outline: none;
+}
+.fw-spread-page-body p,
+.fw-spread-page-body div {
+  margin: 0 0 0.75em;
+  min-height: 1em;
+}
+.fw-spread-page-body p:last-child,
+.fw-spread-page-body div:last-child {
+  margin-bottom: 0;
+}
+.fw-spread-page-body div > br:only-child {
+  /* 빈 문단(연속 엔터) 높이 유지 */
+  display: block;
+}
+
+#focusWriteSpreadButton.is-active,
+#focusWriteSpreadButton.active,
+#focusWriteSpreadButton[aria-pressed="true"] {
+  color: var(--accent, var(--ink));
+  background: var(--selection, var(--surface-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, currentColor) 55%, transparent);
 }
 /* 전체보기: 화면 가장자리까지 채움 */
 .focus-write-modal.is-fullscreen {
@@ -22784,7 +23048,7 @@ body.is-electron-mac .focus-write-modal.is-fullscreen .focus-write-head {
   width: auto;
   max-width: none;
 }
-.focus-write-modal.is-fullscreen .focus-write-editor {
+.focus-write-modal.is-fullscreen:not(:has(.focus-write-page.is-a4-spread)) .focus-write-editor {
   min-height: 100%;
   width: 100%;
   max-width: none;
@@ -22931,7 +23195,7 @@ body[data-ui-scheme="dark"] .focus-write-head {
   max-width: none;
   min-height: 100%;
 }
-.focus-write-card.is-split .focus-write-editor {
+.focus-write-card.is-split:not(:has(.focus-write-page.is-a4-spread)) .focus-write-editor {
   width: 100%;
   max-width: none;
   min-height: 100%;
@@ -23721,13 +23985,13 @@ html.is-electron .viewer-modal.is-maximized {
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
 }
 button.viewer-typeset-chip {
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: 11px;
   font-weight: 800;
 }
@@ -23777,7 +24041,7 @@ button.viewer-typeset-chip {
   border-radius: 999px;
   background: transparent;
   color: var(--accent-dark, var(--ink));
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
@@ -25210,7 +25474,8 @@ body[data-ui-scheme="dark"] .viewer-toolbar {
   border: 0;
   border-radius: 0;
   background: var(--page-editor-bg);
-  font-family: Batang, "Apple Myungjo", serif;
+  /* Scene / manuscript writing: keep classic editor face (do not inherit UI Pretendard) */
+  font-family: var(--font-editor);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   caret-color: var(--page-ink);
@@ -25222,6 +25487,11 @@ body[data-ui-scheme="dark"] .viewer-toolbar {
   -webkit-user-select: text;
   pointer-events: auto !important;
   outline: none;
+}
+#sceneContent,
+.focus-write-editor,
+.split-body-editor {
+  font-family: var(--font-editor);
 }
 .rich-editor[contenteditable="true"] {
   -webkit-user-modify: read-write;
@@ -27597,7 +27867,7 @@ body.popup-dragging * {
   padding: 4px 2px;
   min-height: 0;
   background: transparent;
-  font-family: Georgia, "Malgun Gothic", serif;
+  font-family: var(--font-ui);
   font-size: 20px;
   font-weight: 700;
   color: var(--page-ink);
@@ -27935,7 +28205,7 @@ html.is-electron .modal:not(.hidden) > .modal-backdrop {
   font-size: 1.28rem;
   font-weight: 800;
   letter-spacing: -0.02em;
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  font-family: var(--font-ui);
 }
 .tory-helper-lead,
 .ai-tool-modal-card #aiToolModalLead,
@@ -31245,7 +31515,7 @@ html[data-ui-scheme="dark"] .reference-kind-tab.is-active {
   display: flex !important;
 }
 .driver-popover.supertory-tutorial-popover {
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  font-family: var(--font-ui);
   color: var(--ink, #24211d);
   background: var(--surface, #fffdf8);
   border: 1px solid var(--line, #e4ddd2);
@@ -34589,6 +34859,9 @@ html[lang="es"] .format-tool-label-wrap {
   align-items: center;
   flex: 0 0 auto;
   z-index: 13;
+}
+.binder-gitsi-control:has(.gitsi-popover.is-open) {
+  z-index: 42;
 }
 .header-gitsi-btn {
   position: relative;

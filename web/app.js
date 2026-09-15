@@ -4880,8 +4880,15 @@ function applyEditorViewZoom(percent, options = {}) {
     const focusEd = $("focusWriteEditor");
     if (sceneEd) sceneEd.style.zoom = zoomValue;
     if (focusSheet) {
-      focusSheet.style.zoom = zoomValue;
-      if (focusEd) focusEd.style.zoom = "";
+      const spreadOn = typeof isFocusWriteA4Spread === "function" && isFocusWriteA4Spread();
+      if (spreadOn) {
+        // Spread pages are scaled via --fw-page-scale; keep zoom off the sheet.
+        focusSheet.style.zoom = "";
+        if (focusEd) focusEd.style.zoom = zoomValue;
+      } else {
+        focusSheet.style.zoom = zoomValue;
+        if (focusEd) focusEd.style.zoom = "";
+      }
     } else if (focusEd) {
       focusEd.style.zoom = zoomValue;
     }
@@ -4891,6 +4898,9 @@ function applyEditorViewZoom(percent, options = {}) {
     syncEditorViewZoomChrome();
     if (persist) {
       try { localStorage.setItem(EDITOR_VIEW_ZOOM_KEY, String(zoom)); } catch (_) { /* private mode */ }
+    }
+    if (typeof isFocusWriteA4Spread === "function" && isFocusWriteA4Spread()) {
+      scheduleFocusWriteSpreadRefresh();
     }
   };
   if (page && options.preserveScroll !== false) {
@@ -53668,6 +53678,952 @@ function applyFocusWriteFullscreen(on, { persist = true } = {}) {
   if (persist) saveFocusWriteFullscreen(enabled);
 }
 
+/* —— 큰 창: A4 두 페이지(스프레드) 세로 스크롤 스택 —— */
+const FOCUS_WRITE_A4_SPREAD_KEY = "supertory.focusWriteA4Spread";
+/** A4 @ 96dpi CSS px — 210×297mm */
+const FOCUS_WRITE_A4_W = 794;
+const FOCUS_WRITE_A4_H = 1123;
+/** ~25mm 여백 */
+const FOCUS_WRITE_A4_PAD = 94;
+const FOCUS_WRITE_A4_GAP = 2;
+/** 타이핑 멈춘 뒤에만 커밋·재페이지 (짧으면 IME/연속 입력 중 DOM 교체로 글자 누락) */
+const FOCUS_WRITE_SPREAD_REFLOW_MS = 500;
+
+let focusWriteSpreadPages = [];
+let focusWriteSpreadRefreshTimer = null;
+let focusWriteSpreadReflowTimer = null;
+let focusWriteSpreadBuilding = false;
+let focusWriteSpreadScrollBound = false;
+/** 스프레드→에디터 커밋 직후, 에디터 input이 페이지를 다시 그리지 않게 */
+let focusWriteSpreadEditingPages = false;
+/** 한글 등 IME 조합 중에는 절대 DOM을 교체하지 않음 */
+let focusWriteSpreadComposing = false;
+/** 입력 세대 — 커밋/리플로우 중 추가 입력이 있으면 폐기·재예약 */
+let focusWriteSpreadEditGen = 0;
+/** 페이지에만 있고 아직 #focusWriteEditor/#sceneContent에 안 올린 변경 */
+let focusWriteSpreadLocalDirty = false;
+/** Enter 직후 input이 디바운스를 500ms로 덮어쓰지 않게 */
+let focusWriteSpreadEnterFlush = false;
+
+function loadFocusWriteA4Spread() {
+  try {
+    return localStorage.getItem(FOCUS_WRITE_A4_SPREAD_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function setFocusWriteA4SpreadPref(on) {
+  try {
+    localStorage.setItem(FOCUS_WRITE_A4_SPREAD_KEY, on ? "1" : "0");
+  } catch (_) { /* ignore */ }
+}
+
+/** 현재 큰 창에서 스프레드 모드가 켜져 있는지 (표시 상태) */
+function isFocusWriteA4Spread() {
+  return Boolean($("focusWritePage")?.classList.contains("is-a4-spread"));
+}
+
+function syncFocusWriteSpreadButton(on) {
+  const btn = $("focusWriteSpreadButton");
+  if (!btn) return;
+  const active = Boolean(on);
+  btn.classList.toggle("is-active", active);
+  btn.classList.toggle("active", active);
+  btn.setAttribute("aria-pressed", active ? "true" : "false");
+  const key = active ? "index.두_페이지_보기_끄기" : "index.두_페이지_보기_A4";
+  const label = i18n.t(key);
+  btn.title = label;
+  btn.setAttribute("data-i18n-title", key);
+  btn.setAttribute("aria-label", label);
+  btn.setAttribute("data-i18n-aria-label", key);
+}
+
+function focusWriteSpreadStyleSnapshot(editor) {
+  const ed = editor || $("focusWriteEditor");
+  const cs = ed ? getComputedStyle(ed) : null;
+  return {
+    fontFamily: cs?.fontFamily || 'Batang, "바탕", "Apple Myungjo", "Nanum Myeongjo", serif',
+    fontSize: cs?.fontSize || "16px",
+    lineHeight: cs?.lineHeight || "1.85",
+    color: cs?.color || "#1a1a1a",
+    letterSpacing: cs?.letterSpacing || "normal",
+  };
+}
+
+function applyFocusWriteSpreadPageStyle(el, snap, { forProbe = false } = {}) {
+  if (!el || !snap) return;
+  el.style.fontFamily = snap.fontFamily;
+  el.style.lineHeight = snap.lineHeight;
+  el.style.color = snap.color;
+  el.style.letterSpacing = snap.letterSpacing;
+  el.style.whiteSpace = "pre-wrap";
+  el.style.wordBreak = "keep-all";
+  el.style.overflowWrap = "break-word";
+  if (forProbe) {
+    el.style.fontSize = snap.fontSize;
+  } else {
+    el.style.fontSize = "";
+  }
+}
+
+/**
+ * A4 페이지 분할.
+ * 블록이 수백~수천 개일 때 매 블록 scrollHeight 하면 수 초가 걸리므로,
+ * 지수적 배치 추가 + 배치 내부 이진 탐색으로 측정 횟수를 크게 줄인다.
+ */
+function paginateFocusWriteHtmlToA4Pages(html, styleSnap) {
+  const probeHost = document.createElement("div");
+  probeHost.setAttribute("aria-hidden", "true");
+  probeHost.style.cssText = [
+    "position:fixed",
+    "left:-12000px",
+    "top:0",
+    `width:${FOCUS_WRITE_A4_W}px`,
+    "visibility:hidden",
+    "pointer-events:none",
+    "z-index:-1",
+    "contain:layout style",
+  ].join(";");
+  document.body.appendChild(probeHost);
+
+  const maxH = FOCUS_WRITE_A4_H - FOCUS_WRITE_A4_PAD * 2;
+  const pages = [];
+  let pageEl = null;
+
+  const newPage = () => {
+    pageEl = document.createElement("div");
+    pageEl.className = "fw-a4-probe-page";
+    pageEl.style.cssText = [
+      `width:${FOCUS_WRITE_A4_W - FOCUS_WRITE_A4_PAD * 2}px`,
+      "box-sizing:border-box",
+      "margin:0",
+      "padding:0",
+      "contain:layout style",
+    ].join(";");
+    applyFocusWriteSpreadPageStyle(pageEl, styleSnap, { forProbe: true });
+    probeHost.appendChild(pageEl);
+  };
+
+  const overflows = () => pageEl.scrollHeight > maxH + 0.5;
+
+  const pushPage = () => {
+    if (!pageEl) return;
+    const inner = pageEl.innerHTML.trim();
+    if (inner) pages.push(pageEl.innerHTML);
+    pageEl.remove();
+    pageEl = null;
+  };
+
+  const splitTextNodeToFit = (textNode) => {
+    const full = textNode.nodeValue || "";
+    if (!full) return;
+    textNode.nodeValue = "";
+    const baseH = pageEl.scrollHeight;
+    textNode.nodeValue = full;
+    const fullH = pageEl.scrollHeight;
+    if (fullH <= maxH + 0.5) return;
+
+    const growth = Math.max(0.0001, fullH - baseH);
+    const avail = Math.max(0, maxH - baseH);
+    let estimate = Math.floor(full.length * (avail / growth));
+    estimate = Math.max(0, Math.min(full.length - 1, estimate));
+
+    let lo = Math.max(0, estimate - 32);
+    let hi = Math.min(full.length, estimate + 32);
+    let best = 0;
+    const fits = (n) => {
+      textNode.nodeValue = full.slice(0, n);
+      return pageEl.scrollHeight <= maxH + 0.5;
+    };
+    while (lo > 0 && !fits(lo)) {
+      hi = lo;
+      lo = Math.max(0, lo - 48);
+    }
+    while (hi < full.length && fits(hi)) {
+      lo = hi;
+      hi = Math.min(full.length, hi + 48);
+    }
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (fits(mid)) {
+        best = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+
+    if (best <= 0) {
+      if (!pageEl.childNodes.length || (pageEl.childNodes.length === 1 && !(pageEl.textContent || "").trim())) {
+        textNode.nodeValue = full.slice(0, 1) || full;
+        pushPage();
+        newPage();
+        const rest = full.slice(textNode.nodeValue.length);
+        if (rest) {
+          const tn = document.createTextNode(rest);
+          pageEl.appendChild(tn);
+          if (overflows()) splitTextNodeToFit(tn);
+        }
+        return;
+      }
+      textNode.remove();
+      pushPage();
+      newPage();
+      const tn = document.createTextNode(full);
+      pageEl.appendChild(tn);
+      if (overflows()) splitTextNodeToFit(tn);
+      return;
+    }
+
+    textNode.nodeValue = full.slice(0, best);
+    const rest = full.slice(best);
+    if (rest) {
+      pushPage();
+      newPage();
+      const tn = document.createTextNode(rest);
+      pageEl.appendChild(tn);
+      if (overflows()) splitTextNodeToFit(tn);
+    }
+  };
+
+  /** 단일 노드가 한 페이지를 넘길 때 텍스트/자식으로 쪼갬 */
+  const splitOversizedNode = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      splitTextNodeToFit(node);
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      pushPage();
+      newPage();
+      pageEl.appendChild(node);
+      return;
+    }
+    const clone = node.cloneNode(false);
+    const kids = Array.from(node.childNodes);
+    node.remove();
+    if (pageEl.childNodes.length) {
+      pushPage();
+      newPage();
+    }
+    pageEl.appendChild(clone);
+    // 자식은 배치 패킹으로 이어 붙임
+    packNodes(kids);
+    if (clone.parentNode === pageEl && !clone.childNodes.length && clone.tagName !== "BR" && clone.tagName !== "HR") {
+      clone.remove();
+    }
+  };
+
+  /**
+   * nodes를 현재/다음 페이지들에 배치.
+   * 지수적 추가 + 넘친 구간만 이진 탐색 → 측정 횟수 ≈ 페이지수 × log(블록수).
+   */
+  const packNodes = (nodes) => {
+    const list = Array.from(nodes);
+    let i = 0;
+    while (i < list.length) {
+      if (!pageEl) newPage();
+
+      let count = 0;
+      let step = 1;
+      while (i + count < list.length) {
+        const next = Math.min(step, list.length - i - count);
+        for (let k = 0; k < next; k += 1) pageEl.appendChild(list[i + count + k]);
+        if (overflows()) {
+          for (let k = 0; k < next; k += 1) pageEl.removeChild(pageEl.lastChild);
+          let bLo = 0;
+          let bHi = next - 1;
+          let bBest = 0;
+          while (bLo <= bHi) {
+            const mid = (bLo + bHi) >> 1;
+            for (let k = 0; k < mid; k += 1) pageEl.appendChild(list[i + count + k]);
+            const ok = !overflows();
+            for (let k = 0; k < mid; k += 1) pageEl.removeChild(pageEl.lastChild);
+            if (ok) {
+              bBest = mid;
+              bLo = mid + 1;
+            } else {
+              bHi = mid - 1;
+            }
+          }
+          for (let k = 0; k < bBest; k += 1) pageEl.appendChild(list[i + count + k]);
+          count += bBest;
+          break;
+        }
+        count += next;
+        step *= 2;
+      }
+
+      if (count === 0) {
+        pageEl.appendChild(list[i]);
+        if (overflows()) splitOversizedNode(list[i]);
+        i += 1;
+      } else {
+        i += count;
+      }
+
+      if (i < list.length) {
+        pushPage();
+        newPage();
+      }
+    }
+  };
+
+  try {
+    const src = document.createElement("div");
+    src.innerHTML = html || "<p><br></p>";
+    const blocks = Array.from(src.childNodes);
+    if (!blocks.length) {
+      pages.push("<p><br></p>");
+    } else {
+      newPage();
+      packNodes(blocks);
+      pushPage();
+    }
+  } finally {
+    probeHost.remove();
+  }
+
+  if (!pages.length) pages.push("<p><br></p>");
+  return pages;
+}
+
+/** 루트 안 텍스트+블록개행 기준 오프셋 (빈 문단 Enter 위치 구분용) */
+function isFocusWriteSpreadBlockEl(node) {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+  return /^(DIV|P|LI|H[1-6]|BLOCKQUOTE|PRE|SECTION|ARTICLE|TR)$/i.test(node.nodeName);
+}
+
+function focusWriteSpreadPlainLength(node) {
+  if (!node) return 0;
+  if (node.nodeType === Node.TEXT_NODE) return node.nodeValue?.length || 0;
+  if (node.nodeName === "BR") return 1;
+  if (node.nodeType !== Node.ELEMENT_NODE) return 0;
+  let n = 0;
+  const kids = node.childNodes;
+  for (let i = 0; i < kids.length; i += 1) {
+    n += focusWriteSpreadPlainLength(kids[i]);
+    if (i < kids.length - 1 && isFocusWriteSpreadBlockEl(kids[i]) && isFocusWriteSpreadBlockEl(kids[i + 1])) {
+      n += 1; // 블록 사이 가상 개행
+    }
+  }
+  return n;
+}
+
+function getAbsoluteTextOffsetInRoot(root) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount || !root.contains(sel.anchorNode)) return null;
+  const endNode = sel.anchorNode;
+  const endOff = sel.anchorOffset;
+  let total = 0;
+  let found = false;
+
+  function walk(node) {
+    if (found || !node) return;
+    if (node === endNode) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        total += Math.max(0, Math.min(endOff, node.nodeValue?.length || 0));
+      } else {
+        const kids = node.childNodes;
+        for (let i = 0; i < endOff && i < kids.length; i += 1) {
+          total += focusWriteSpreadPlainLength(kids[i]);
+          if (i < endOff - 1 && i + 1 < kids.length
+            && isFocusWriteSpreadBlockEl(kids[i]) && isFocusWriteSpreadBlockEl(kids[i + 1])) {
+            total += 1;
+          }
+        }
+      }
+      found = true;
+      return;
+    }
+    if (node.nodeType === Node.TEXT_NODE) {
+      total += node.nodeValue?.length || 0;
+      return;
+    }
+    if (node.nodeName === "BR") {
+      total += 1;
+      return;
+    }
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const kids = node.childNodes;
+      for (let i = 0; i < kids.length; i += 1) {
+        walk(kids[i]);
+        if (found) return;
+        if (i < kids.length - 1 && isFocusWriteSpreadBlockEl(kids[i]) && isFocusWriteSpreadBlockEl(kids[i + 1])) {
+          total += 1;
+        }
+      }
+    }
+  }
+
+  walk(root);
+  return found ? total : null;
+}
+
+function setAbsoluteTextOffsetInRoot(root, absOffset) {
+  if (!root || absOffset == null || absOffset < 0) return false;
+  let remaining = absOffset;
+  let placed = false;
+
+  function placeInText(node, offset) {
+    const range = document.createRange();
+    const len = node.nodeValue?.length || 0;
+    range.setStart(node, Math.max(0, Math.min(offset, len)));
+    range.collapse(true);
+    const sel = window.getSelection();
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    placed = true;
+  }
+
+  function walk(node) {
+    if (placed || !node) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const len = node.nodeValue?.length || 0;
+      if (remaining <= len) {
+        placeInText(node, remaining);
+        return;
+      }
+      remaining -= len;
+      return;
+    }
+    if (node.nodeName === "BR") {
+      if (remaining <= 0) {
+        // BR 앞
+        const range = document.createRange();
+        range.setStartBefore(node);
+        range.collapse(true);
+        const sel = window.getSelection();
+        if (sel) {
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+        placed = true;
+        return;
+      }
+      remaining -= 1;
+      return;
+    }
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const kids = node.childNodes;
+      // 빈 블록(엔터로 만든 <div><br></div>) — remaining이 여기면 블록 안에 캐럿
+      if (isFocusWriteSpreadBlockEl(node) && kids.length === 0 && remaining <= 0) {
+        const range = document.createRange();
+        range.setStart(node, 0);
+        range.collapse(true);
+        const sel = window.getSelection();
+        if (sel) {
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+        placed = true;
+        return;
+      }
+      for (let i = 0; i < kids.length; i += 1) {
+        walk(kids[i]);
+        if (placed) return;
+        if (i < kids.length - 1 && isFocusWriteSpreadBlockEl(kids[i]) && isFocusWriteSpreadBlockEl(kids[i + 1])) {
+          if (remaining <= 0) {
+            // 블록 경계 = 다음 블록 시작
+            const next = kids[i + 1];
+            try {
+              next.focus?.({ preventScroll: true });
+            } catch (_) { /* ignore */ }
+            const range = document.createRange();
+            if (next.childNodes.length) {
+              const first = next.firstChild;
+              if (first.nodeType === Node.TEXT_NODE) range.setStart(first, 0);
+              else if (first.nodeName === "BR") range.setStartBefore(first);
+              else range.setStart(next, 0);
+            } else {
+              range.setStart(next, 0);
+            }
+            range.collapse(true);
+            const sel = window.getSelection();
+            if (sel) {
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+            placed = true;
+            return;
+          }
+          remaining -= 1;
+        }
+      }
+    }
+  }
+
+  walk(root);
+  if (!placed) {
+    // 끝으로
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    let last = null;
+    let n = walker.nextNode();
+    while (n) {
+      last = n;
+      n = walker.nextNode();
+    }
+    if (last) placeInText(last, last.nodeValue?.length || 0);
+    else {
+      try { root.focus(); } catch (_) { /* ignore */ }
+    }
+  }
+  return placed;
+}
+
+function focusWriteSpreadPageBodies() {
+  const stack = $("focusWriteSpreadStack");
+  if (!stack) return [];
+  return Array.from(stack.querySelectorAll(".fw-spread-page-body[contenteditable='true']"));
+}
+
+function getFocusWriteSpreadAbsoluteCaret() {
+  const bodies = focusWriteSpreadPageBodies();
+  let base = 0;
+  for (const body of bodies) {
+    const local = getAbsoluteTextOffsetInRoot(body);
+    if (local != null) {
+      return { abs: base + local, pageIndex: Number(body.dataset.pageIndex) || 0 };
+    }
+    base += focusWriteSpreadPlainLength(body);
+    // 페이지 경계도 구분
+    base += 1;
+  }
+  return null;
+}
+
+function restoreFocusWriteSpreadAbsoluteCaret(abs) {
+  if (abs == null || abs < 0) return;
+  const bodies = focusWriteSpreadPageBodies();
+  if (!bodies.length) return;
+  let base = 0;
+  for (let i = 0; i < bodies.length; i += 1) {
+    const body = bodies[i];
+    const len = focusWriteSpreadPlainLength(body);
+    const spanEnd = base + len;
+    if (abs <= spanEnd || i === bodies.length - 1) {
+      const local = Math.max(0, Math.min(abs - base, len));
+      try {
+        body.focus({ preventScroll: true });
+      } catch (_) {
+        try { body.focus(); } catch (__) { /* ignore */ }
+      }
+      setAbsoluteTextOffsetInRoot(body, local);
+      return;
+    }
+    base = spanEnd + 1; // page boundary
+  }
+}
+
+/**
+ * 스프레드 페이지 → #focusWriteEditor + #sceneContent 1회 커밋.
+ * 타이핑 중에는 호출하지 않음. input 이벤트도 쏘지 않아 연쇄 리렌더를 막음.
+ */
+function syncFocusWriteEditorFromSpreadPages() {
+  const editor = $("focusWriteEditor");
+  const bodies = focusWriteSpreadPageBodies();
+  if (!editor || !bodies.length) return false;
+  const joined = bodies.map((b) => b.innerHTML || "").join("") || "<p><br></p>";
+  focusWriteSpreadEditingPages = true;
+  editor.innerHTML = joined;
+  const mainEd = $("sceneContent");
+  if (mainEd && state.sceneId) {
+    mainEd.innerHTML = joined;
+    updateEditorPlaceholder(mainEd);
+  }
+  updateEditorPlaceholder(editor);
+  updateSceneStats();
+  markSceneDirty();
+  if ($("focusWriteSaveInfo") && sceneDirty) {
+    $("focusWriteSaveInfo").textContent = i18n.t("app.저장_대기");
+  }
+  focusWriteSpreadLocalDirty = false;
+  // microtask보다 짧게 유지 — 같은 턴의 후속 스케줄이 스킵되지 않게
+  focusWriteSpreadEditingPages = false;
+  return true;
+}
+
+function updateFocusWriteSpreadIndicator() {
+  const label = $("focusWriteSpreadLabel");
+  const page = $("focusWritePage");
+  const stack = $("focusWriteSpreadStack");
+  if (!label || !page || !stack) return;
+  const total = Math.max(1, focusWriteSpreadPages.length || 1);
+  const spreads = Array.from(stack.querySelectorAll(".fw-spread-row"));
+  if (!spreads.length) {
+    label.textContent = "";
+    return;
+  }
+  const scrollTop = page.scrollTop;
+  const pageRect = page.getBoundingClientRect();
+  const midY = pageRect.top + pageRect.height * 0.35;
+  let active = spreads[0];
+  for (const sp of spreads) {
+    const r = sp.getBoundingClientRect();
+    if (r.top <= midY) active = sp;
+  }
+  if (scrollTop <= 4) active = spreads[0];
+  const start = Number(active?.dataset?.startPage) || 1;
+  const end = Number(active?.dataset?.endPage) || start;
+  const range = start === end ? String(start) : `${start}–${end}`;
+  label.textContent = i18n.t("index.스프레드_페이지_표시", { range, total: String(total) });
+}
+
+function bindFocusWriteSpreadScroll() {
+  const page = $("focusWritePage");
+  if (!page || focusWriteSpreadScrollBound) return;
+  focusWriteSpreadScrollBound = true;
+  page.addEventListener("scroll", () => {
+    if (!isFocusWriteA4Spread()) return;
+    updateFocusWriteSpreadIndicator();
+  }, { passive: true });
+}
+
+/** 보이는 페이지가 A4 박스를 실제로 넘칠 때만 재분할 (여유 공간만으로는 재분할하지 않음) */
+function focusWriteSpreadNeedsRepaginate() {
+  const bodies = focusWriteSpreadPageBodies();
+  if (!bodies.length) return true;
+  for (let i = 0; i < bodies.length; i += 1) {
+    const body = bodies[i];
+    if (body.scrollHeight > body.clientHeight + 2) return true;
+  }
+  return false;
+}
+
+/** 디바운스 만료 후: 커밋 1회 → (필요할 때만) 재페이지 → 캐럿 복원 1회 */
+function commitFocusWriteSpreadAndReflow() {
+  if (!isFocusWriteA4Spread()) return;
+  if (focusWriteSpreadComposing) {
+    scheduleFocusWriteSpreadReflow();
+    return;
+  }
+  if (focusWriteSpreadBuilding) {
+    scheduleFocusWriteSpreadReflow();
+    return;
+  }
+
+  const genAtStart = focusWriteSpreadEditGen;
+  const caret = getFocusWriteSpreadAbsoluteCaret();
+  // 넘침만 재분할하므로 편집 중인 페이지부터 다시 나누면 됨 (이전 페이지 유지)
+  const fromPage = Math.max(0, caret?.pageIndex ?? 0);
+
+  if (focusWriteSpreadLocalDirty) {
+    syncFocusWriteEditorFromSpreadPages();
+  }
+
+  if (focusWriteSpreadComposing || genAtStart !== focusWriteSpreadEditGen) {
+    scheduleFocusWriteSpreadReflow();
+    return;
+  }
+
+  // 분량 변화가 없으면 DOM을 다시 그리지 않음 (타이핑 체감의 핵심)
+  if (!focusWriteSpreadNeedsRepaginate()) {
+    updateFocusWriteSpreadIndicator();
+    return;
+  }
+
+  renderFocusWriteSpreadStack({
+    preserveScroll: true,
+    restoreAbsCaret: caret?.abs,
+    fromPage,
+  });
+
+  if (genAtStart !== focusWriteSpreadEditGen || focusWriteSpreadComposing) {
+    scheduleFocusWriteSpreadReflow();
+  }
+}
+
+function scheduleFocusWriteSpreadReflow(delayMs) {
+  const wait = delayMs == null ? FOCUS_WRITE_SPREAD_REFLOW_MS : delayMs;
+  if (focusWriteSpreadReflowTimer) clearTimeout(focusWriteSpreadReflowTimer);
+  focusWriteSpreadReflowTimer = setTimeout(() => {
+    focusWriteSpreadReflowTimer = null;
+    focusWriteSpreadEnterFlush = false;
+    requestAnimationFrame(() => {
+      commitFocusWriteSpreadAndReflow();
+    });
+  }, wait);
+}
+
+/**
+ * 타이핑 중: 브라우저 네이티브 입력만 허용.
+ * DOM 재작성 / sceneContent 커밋 / 캐럿 복원 없음.
+ */
+function onFocusWriteSpreadPageInput(ev) {
+  const body = ev?.target?.closest?.(".fw-spread-page-body");
+  if (!body || body.getAttribute("contenteditable") !== "true") return;
+  focusWriteSpreadLocalDirty = true;
+  focusWriteSpreadEditGen += 1;
+  // Enter 직후라면 짧은 flush 유지 (500ms로 덮지 않음)
+  if (focusWriteSpreadEnterFlush) {
+    scheduleFocusWriteSpreadReflow(32);
+  } else {
+    scheduleFocusWriteSpreadReflow();
+  }
+}
+
+function onFocusWriteSpreadCompositionStart() {
+  focusWriteSpreadComposing = true;
+}
+
+function onFocusWriteSpreadCompositionEnd() {
+  focusWriteSpreadComposing = false;
+  focusWriteSpreadLocalDirty = true;
+  focusWriteSpreadEditGen += 1;
+  scheduleFocusWriteSpreadReflow();
+}
+
+/**
+ * Enter 줄바꿈:
+ * - IME 조합 확정용 Enter(keyCode 229 / isComposing)는 건드리지 않음
+ * - 그 외 Enter는 insertParagraph로 문단 개행을 보장
+ * - 재페이지 후 캐럿은 블록 개행을 포함한 오프셋으로 복원 (빈 줄에서 이전 줄로 튕기지 않음)
+ */
+function onFocusWriteSpreadPageKeydown(event) {
+  if (event.key !== "Enter") return;
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  const body = event.target?.closest?.(".fw-spread-page-body");
+  if (!body || body.getAttribute("contenteditable") !== "true") return;
+
+  // 한글 IME 조합 확정 Enter — 기본 동작에 맡김 (줄바꿈 아님)
+  if (event.isComposing || event.keyCode === 229) return;
+
+  focusWriteSpreadComposing = false;
+  focusWriteSpreadEnterFlush = true;
+
+  event.preventDefault();
+  try {
+    if (event.shiftKey) {
+      if (!document.execCommand("insertLineBreak")) {
+        document.execCommand("insertHTML", false, "<br>");
+      }
+    } else if (!document.execCommand("insertParagraph")) {
+      document.execCommand("insertHTML", false, "<div><br></div>");
+    }
+  } catch (_) {
+    try {
+      document.execCommand("insertHTML", false, event.shiftKey ? "<br>" : "<div><br></div>");
+    } catch (__) { /* ignore */ }
+  }
+
+  focusWriteSpreadLocalDirty = true;
+  focusWriteSpreadEditGen += 1;
+
+  // execCommand가 input을 안 쏘는 브라우저 대비 — 여기서도 flush 예약
+  const delay = focusWriteSpreadNeedsRepaginate() ? 32 : FOCUS_WRITE_SPREAD_REFLOW_MS;
+  scheduleFocusWriteSpreadReflow(delay);
+}
+
+function bindFocusWriteSpreadPageBody(body) {
+  if (!body || body.dataset.fwSpreadBound === "1") return;
+  body.dataset.fwSpreadBound = "1";
+  body.classList.add("rich-editor");
+  try {
+    document.execCommand("defaultParagraphSeparator", false, "div");
+  } catch (_) { /* ignore */ }
+  body.addEventListener("keydown", onFocusWriteSpreadPageKeydown);
+  body.addEventListener("input", onFocusWriteSpreadPageInput);
+  body.addEventListener("compositionstart", onFocusWriteSpreadCompositionStart);
+  body.addEventListener("compositionend", onFocusWriteSpreadCompositionEnd);
+  body.addEventListener("blur", () => {
+    focusWriteSpreadComposing = false;
+    if (!focusWriteSpreadLocalDirty) return;
+    if (focusWriteSpreadReflowTimer) {
+      clearTimeout(focusWriteSpreadReflowTimer);
+      focusWriteSpreadReflowTimer = null;
+    }
+    commitFocusWriteSpreadAndReflow();
+  });
+}
+
+
+function renderFocusWriteSpreadStack(opts = {}) {
+  const stack = $("focusWriteSpreadStack");
+  const fit = $("focusWriteSpreadFit");
+  const pageScroller = $("focusWritePage");
+  const editor = $("focusWriteEditor");
+  if (!stack || !editor) return;
+  if (focusWriteSpreadBuilding) return;
+  focusWriteSpreadBuilding = true;
+
+  const preserveScroll = !!opts.preserveScroll;
+  const prevScroll = preserveScroll && pageScroller ? pageScroller.scrollTop : 0;
+  const restoreAbs = opts.restoreAbsCaret;
+  const fromPage = Math.max(0, Number(opts.fromPage) || 0);
+
+  try {
+    const snap = focusWriteSpreadStyleSnapshot(editor);
+    // 편집 지점 이전 페이지는 유지하고, 이후만 재분할 (대형 원고 비용 절감)
+    const liveBodies = focusWriteSpreadPageBodies();
+    if (fromPage > 0 && liveBodies.length > fromPage) {
+      const kept = liveBodies.slice(0, fromPage).map((b) => b.innerHTML || "");
+      const rest = liveBodies.slice(fromPage).map((b) => b.innerHTML || "").join("") || "<p><br></p>";
+      focusWriteSpreadPages = kept.concat(paginateFocusWriteHtmlToA4Pages(rest, snap));
+    } else {
+      focusWriteSpreadPages = paginateFocusWriteHtmlToA4Pages(editor.innerHTML || "", snap);
+    }
+
+    const availW = Math.max(
+      280,
+      (pageScroller?.clientWidth || fit?.clientWidth || 800) - 48
+    );
+    const pairW = FOCUS_WRITE_A4_W * 2 + FOCUS_WRITE_A4_GAP;
+    const scale = Math.min(1, availW / pairW);
+    const pageW = Math.max(120, Math.round(FOCUS_WRITE_A4_W * scale));
+
+    stack.style.setProperty("--fw-page-scale", String(scale));
+    stack.style.setProperty("--fw-editor-font-size", snap.fontSize || "16px");
+    stack.style.width = `${pageW * 2 + FOCUS_WRITE_A4_GAP}px`;
+    stack.style.maxWidth = "100%";
+    stack.style.height = "auto";
+    stack.style.minHeight = "0";
+    stack.style.overflow = "visible";
+    stack.style.margin = "0 auto";
+
+    stack.replaceChildren();
+    const total = focusWriteSpreadPages.length;
+    for (let i = 0; i < total; i += 2) {
+      const spread = document.createElement("div");
+      spread.className = "fw-spread-row";
+      spread.dataset.startPage = String(i + 1);
+      spread.dataset.endPage = String(Math.min(i + 2, total));
+      spread.style.setProperty("--fw-page-w", `${pageW}px`);
+      spread.style.setProperty("--fw-bind-w", `${FOCUS_WRITE_A4_GAP}px`);
+      spread.style.setProperty("--fw-page-scale", String(scale));
+
+      const makePage = (pageIndex0, blank) => {
+        const page = document.createElement("div");
+        page.className = "fw-spread-page" + (blank ? " is-blank" : "");
+        page.dataset.page = String(pageIndex0 + 1);
+        const body = document.createElement("div");
+        body.className = "fw-spread-page-body";
+        body.dataset.pageIndex = String(pageIndex0);
+        applyFocusWriteSpreadPageStyle(body, snap, { forProbe: false });
+        if (blank) {
+          body.setAttribute("contenteditable", "false");
+          body.setAttribute("aria-hidden", "true");
+          body.innerHTML = "";
+        } else {
+          body.setAttribute("contenteditable", "true");
+          body.setAttribute("role", "textbox");
+          body.setAttribute("aria-multiline", "true");
+          body.spellcheck = true;
+          body.innerHTML = focusWriteSpreadPages[pageIndex0] || "<p><br></p>";
+          bindFocusWriteSpreadPageBody(body);
+        }
+        page.appendChild(body);
+        return page;
+      };
+
+      spread.appendChild(makePage(i, false));
+      const bind = document.createElement("div");
+      bind.className = "fw-spread-bind";
+      bind.setAttribute("aria-hidden", "true");
+      spread.appendChild(bind);
+      if (i + 1 < total) {
+        spread.appendChild(makePage(i + 1, false));
+      } else {
+        spread.appendChild(makePage(i + 1, true));
+      }
+      stack.appendChild(spread);
+    }
+
+    if (pageScroller && preserveScroll) {
+      pageScroller.scrollTop = prevScroll;
+    }
+    updateFocusWriteSpreadIndicator();
+    // 캐럿 복원: 동기 1회 + 다음 프레임 1회 (레이아웃 직후 선택 유실 방지)
+    if (restoreAbs != null) {
+      restoreFocusWriteSpreadAbsoluteCaret(restoreAbs);
+      requestAnimationFrame(() => {
+        restoreFocusWriteSpreadAbsoluteCaret(restoreAbs);
+      });
+    }
+  } finally {
+    focusWriteSpreadBuilding = false;
+  }
+}
+
+function scheduleFocusWriteSpreadRefresh() {
+  if (!isFocusWriteA4Spread()) return;
+  if (focusWriteSpreadEditingPages) return;
+  if (focusWriteSpreadLocalDirty || focusWriteSpreadComposing) return;
+  if (focusWriteSpreadRefreshTimer) clearTimeout(focusWriteSpreadRefreshTimer);
+  focusWriteSpreadRefreshTimer = setTimeout(() => {
+    focusWriteSpreadRefreshTimer = null;
+    if (focusWriteSpreadLocalDirty || focusWriteSpreadComposing) return;
+    renderFocusWriteSpreadStack({ preserveScroll: true });
+  }, 120);
+}
+
+function applyFocusWriteA4Spread(on, { persist = true } = {}) {
+  const page = $("focusWritePage");
+  const stack = $("focusWriteSpreadStack");
+  const label = $("focusWriteSpreadLabel");
+  if (!page) return;
+
+  if (!on && page.classList.contains("is-a4-spread")) {
+    if (focusWriteSpreadReflowTimer) {
+      clearTimeout(focusWriteSpreadReflowTimer);
+      focusWriteSpreadReflowTimer = null;
+    }
+    if (focusWriteSpreadLocalDirty) syncFocusWriteEditorFromSpreadPages();
+  }
+
+  page.classList.toggle("is-a4-spread", !!on);
+  document.body.classList.toggle("focus-write-a4-spread", !!on);
+  if (persist) setFocusWriteA4SpreadPref(!!on);
+  syncFocusWriteSpreadButton(!!on);
+
+  if (!on) {
+    focusWriteSpreadComposing = false;
+    focusWriteSpreadLocalDirty = false;
+    if (label) {
+      label.textContent = "";
+      label.hidden = true;
+    }
+    if (stack) {
+      stack.replaceChildren();
+      stack.hidden = true;
+    }
+    focusWriteSpreadPages = [];
+    const editor = $("focusWriteEditor");
+    if (editor && isFocusWriteOpen()) {
+      try {
+        editor.focus({ preventScroll: true });
+      } catch (_) {
+        try { editor.focus(); } catch (__) { /* ignore */ }
+      }
+    }
+    return;
+  }
+
+  if (stack) stack.hidden = false;
+  if (label) label.hidden = false;
+  bindFocusWriteSpreadScroll();
+  requestAnimationFrame(() => {
+    renderFocusWriteSpreadStack({ preserveScroll: false });
+    requestAnimationFrame(() => renderFocusWriteSpreadStack({ preserveScroll: true }));
+  });
+}
+
+function setupFocusWriteA4Spread() {
+  const btn = $("focusWriteSpreadButton");
+  if (!btn || btn.dataset.fwA4Bound === "1") return;
+  btn.dataset.fwA4Bound = "1";
+  btn.addEventListener("click", () => {
+    if (!isFocusWriteOpen()) return;
+    applyFocusWriteA4Spread(!isFocusWriteA4Spread(), { persist: true });
+  });
+  window.addEventListener("resize", () => {
+    if (!isFocusWriteA4Spread()) return;
+    scheduleFocusWriteSpreadRefresh();
+  });
+}
+
+
 function openFocusWrite() {
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive()) {
     toast(i18n.t('app.스프린트_중에는_원고_화면에서_써_주세요'));
@@ -53710,8 +54666,10 @@ function openFocusWrite() {
   // Re-host 함께보기 inside / above 큰 창
   if (state.splitEnabled) applySplitLayout();
   applyEditorViewZoom(editorViewZoom, { persist: false, preserveScroll: false });
+  applyFocusWriteA4Spread(loadFocusWriteA4Spread(), { persist: false });
 
   requestAnimationFrame(() => {
+    if (isFocusWriteA4Spread()) return;
     focusEd.setAttribute("contenteditable", "true");
     try {
       focusEd.focus({ preventScroll: true });
@@ -53731,7 +54689,10 @@ function closeFocusWrite() {
   const mainEd = $("sceneContent");
   if (!modal) return;
 
-  // Sync focus editor → main before closing.
+  // Sync spread pages → focus editor → main before closing.
+  if (typeof isFocusWriteA4Spread === "function" && isFocusWriteA4Spread()) {
+    try { syncFocusWriteEditorFromSpreadPages(); } catch (_) { /* ignore */ }
+  }
   if (focusEd && mainEd && state.sceneId) {
     mainEd.innerHTML = focusEd.innerHTML || "";
     updateEditorPlaceholder(mainEd);
@@ -53742,6 +54703,12 @@ function closeFocusWrite() {
   modal.classList.add("hidden");
   document.body.classList.remove("focus-write-open");
   document.body.classList.remove("focus-write-fullscreen");
+  document.body.classList.remove("focus-write-a4-spread");
+  // Drop transient spread layout; preference is restored on next open.
+  if ($("focusWritePage")?.classList.contains("is-a4-spread")) {
+    applyFocusWriteA4Spread(false, { persist: false });
+  }
+  syncFocusWriteSpreadButton(loadFocusWriteA4Spread());
   if (typeof hideSelectionFloatBar === "function") hideSelectionFloatBar();
   $("focusWriteButton")?.classList.remove("is-active");
   $("focusWriteButton")?.setAttribute("aria-pressed", "false");
@@ -53758,6 +54725,7 @@ function closeFocusWrite() {
 }
 
 function setupFocusWrite() {
+  setupFocusWriteA4Spread();
   const focusEd = $("focusWriteEditor");
   if (focusEd && focusEd.dataset.focusBound !== "1") {
     focusEd.dataset.focusBound = "1";
@@ -53773,6 +54741,7 @@ function setupFocusWrite() {
       if ($("focusWriteSaveInfo") && sceneDirty) {
         $("focusWriteSaveInfo").textContent = i18n.t('app.저장_대기');
       }
+      if (isFocusWriteA4Spread()) scheduleFocusWriteSpreadRefresh();
     });
   }
 
@@ -53784,6 +54753,7 @@ function setupFocusWrite() {
     if (!isFocusWriteOpen()) return;
     applyFocusWriteFullscreen(!isFocusWriteFullscreen());
     toast(isFocusWriteFullscreen() ? i18n.t('app.전체보기로_전환했어요') : i18n.t('app.창_모드로_돌아왔어요'));
+    if (isFocusWriteA4Spread()) scheduleFocusWriteSpreadRefresh();
   });
 
   $("focusWriteSplitButton")?.addEventListener("click", (event) => {

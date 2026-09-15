@@ -10,6 +10,8 @@
     "start": "electron .",
     "start:isolated": "set SUPERTORY_DB_MODE=isolated&& electron .",
     "dev": "electron .",
+    "fonts:pretendard": "node scripts/copy-pretendard.js",
+    "postinstall": "node scripts/copy-pretendard.js",
     "build:backend": "python scripts/build_backend.py",
     "build:write-info": "python scripts/write_build_info.py",
     "build:win": "python scripts/build_win_check.py"
@@ -17,7 +19,8 @@
   "dependencies": {
     "driver.js": "^1.8.0",
     "electron-updater": "^6.6.2",
-    "lucide-static": "^1.40.0"
+    "lucide-static": "^1.40.0",
+    "pretendard": "^1.3.9"
   },
   "devDependencies": {
     "electron": "^37.2.0",

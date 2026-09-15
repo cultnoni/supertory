@@ -5085,5 +5085,10 @@
   "app.서랍_높이_조절": "Resize drawer height",
   "app.서랍_위치_이동": "Move drawers",
   "app.관계_이어보기_안내": "Relationship board guide",
-  "app.인물을_두_명_이상_고른_뒤_그룹을_만드세요": "Select two or more cards, then tap Make group. With two cards you can choose Link relation or Make group."
+  "app.인물을_두_명_이상_고른_뒤_그룹을_만드세요": "Select two or more cards, then tap Make group. With two cards you can choose Link relation or Make group.",
+  "index.두_페이지_보기_A4": "Two-page view (A4)",
+  "index.두_페이지_보기_끄기": "Exit two-page view",
+  "index.이전_스프레드": "Previous spread",
+  "index.다음_스프레드": "Next spread",
+  "index.스프레드_페이지_표시": "${range} / ${total}"
 }
