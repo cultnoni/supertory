@@ -63101,14 +63101,10 @@ function renderChapterOutlineHtml(chapter, {
   const nestedFoldersClass = hasNestedFolders ? " has-nested-folders" : "";
   if (transparent) {
     // Internal 「본편」 folder: hide row, show manuscripts directly under the 권.
-    const addSceneBtn = readOnly
-      ? ""
-      : `<button type="button" class="chapter-add-scene transparent-add-scene" data-chapter="${chapter.id}" title="${i18n.t('app.원고_추가')}">+</button>`;
     return `
     <section class="outline-chapter is-transparent-chapter${nestClass}${sceneNestDepthClass}${binderDepthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr}${folderIdAttr}${binderDepthAttr}${boxAttr}${sourceKindAttr} data-transparent="true" data-expanded="true" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="false">
       <div class="chapter-children" role="group" aria-label="${i18n.t('app.원고')}">
         ${sceneItems}${afterScenesHtml}
-        ${addSceneBtn}
       </div>
     </section>`;
   }
@@ -66618,7 +66614,7 @@ function setOutlineSceneAddButtonsDisabled(disabled) {
   const root = $("outline");
   if (!root) return;
   root.querySelectorAll(
-    "[data-add-after-scene], [data-add-child-scene], button.chapter-add-scene, button.scene-add-btn, .transparent-add-scene, [data-folder-add-scene]",
+    "[data-add-after-scene], [data-add-child-scene], button.chapter-add-scene, button.scene-add-btn, [data-folder-add-scene]",
   ).forEach((btn) => {
     btn.disabled = !!disabled;
   });

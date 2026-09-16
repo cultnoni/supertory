@@ -11879,8 +11879,7 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
 .dock-manuscript-tree [data-add-after-scene],
 .dock-manuscript-tree .chapter-add-scene,
 .dock-manuscript-tree .folder-add-scene,
-.dock-manuscript-tree .chapter-insert-slot,
-.dock-manuscript-tree .transparent-add-scene {
+.dock-manuscript-tree .chapter-insert-slot {
   display: none !important;
 }
 .dock-manuscript-tree .scene-tree-item,
@@ -14181,7 +14180,7 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
 /* nested folder: no side rail (indent only) */
 .part-empty-hint {
   margin: 0;
-  padding: 2px 6px 4px 16px;
+  padding: 0 6px 1px 16px;
   font-size: 10px;
   line-height: 1.25;
 }
@@ -14231,15 +14230,6 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   flex-direction: column;
   gap: 2px;
 }
-.outline-chapter.is-transparent-chapter .transparent-add-scene {
-  align-self: flex-start;
-  margin: 2px 0 4px 0.35rem;
-  opacity: 0.55;
-}
-.outline-chapter.is-transparent-chapter .transparent-add-scene:hover,
-.outline-chapter.is-transparent-chapter .transparent-add-scene:focus-visible {
-  opacity: 1;
-}
 .outline-chapter.is-dragging {
   opacity: 0.45;
 }
@@ -14253,9 +14243,16 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
 .outline-chapter > .hint,
 .scene-empty-hint {
   margin: 0;
-  padding: 2px 6px 3px 18px;
+  padding: 0 6px 1px 18px;
   line-height: 1.25;
   font-size: 10px;
+}
+.chapter-children:has(> .scene-empty-hint:only-child),
+.part-children:has(> .scene-empty-hint:only-child),
+.part-children:has(> .part-empty-hint:only-child) {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  gap: 0;
 }
 .chapter-row {
   display: flex;
