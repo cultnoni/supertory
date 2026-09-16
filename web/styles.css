@@ -11878,6 +11878,7 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
 }
 .dock-manuscript-tree [data-add-after-scene],
 .dock-manuscript-tree .chapter-add-scene,
+.dock-manuscript-tree .folder-add-scene,
 .dock-manuscript-tree .chapter-insert-slot,
 .dock-manuscript-tree .transparent-add-scene {
   display: none !important;
@@ -13269,14 +13270,12 @@ body.ai-panel-collapsed .ai-panel-resizer {
 }
 /* Binder-style context menus: scene, folder, part, feature-hide share one look */
 #binderContextMenu,
-#chapterContextMenu,
-#partContextMenu,
+#folderContextMenu,
 #uiFeatureContextMenu {
   min-width: 240px;
 }
 #binderContextMenu button,
-#chapterContextMenu button,
-#partContextMenu button,
+#folderContextMenu button,
 #uiFeatureContextMenu button {
   display: grid;
   gap: 2px;
@@ -13290,16 +13289,14 @@ body.ai-panel-collapsed .ai-panel-resizer {
   align-items: start;
 }
 #binderContextMenu button strong,
-#chapterContextMenu button strong,
-#partContextMenu button strong,
+#folderContextMenu button strong,
 #uiFeatureContextMenu button strong {
   font-size: 13px;
   font-weight: 700;
   line-height: 1.3;
 }
 #binderContextMenu button span,
-#chapterContextMenu button span,
-#partContextMenu button span,
+#folderContextMenu button span,
 #uiFeatureContextMenu button span {
   color: var(--muted);
   font-size: 11px;
@@ -13938,9 +13935,26 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   display: none !important;
 }
 .part-row > .chapter-add-scene,
-.part-row > .part-add-chapter,
-.chapter-row > .chapter-add-scene {
-  display: none !important;
+.part-row > .folder-add-scene,
+.chapter-row > .chapter-add-scene,
+.chapter-row > .folder-add-scene {
+  opacity: 0;
+  pointer-events: none;
+}
+.part-row:hover > .chapter-add-scene,
+.part-row:hover > .folder-add-scene,
+.part-row:focus-within > .chapter-add-scene,
+.part-row:focus-within > .folder-add-scene,
+.chapter-row:hover > .chapter-add-scene,
+.chapter-row:hover > .folder-add-scene,
+.chapter-row:focus-within > .chapter-add-scene,
+.chapter-row:focus-within > .folder-add-scene,
+.part-row > .chapter-add-scene:focus-visible,
+.part-row > .folder-add-scene:focus-visible,
+.chapter-row > .chapter-add-scene:focus-visible,
+.chapter-row > .folder-add-scene:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 /* 삼각형 글리프 숨김 (폴더 아이콘 사용 시) */
 .part-row .chapter-twistie .twistie-glyph,
@@ -14367,7 +14381,9 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   box-sizing: border-box;
 }
 .chapter-row > button[data-chapter],
-.chapter-row > .chapter-add-scene {
+.chapter-row > .chapter-add-scene,
+.part-row > .chapter-add-scene,
+.part-row > .folder-add-scene {
   flex: 0 0 auto;
   width: 22px;
   height: 22px;
@@ -14390,7 +14406,9 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   border-radius: 4px;
 }
 .chapter-row > button[data-chapter]:hover,
-.chapter-row > .chapter-add-scene:hover {
+.chapter-row > .chapter-add-scene:hover,
+.part-row > .chapter-add-scene:hover,
+.part-row > .folder-add-scene:hover {
   background: color-mix(in srgb, var(--selection) 55%, transparent);
   color: #1a1208;
 }

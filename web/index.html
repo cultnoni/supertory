@@ -6658,67 +6658,38 @@
       </button>
     </div>
 
-    <div id="chapterContextMenu" class="context-menu hidden" role="menu" aria-label="폴더(챕터) 메뉴" data-i18n-aria-label="index.폴더_챕터_메뉴">
-      <div class="context-menu-label" id="chapterContextMenuLabel" data-i18n="app.폴더">폴더</div>
-      <button type="button" role="menuitem" data-chapter-action="rename">
+    <div id="folderContextMenu" class="context-menu hidden" role="menu" aria-label="폴더 메뉴" data-i18n-aria-label="index.폴더_메뉴">
+      <div class="context-menu-label" id="folderContextMenuLabel" data-i18n="app.폴더">폴더</div>
+      <button type="button" role="menuitem" data-folder-action="rename">
         <strong data-i18n="index.이름_바꾸기">이름 바꾸기</strong>
         <span data-i18n="index.이_폴더_이름을_수정해요">이 폴더 이름을 수정해요</span>
       </button>
-      <button type="button" role="menuitem" data-chapter-action="add-scene">
+      <button type="button" role="menuitem" data-folder-action="add-scene">
         <strong data-i18n="app.회차_추가">회차 추가</strong>
         <span data-i18n="index.이_폴더_아래에_새_회차를_만들어요">이 폴더 아래에 새 회차를 만들어요</span>
       </button>
-      <button type="button" role="menuitem" data-chapter-action="bookmark" id="chapterContextBookmarkItem">
-        <strong data-i18n="app.북마크">북마크</strong>
-        <span data-i18n="app.목록에서_북마크_표시를_켜요">목록에서 북마크 표시를 켜요</span>
-      </button>
-      <button type="button" role="menuitem" data-chapter-action="color" id="chapterContextColorItem">
-        <strong data-i18n="index.색상_표시">색상 표시</strong>
-        <span data-i18n="index.폴더_아이콘_색을_바꿔요">폴더 아이콘 색을 바꿔요</span>
-      </button>
-      <button type="button" role="menuitem" data-chapter-action="pin" id="chapterContextPinItem">
-        <strong data-i18n="app.상단_고정">상단 고정</strong>
-        <span data-i18n="app.같은_상위_안_목록_맨_위에_고정해요">같은 상위 안 목록 맨 위에 고정해요</span>
-      </button>
-      <button type="button" role="menuitem" data-chapter-action="toggle-box" id="chapterContextBoxItem">
-        <strong data-i18n="app.박스로_묶기">박스로 묶기</strong>
-        <span data-i18n="index.테두리_상자_스타일을_켜거나_꺼요">테두리 상자 스타일을 켜거나 꺼요</span>
-      </button>
-      <div class="context-menu-divider"></div>
-      <button type="button" role="menuitem" data-chapter-action="trash" class="binder-action-danger">
-        <strong data-i18n="index.폴더_버리기">폴더 버리기</strong>
-        <span data-i18n="index.안의_원고까지_휴지통으로_옮겨요">안의 원고까지 휴지통으로 옮겨요</span>
-      </button>
-    </div>
-
-    <div id="partContextMenu" class="context-menu hidden" role="menu" aria-label="폴더 메뉴" data-i18n-aria-label="index.폴더_메뉴">
-      <div class="context-menu-label" id="partContextMenuLabel" data-i18n="app.폴더">폴더</div>
-      <button type="button" role="menuitem" data-part-action="rename">
-        <strong data-i18n="index.이름_바꾸기">이름 바꾸기</strong>
-        <span data-i18n="index.이_폴더_이름을_수정해요">이 폴더 이름을 수정해요</span>
-      </button>
-      <button type="button" role="menuitem" data-part-action="add-chapter">
+      <button type="button" role="menuitem" data-folder-action="add-chapter">
         <strong data-i18n="index.하위_폴더_추가">하위 폴더 추가</strong>
         <span data-i18n="index.이_상자_안에_새_하위_폴더를_만들어요">이 상자 안에 새 하위 폴더를 만들어요</span>
       </button>
-      <button type="button" role="menuitem" data-part-action="bookmark" id="partContextBookmarkItem">
+      <button type="button" role="menuitem" data-folder-action="bookmark" id="folderContextBookmarkItem">
         <strong data-i18n="app.북마크">북마크</strong>
         <span data-i18n="app.목록에서_북마크_표시를_켜요">목록에서 북마크 표시를 켜요</span>
       </button>
-      <button type="button" role="menuitem" data-part-action="color" id="partContextColorItem">
+      <button type="button" role="menuitem" data-folder-action="color" id="folderContextColorItem">
         <strong data-i18n="index.색상_표시">색상 표시</strong>
         <span data-i18n="index.폴더_아이콘_색을_바꿔요">폴더 아이콘 색을 바꿔요</span>
       </button>
-      <button type="button" role="menuitem" data-part-action="pin" id="partContextPinItem">
+      <button type="button" role="menuitem" data-folder-action="pin" id="folderContextPinItem">
         <strong data-i18n="app.상단_고정">상단 고정</strong>
         <span data-i18n="app.같은_상위_안_목록_맨_위에_고정해요">같은 상위 안 목록 맨 위에 고정해요</span>
       </button>
-      <button type="button" role="menuitem" data-part-action="toggle-box" id="partContextBoxItem">
+      <button type="button" role="menuitem" data-folder-action="toggle-box" id="folderContextBoxItem">
         <strong data-i18n="app.박스로_묶기">박스로 묶기</strong>
         <span data-i18n="index.테두리_상자_스타일을_켜거나_꺼요">테두리 상자 스타일을 켜거나 꺼요</span>
       </button>
       <div class="context-menu-divider"></div>
-      <button type="button" role="menuitem" data-part-action="trash" class="binder-action-danger">
+      <button type="button" role="menuitem" data-folder-action="trash" class="binder-action-danger">
         <strong data-i18n="index.폴더_버리기">폴더 버리기</strong>
         <span data-i18n="index.안의_하위_폴더_원고까지_휴지통으로_옮겨요">안의 하위 폴더·원고까지 휴지통으로 옮겨요</span>
       </button>

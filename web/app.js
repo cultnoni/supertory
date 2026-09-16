@@ -48533,23 +48533,24 @@ function showBookmarkContextMenu(clientX, clientY, bookmarkId) {
 
 /* —— Left binder manuscript context menu (복제 / 토리 분석 / 북마크) —— */
 let binderContextScene = null; // { id, title, chapterId, parentSceneId }
-let binderContextChapter = null; // { id, title }
+let binderContextFolder = null;
 
 function hideBinderContextMenu() {
   $("binderContextMenu")?.classList.add("hidden");
   binderContextScene = null;
 }
 
-function hideChapterContextMenu() {
-  $("chapterContextMenu")?.classList.add("hidden");
-  binderContextChapter = null;
+function hideFolderContextMenu() {
+  $("folderContextMenu")?.classList.add("hidden");
+  binderContextFolder = null;
 }
 
-let binderContextPart = null; // { id, title, folderId, isBox, color, isPinned, isBookmarked }
+function hideChapterContextMenu() {
+  hideFolderContextMenu();
+}
 
 function hidePartContextMenu() {
-  $("partContextMenu")?.classList.add("hidden");
-  binderContextPart = null;
+  hideFolderContextMenu();
 }
 
 function hideFolderColorMenu() {
@@ -48600,10 +48601,10 @@ function positionContextMenu(menu, clientX, clientY, fallbackH = 220) {
 
 function updateFolderContextToggleLabels(menu, { isBox, isPinned, isBookmarked, hasFolderId }) {
   if (!menu) return;
-  const boxBtn = menu.querySelector("[data-chapter-action='toggle-box'], [data-part-action='toggle-box']");
-  const pinBtn = menu.querySelector("[data-chapter-action='pin'], [data-part-action='pin']");
-  const colorBtn = menu.querySelector("[data-chapter-action='color'], [data-part-action='color']");
-  const bmBtn = menu.querySelector("[data-chapter-action='bookmark'], [data-part-action='bookmark']");
+  const boxBtn = menu.querySelector("[data-folder-action='toggle-box']");
+  const pinBtn = menu.querySelector("[data-folder-action='pin']");
+  const colorBtn = menu.querySelector("[data-folder-action='color']");
+  const bmBtn = menu.querySelector("[data-folder-action='bookmark']");
   if (boxBtn) {
     boxBtn.classList.toggle("hidden", !hasFolderId);
     const strong = boxBtn.querySelector("strong");
@@ -48878,8 +48879,7 @@ function setupFolderUndoUi() {
 function showFolderColorMenu(clientX, clientY, folderId, currentColor = null, currentColorBright = null) {
   const menu = $("folderColorMenu");
   if (!menu || !folderId) return;
-  hideChapterContextMenu();
-  hidePartContextMenu();
+  hideFolderContextMenu();
   hideBinderContextMenu();
   menu.dataset.folderId = String(folderId);
   const currentBright = String(currentColorBright || "").trim().toLowerCase();
@@ -48897,101 +48897,79 @@ function showFolderColorMenu(clientX, clientY, folderId, currentColor = null, cu
   positionContextMenu(menu, clientX, clientY, 220);
 }
 
-function showChapterContextMenu(clientX, clientY, chapter) {
-  const menu = $("chapterContextMenu");
-  if (!menu || !chapter?.id) return;
+function showFolderContextMenu(clientX, clientY, folder) {
+  const menu = $("folderContextMenu");
+  if (!menu || !folder) return;
   hideBinderContextMenu();
-  hidePartContextMenu();
   hideFolderColorMenu();
   hideDesktopContextMenu();
   hideSettingsContextMenu();
   hideBookmarkContextMenu();
-  const title = String(chapter.title || i18n.t('app.폴더')).trim() || i18n.t('app.폴더');
-  const partId = chapter.partId != null && chapter.partId !== ""
-    ? Number(chapter.partId)
-    : null;
-  const folderId = chapter.folderId != null && chapter.folderId !== ""
-    ? Number(chapter.folderId)
+  const title = String(folder.title || i18n.t('app.폴더')).trim() || i18n.t('app.폴더');
+  const folderId = folder.folderId != null && folder.folderId !== ""
+    ? Number(folder.folderId)
     : null;
   const meta = folderId ? findFolderMetaInState(folderId) : null;
-  const isBox = chapter.isBox != null ? Boolean(chapter.isBox) : Boolean(meta?.isBox);
-  const isPinned = chapter.isPinned != null ? Boolean(chapter.isPinned) : Boolean(meta?.isPinned);
-  const isBookmarked = chapter.isBookmarked != null
-    ? Boolean(chapter.isBookmarked)
+  const isBox = folder.isBox != null ? Boolean(folder.isBox) : Boolean(meta?.isBox);
+  const isPinned = folder.isPinned != null ? Boolean(folder.isPinned) : Boolean(meta?.isPinned);
+  const isBookmarked = folder.isBookmarked != null
+    ? Boolean(folder.isBookmarked)
     : Boolean(meta?.isBookmarked);
-  const color = chapter.color != null ? chapter.color : (meta?.color || null);
-  const colorBright = chapter.color_bright != null ? chapter.color_bright : (meta?.colorBright || null);
-  binderContextChapter = {
-    id: Number(chapter.id),
+  const color = folder.color != null ? folder.color : (meta?.color || null);
+  const colorBright = folder.color_bright != null ? folder.color_bright : (meta?.colorBright || null);
+  const sourceKind = String(folder.sourceKind || "");
+  const partId = folder.partId != null && folder.partId !== ""
+    ? Number(folder.partId)
+    : null;
+  const chapterId = folder.chapterId != null && folder.chapterId !== ""
+    ? Number(folder.chapterId)
+    : null;
+  const legacyId = Number(folder.id);
+  binderContextFolder = {
+    id: Number.isFinite(legacyId) ? legacyId : null,
     title,
-    partId,
     folderId: Number.isFinite(folderId) ? folderId : null,
+    sourceKind,
+    partId: Number.isFinite(partId) ? partId : null,
+    chapterId: Number.isFinite(chapterId) ? chapterId : null,
     isBox,
     isPinned,
     isBookmarked,
     color,
     colorBright,
   };
-  if ($("chapterContextMenuLabel")) {
-    $("chapterContextMenuLabel").textContent = title.length > 28 ? `${title.slice(0, 28)}…` : title;
+  if ($("folderContextMenuLabel")) {
+    $("folderContextMenuLabel").textContent = title.length > 28 ? `${title.slice(0, 28)}…` : title;
   }
   updateFolderContextToggleLabels(menu, {
     isBox,
     isPinned,
     isBookmarked,
-    hasFolderId: Boolean(binderContextChapter.folderId),
+    hasFolderId: Boolean(binderContextFolder.folderId),
   });
   positionContextMenu(menu, clientX, clientY, 300);
 }
 
-function showPartContextMenu(clientX, clientY, part) {
-  const menu = $("partContextMenu");
-  if (!menu || !part?.id) return;
-  hideBinderContextMenu();
-  hideChapterContextMenu();
-  hideFolderColorMenu();
-  hideDesktopContextMenu();
-  hideSettingsContextMenu();
-  hideBookmarkContextMenu();
-  const title = String(part.title || i18n.t('app.권_부')).trim() || i18n.t('app.권_부');
-  const folderId = part.folderId != null && part.folderId !== ""
-    ? Number(part.folderId)
-    : null;
-  const meta = folderId ? findFolderMetaInState(folderId) : null;
-  const isBox = part.isBox != null ? Boolean(part.isBox) : (meta ? Boolean(meta.isBox) : true);
-  const isPinned = part.isPinned != null ? Boolean(part.isPinned) : Boolean(meta?.isPinned);
-  const isBookmarked = part.isBookmarked != null
-    ? Boolean(part.isBookmarked)
-    : Boolean(meta?.isBookmarked);
-  const color = part.color != null ? part.color : (meta?.color || null);
-  const colorBright = part.color_bright != null ? part.color_bright : (meta?.colorBright || null);
-  binderContextPart = {
-    id: Number(part.id),
-    title,
-    folderId: Number.isFinite(folderId) ? folderId : null,
-    isBox,
-    isPinned,
-    isBookmarked,
-    color,
-    colorBright,
-  };
-  if ($("partContextMenuLabel")) {
-    $("partContextMenuLabel").textContent = title.length > 28 ? `${title.slice(0, 28)}…` : title;
-  }
-  updateFolderContextToggleLabels(menu, {
-    isBox,
-    isPinned,
-    isBookmarked,
-    hasFolderId: Boolean(binderContextPart.folderId),
+function showChapterContextMenu(clientX, clientY, chapter) {
+  showFolderContextMenu(clientX, clientY, {
+    ...chapter,
+    sourceKind: "chapter",
+    chapterId: chapter?.id,
   });
-  positionContextMenu(menu, clientX, clientY, 300);
+}
+
+function showPartContextMenu(clientX, clientY, part) {
+  showFolderContextMenu(clientX, clientY, {
+    ...part,
+    sourceKind: "part",
+    partId: part?.id,
+  });
 }
 
 function showBinderContextMenu(clientX, clientY, scene) {
   const menu = $("binderContextMenu");
   if (!menu || !scene?.id) return;
-  hideChapterContextMenu();
-  hidePartContextMenu();
+  hideFolderContextMenu();
   hideFolderColorMenu();
   hideDesktopContextMenu();
   hideSettingsContextMenu();
@@ -49506,88 +49484,65 @@ function setupBinderContextMenu() {
     }
   });
 
-  $("chapterContextMenu")?.addEventListener("click", (event) => {
-    const button = event.target.closest?.("[data-chapter-action]");
-    if (!button || !binderContextChapter) return;
+  $("folderContextMenu")?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-folder-action]");
+    if (!button || !binderContextFolder) return;
     event.preventDefault();
     event.stopPropagation();
-    const action = button.dataset.chapterAction;
-    const chapter = { ...binderContextChapter };
+    const action = button.dataset.folderAction;
+    const folder = { ...binderContextFolder };
     const clientX = event.clientX;
     const clientY = event.clientY;
+    const isPart = folder.sourceKind === "part";
     if (action === "color") {
-      hideChapterContextMenu();
-      if (!chapter.folderId) return toast(i18n.t('app.폴더_색을_바꿀_수_없어요'));
-      showFolderColorMenu(clientX, clientY, chapter.folderId, chapter.color, chapter.colorBright);
+      hideFolderContextMenu();
+      if (!folder.folderId) return toast(i18n.t('app.폴더_색을_바꿀_수_없어요'));
+      showFolderColorMenu(clientX, clientY, folder.folderId, folder.color, folder.colorBright);
       return;
     }
-    hideChapterContextMenu();
+    hideFolderContextMenu();
     if (action === "rename") {
-      window.setTimeout(() => startRenameChapter(chapter.id), 0);
+      window.setTimeout(() => {
+        if (isPart) startRenamePart(folder.id);
+        else startRenameChapter(folder.chapterId || folder.id);
+      }, 0);
     } else if (action === "toggle-box") {
-      if (!chapter.folderId) return toast(i18n.t('app.박스를_바꿀_수_없어요'));
-      updateFolderFields(chapter.folderId, { is_box: !chapter.isBox })
-        .then(() => toast(chapter.isBox ? i18n.t('app.박스를_해제했어요') : i18n.t('app.박스로_묶었어요')))
+      if (!folder.folderId) return toast(i18n.t('app.박스를_바꿀_수_없어요'));
+      updateFolderFields(folder.folderId, { is_box: !folder.isBox })
+        .then(() => toast(folder.isBox ? i18n.t('app.박스를_해제했어요') : i18n.t('app.박스로_묶었어요')))
         .catch(handleError);
     } else if (action === "pin") {
-      if (!chapter.folderId) return toast(i18n.t('app.고정을_바꿀_수_없어요'));
-      updateFolderFields(chapter.folderId, { is_pinned: !chapter.isPinned })
-        .then(() => toast(chapter.isPinned ? i18n.t('app.고정을_해제했어요') : i18n.t('app.상단에_고정했어요')))
+      if (!folder.folderId) return toast(i18n.t('app.고정을_바꿀_수_없어요'));
+      updateFolderFields(folder.folderId, { is_pinned: !folder.isPinned })
+        .then(() => toast(folder.isPinned ? i18n.t('app.고정을_해제했어요') : i18n.t('app.상단에_고정했어요')))
         .catch(handleError);
     } else if (action === "bookmark") {
-      if (!chapter.folderId) return toast(i18n.t('app.북마크를_바꿀_수_없어요'));
-      updateFolderFields(chapter.folderId, { is_bookmarked: !chapter.isBookmarked })
-        .then(() => toast(chapter.isBookmarked ? i18n.t('app.북마크를_해제했어요') : i18n.t('app.북마크했어요')))
+      if (!folder.folderId) return toast(i18n.t('app.북마크를_바꿀_수_없어요'));
+      updateFolderFields(folder.folderId, { is_bookmarked: !folder.isBookmarked })
+        .then(() => toast(folder.isBookmarked ? i18n.t('app.북마크를_해제했어요') : i18n.t('app.북마크했어요')))
         .catch(handleError);
     } else if (action === "add-scene") {
-      setChapterCollapsed(chapter.id, false);
-      createScene(chapter.id).catch(handleError);
-    } else if (action === "trash") {
-      window.setTimeout(() => {
-        trashChapter(chapter.id, chapter.title).catch(handleError);
-      }, 30);
-    }
-  });
-
-  $("partContextMenu")?.addEventListener("click", (event) => {
-    const button = event.target.closest?.("[data-part-action]");
-    if (!button || !binderContextPart) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const action = button.dataset.partAction;
-    const part = { ...binderContextPart };
-    const clientX = event.clientX;
-    const clientY = event.clientY;
-    if (action === "color") {
-      hidePartContextMenu();
-      if (!part.folderId) return toast(i18n.t('app.폴더_색을_바꿀_수_없어요'));
-      showFolderColorMenu(clientX, clientY, part.folderId, part.color, part.colorBright);
-      return;
-    }
-    hidePartContextMenu();
-    if (action === "rename") {
-      window.setTimeout(() => startRenamePart(part.id), 0);
-    } else if (action === "toggle-box") {
-      if (!part.folderId) return toast(i18n.t('app.박스를_바꿀_수_없어요'));
-      updateFolderFields(part.folderId, { is_box: !part.isBox })
-        .then(() => toast(part.isBox ? i18n.t('app.박스를_해제했어요') : i18n.t('app.박스로_묶었어요')))
-        .catch(handleError);
-    } else if (action === "pin") {
-      if (!part.folderId) return toast(i18n.t('app.고정을_바꿀_수_없어요'));
-      updateFolderFields(part.folderId, { is_pinned: !part.isPinned })
-        .then(() => toast(part.isPinned ? i18n.t('app.고정을_해제했어요') : i18n.t('app.상단에_고정했어요')))
-        .catch(handleError);
-    } else if (action === "bookmark") {
-      if (!part.folderId) return toast(i18n.t('app.북마크를_바꿀_수_없어요'));
-      updateFolderFields(part.folderId, { is_bookmarked: !part.isBookmarked })
-        .then(() => toast(part.isBookmarked ? i18n.t('app.북마크를_해제했어요') : i18n.t('app.북마크했어요')))
-        .catch(handleError);
+      if (!folder.folderId) return toast(i18n.t('app.폴더를_찾지_못했어요'));
+      if (isPart && folder.id) setPartCollapsed(folder.id, false);
+      if (folder.chapterId) setChapterCollapsed(folder.chapterId, false);
+      createSceneInFolder(folder.folderId).catch(handleError);
     } else if (action === "add-chapter") {
-      setPartCollapsed(part.id, false);
-      createChapter({ partId: part.id }).catch(handleError);
+      if (isPart && folder.id) {
+        setPartCollapsed(folder.id, false);
+        createChapter({ partId: folder.id }).catch(handleError);
+      } else if (folder.folderId) {
+        if (folder.chapterId) setChapterCollapsed(folder.chapterId, false);
+        createChapter({
+          partId: folder.partId,
+          parentFolderId: folder.folderId,
+        }).catch(handleError);
+      } else {
+        toast(i18n.t('app.폴더를_찾지_못했어요'));
+      }
     } else if (action === "trash") {
       window.setTimeout(() => {
-        trashPart(part.id, part.title).catch(handleError);
+        if (isPart) trashPart(folder.id, folder.title).catch(handleError);
+        else trashChapter(folder.chapterId || folder.id, folder.title).catch(handleError);
       }, 30);
     }
   });
@@ -49621,8 +49576,7 @@ function setupBinderContextMenu() {
   document.addEventListener("click", (event) => {
     if (event.button != null && event.button !== 0) return;
     if (!event.target.closest("#binderContextMenu")) hideBinderContextMenu();
-    if (!event.target.closest("#chapterContextMenu")) hideChapterContextMenu();
-    if (!event.target.closest("#partContextMenu")) hidePartContextMenu();
+    if (!event.target.closest("#folderContextMenu")) hideFolderContextMenu();
     if (!event.target.closest("#folderColorMenu")) hideFolderColorMenu();
     if (!event.target.closest("#settingsContextMenu")) hideSettingsContextMenu();
     if (!event.target.closest("#bookmarkContextMenu")) hideBookmarkContextMenu();
@@ -49630,8 +49584,7 @@ function setupBinderContextMenu() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       hideBinderContextMenu();
-      hideChapterContextMenu();
-      hidePartContextMenu();
+      hideFolderContextMenu();
       hideFolderColorMenu();
       hideSettingsContextMenu();
       hideBookmarkContextMenu();
@@ -49639,16 +49592,14 @@ function setupBinderContextMenu() {
   });
   window.addEventListener("blur", () => {
     hideBinderContextMenu();
+    hideFolderContextMenu();
     hideFolderColorMenu();
-    hideChapterContextMenu();
-    hidePartContextMenu();
     hideSettingsContextMenu();
     hideBookmarkContextMenu();
   });
   window.addEventListener("resize", () => {
     hideBinderContextMenu();
-    hideChapterContextMenu();
-    hidePartContextMenu();
+    hideFolderContextMenu();
     hideSettingsContextMenu();
     hideBookmarkContextMenu();
   });
@@ -62512,6 +62463,30 @@ function collectChaptersFromFolderForest(nodes, out = []) {
   return out;
 }
 
+/** Map a chapter source id to its binder folder.id. */
+function findFolderIdForChapter(chapterId) {
+  const want = Number(chapterId);
+  if (!Number.isFinite(want) || want <= 0) return null;
+  for (const chapter of getBinderChaptersInOrder()) {
+    if (Number(chapter.id) === want) {
+      const folderId = Number(chapter.folder_id);
+      if (Number.isFinite(folderId) && folderId > 0) return folderId;
+    }
+  }
+  const walk = (nodes) => {
+    for (const node of nodes || []) {
+      const sourceKind = String(node.source_kind || "");
+      const sourceId = Number(node.source_id != null ? node.source_id : node.id);
+      const folderId = Number(node.folder_id != null ? node.folder_id : 0);
+      if (sourceKind === "chapter" && sourceId === want && folderId > 0) return folderId;
+      const hit = walk(node.children || node.child_folders || []);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  return walk(state.folders || []);
+}
+
 /** Chapters in binder display order: parts first, then ungrouped. */
 function getBinderChaptersInOrder() {
   if (shouldUseFoldersOutline()) {
@@ -63004,6 +62979,9 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
         >${FOLDER_ICON_SVG}</button>
         ${folderBookmarkMarkHtml(bmOn)}
         <button type="button" draggable="${rowDrag}" class="${titleClass}" ${renameAttr} title="${folderTitleHint}">${escapeHtml(node.title)}</button>
+        ${readOnly || node.folder_id == null || node.folder_id === ""
+          ? ""
+          : `<button type="button" class="chapter-add-scene folder-add-scene" data-folder-add-scene="${Number(node.folder_id)}" title="${i18n.t('app.회차_추가')}">+</button>`}
       </div>
       <div class="part-children ${partExpanded ? "" : "is-collapsed"}${nestedFoldersClass}" ${partExpanded ? "" : "hidden"} data-part-chapters="${isChapterSource ? "" : node.id}" role="group" aria-label="${escapeHtml(node.title)} 폴더">
         ${chapterHtml}
@@ -63151,6 +63129,11 @@ function renderChapterOutlineHtml(chapter, {
         >${FOLDER_ICON_SVG}</button>
         ${folderBookmarkMarkHtml(bmOn)}
         <button type="button" draggable="${chapterDrag}" class="chapter-title folder-title-box folder-title ${folderLevel}${bmOn ? " is-bookmarked" : ""} ${allComplete ? "is-complete" : ""}" ${renameAttr} title="${chapterTitleHint}">${escapeHtml(chapter.title)}</button>
+        ${readOnly
+          ? ""
+          : (chapter.folder_id != null && chapter.folder_id !== ""
+            ? `<button type="button" class="chapter-add-scene folder-add-scene" data-folder-add-scene="${Number(chapter.folder_id)}" title="${i18n.t('app.회차_추가')}">+</button>`
+            : `<button type="button" class="chapter-add-scene" data-chapter="${chapter.id}" title="${i18n.t('app.원고_추가')}">+</button>`)}
       </div>
       <div class="chapter-children ${expanded ? "" : "is-collapsed"}${nestedFoldersClass}" ${expanded ? "" : "hidden"} role="group" aria-label="${escapeHtml(chapter.title)} 씬">
         ${sceneItems}${afterScenesHtml}
@@ -63298,6 +63281,24 @@ function renderOutline(chaptersArg) {
       createScene(button.dataset.chapter).catch(handleError);
     });
   });
+  outline.querySelectorAll("[data-folder-add-scene]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const folderId = Number(button.dataset.folderAddScene);
+      if (!Number.isFinite(folderId) || folderId <= 0) {
+        toast(i18n.t('app.폴더를_찾지_못했어요'));
+        return;
+      }
+      const section = button.closest?.(".outline-part, .outline-chapter");
+      const partRaw = section?.dataset?.partId;
+      const chapterRaw = section?.dataset?.chapterId;
+      const partId = partRaw === "" || partRaw == null ? null : Number(partRaw);
+      const chapterId = chapterRaw === "" || chapterRaw == null ? null : Number(chapterRaw);
+      if (Number.isFinite(partId) && partId > 0) setPartCollapsed(partId, false);
+      if (Number.isFinite(chapterId) && chapterId > 0) setChapterCollapsed(chapterId, false);
+      createSceneInFolder(folderId).catch(handleError);
+    });
+  });
   outline.querySelectorAll("[data-part-add-chapter]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -63325,34 +63326,21 @@ function renderOutline(chaptersArg) {
     const isBookmarked = bmRaw === "1" || bmRaw === "true";
     const color = colorRaw || null;
     const colorBright = colorBrightRaw || null;
-    // Prefer source_kind for API menu; boxed chapter still uses chapter menu
-    if (sk === "chapter" || section.dataset?.chapterId) {
-      const chapterId = section.dataset.chapterId
-        || titleBtn?.dataset?.renameChapter
-        || section.dataset.partId;
-      if (!chapterId) return;
-      const partRaw = section.dataset?.partId;
-      showChapterContextMenu(event.clientX, event.clientY, {
-        id: chapterId,
-        title,
-        partId: partRaw === "" || partRaw == null ? null : Number(partRaw),
-        folderId,
-        isBox,
-        isPinned,
-        isBookmarked,
-        color,
-        color_bright: colorBright,
-      });
-      return;
-    }
-    const partId = section.dataset.partId
-      || titleBtn?.dataset?.renamePart
-      || section.dataset.chapterId;
-    if (!partId) return;
-    showPartContextMenu(event.clientX, event.clientY, {
-      id: partId,
+    const chapterRaw = section.dataset?.chapterId || titleBtn?.dataset?.renameChapter;
+    const partRaw = section.dataset?.partId || titleBtn?.dataset?.renamePart;
+    const chapterId = chapterRaw === "" || chapterRaw == null ? null : Number(chapterRaw);
+    const partId = partRaw === "" || partRaw == null ? null : Number(partRaw);
+    const legacyId = Number.isFinite(chapterId) && chapterId > 0
+      ? chapterId
+      : (Number.isFinite(partId) && partId > 0 ? partId : folderId);
+    if (!legacyId && !folderId) return;
+    showFolderContextMenu(event.clientX, event.clientY, {
+      id: legacyId,
       title,
       folderId,
+      sourceKind: sk,
+      partId: Number.isFinite(partId) && partId > 0 ? partId : null,
+      chapterId: Number.isFinite(chapterId) && chapterId > 0 ? chapterId : null,
       isBox,
       isPinned,
       isBookmarked,
@@ -63653,7 +63641,7 @@ function setupChapterDragAndDrop(outline) {
     const section = event.target.closest?.(".outline-chapter");
     if (!section || !outline.contains(section)) return;
     // Allow drag from title, ⋮⋮ handle, or row — not from +/twistie/inputs.
-    if (event.target.closest?.("button.chapter-add-scene, button[data-chapter], button.chapter-twistie, .chapter-insert-slot, input, textarea")) {
+    if (event.target.closest?.("button.chapter-add-scene, button[data-chapter], button[data-folder-add-scene], button.chapter-twistie, .chapter-insert-slot, input, textarea")) {
       event.preventDefault();
       return;
     }
@@ -64112,7 +64100,7 @@ function setupFolderTreeDragAndDrop(outline) {
     );
     if (sceneItem && !folderHeader) return;
     if (event.target.closest?.(
-      "button.chapter-add-scene, button[data-chapter], button.chapter-twistie, "
+      "button.chapter-add-scene, button[data-chapter], button[data-folder-add-scene], button.chapter-twistie, "
       + ".part-twistie, .part-add-chapter, .chapter-insert-slot, input, textarea",
     )) {
       event.preventDefault();
@@ -66329,6 +66317,11 @@ async function createChapter(options = {}) {
     return;
   }
 
+  const parentFolderId = options.parentFolderId != null && options.parentFolderId !== ""
+    ? Number(options.parentFolderId)
+    : null;
+  const nestUnderFolder = Number.isFinite(parentFolderId) && parentFolderId > 0;
+
   const explicitPart = Object.prototype.hasOwnProperty.call(options, "partId");
   const partId = explicitPart
     ? (options.partId == null || options.partId === "" ? null : Number(options.partId))
@@ -66341,6 +66334,48 @@ async function createChapter(options = {}) {
   const partTitle = partId != null
     ? (state.parts || []).find((p) => Number(p.id) === partId)?.title
     : null;
+
+  if (nestUnderFolder) {
+    const hostMeta = findFolderMetaInState(parentFolderId);
+    const hostTitle = hostMeta?.title || partTitle || "";
+    const title = await promptText({
+      title: i18n.t('app.폴더_만들기'),
+      message: hostTitle
+        ? i18n.t('app.폴더_partTitle_안에_추가됩니다', {'partTitle || ""': hostTitle})
+        : i18n.t('app.선택한_위치에_폴더를_넣었어요'),
+      label: i18n.t('app.폴더_이름'),
+      defaultValue: i18n.t('app.새_폴더'),
+      confirmLabel: i18n.t('app.만들기'),
+    });
+    if (title === null) return;
+    const body = { title: title.trim() || i18n.t('app.새_폴더') };
+    if (partId != null) body.part_id = partId;
+    const created = await api(`/api/projects/${state.projectId}/chapters`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    noteFolderUndoAvailable();
+    if (partId != null) setPartCollapsed(partId, false);
+    if (options.chapterId) setChapterCollapsed(options.chapterId, false);
+    clearChapterInsertTarget();
+    await loadProject();
+    const newFolderId = findFolderIdForChapter(created?.id);
+    if (newFolderId && newFolderId !== parentFolderId) {
+      await api(`/api/folders/${newFolderId}/reparent`, {
+        method: "POST",
+        body: JSON.stringify({
+          position: "inside",
+          target_id: parentFolderId,
+          new_parent_id: parentFolderId,
+        }),
+      });
+      await loadProject();
+    }
+    toast(hostTitle
+      ? `${i18n.t('app.partTitle_폴더_안에_폴더를_넣었어', {'partTitle || "폴더"': hostTitle || "폴더"})}`
+      : i18n.t('app.선택한_위치에_폴더를_넣었어요'));
+    return;
+  }
 
   // Drag/click insert into a known group (including ungrouped = partId null with placed)
   if (placed || (explicitPart && partId != null)) {
@@ -66583,16 +66618,33 @@ function setOutlineSceneAddButtonsDisabled(disabled) {
   const root = $("outline");
   if (!root) return;
   root.querySelectorAll(
-    "[data-add-after-scene], [data-add-child-scene], button.chapter-add-scene, button.scene-add-btn, .transparent-add-scene",
+    "[data-add-after-scene], [data-add-child-scene], button.chapter-add-scene, button.scene-add-btn, .transparent-add-scene, [data-folder-add-scene]",
   ).forEach((btn) => {
     btn.disabled = !!disabled;
   });
+}
+
+async function createSceneInFolder(folderId, options = {}) {
+  const id = Number(folderId);
+  if (!Number.isFinite(id) || id <= 0) {
+    toast(i18n.t('app.폴더를_찾지_못했어요'));
+    return null;
+  }
+  return createScene(null, { ...options, folderId: id });
 }
 
 async function createScene(chapterId, options = {}) {
   // Serialize outline "+" / context-menu creates so overlapping loadProject
   // calls cannot wipe an in-progress rename or merge scene UI state.
   if (createSceneBusy) return null;
+  const folderId = options.folderId != null && options.folderId !== ""
+    ? Number(options.folderId)
+    : null;
+  const hasFolder = Number.isFinite(folderId) && folderId > 0;
+  if (!hasFolder && (chapterId == null || chapterId === "")) {
+    toast(i18n.t('app.폴더를_찾지_못했어요'));
+    return null;
+  }
   createSceneBusy = true;
   setOutlineSceneAddButtonsDisabled(true);
   let delayUnlock = false;
@@ -66619,10 +66671,15 @@ async function createScene(chapterId, options = {}) {
     const defaultTitle = isChild ? i18n.t('app.새_하위_원고') : i18n.t('app.새_씬');
     const body = { title: defaultTitle };
     if (parentSceneId) body.parent_scene_id = parentSceneId;
-    const scene = await api(`/api/chapters/${chapterId}/scenes`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    const scene = await api(
+      hasFolder
+        ? `/api/folders/${folderId}/scenes`
+        : `/api/chapters/${chapterId}/scenes`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
     // 기본은 목록 끝 → 기준 원고 바로 아래로 이동
     if (isAfter && scene?.id) {
       try {
@@ -66635,7 +66692,8 @@ async function createScene(chapterId, options = {}) {
       }
     }
     if (parentSceneId) setSceneCollapsed(parentSceneId, false);
-    setChapterCollapsed(chapterId, false);
+    const hostChapterId = chapterId || scene?.chapter_id;
+    if (hostChapterId) setChapterCollapsed(hostChapterId, false);
     await loadProject();
     if (scene?.id) {
       await openScene(scene.id, { skipOutlineReload: true, skipEditorFocus: true });
@@ -80306,8 +80364,7 @@ function onGlobalUiFeatureContextMenu(event) {
     ".modal:not(.hidden)",
     "#desktopContextMenu",
     "#binderContextMenu",
-    "#chapterContextMenu",
-    "#partContextMenu",
+    "#folderContextMenu",
     "#settingsContextMenu",
   ].join(", "))) return;
 

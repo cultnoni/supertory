@@ -488,24 +488,33 @@ class OutlineGuideAndTooltipTests(unittest.TestCase):
 
     def test_outline_rename_is_context_menu_not_dblclick(self) -> None:
         self.assertIn('data-binder-action="rename"', self.html)
-        self.assertIn('data-chapter-action="rename"', self.html)
-        self.assertIn('data-part-action="rename"', self.html)
+        self.assertIn('data-folder-action="rename"', self.html)
+        self.assertIn('data-folder-action="add-scene"', self.html)
+        self.assertIn('data-folder-action="add-chapter"', self.html)
+        self.assertNotIn('id="chapterContextMenu"', self.html)
+        self.assertNotIn('id="partContextMenu"', self.html)
+        self.assertNotIn('data-chapter-action="rename"', self.html)
+        self.assertNotIn('data-part-action="rename"', self.html)
         self.assertIn('data-i18n="index.이름_바꾸기"', self.html)
         self.assertIn('data-i18n="index.이_회차_제목을_수정해요"', self.html)
         self.assertIn('data-i18n="index.이_폴더_이름을_수정해요"', self.html)
         binder_click = self.js.split('$("binderContextMenu")?.addEventListener("click"', 1)[1].split(
-            '$("chapterContextMenu")', 1
+            '$("folderContextMenu")', 1
         )[0]
         self.assertIn('action === "rename"', binder_click)
         self.assertIn("startRenameScene(scene.id)", binder_click)
-        chapter_click = self.js.split('$("chapterContextMenu")?.addEventListener("click"', 1)[1].split(
-            '$("partContextMenu")', 1
-        )[0]
-        self.assertIn("startRenameChapter(chapter.id)", chapter_click)
-        part_click = self.js.split('$("partContextMenu")?.addEventListener("click"', 1)[1].split(
+        folder_click = self.js.split('$("folderContextMenu")?.addEventListener("click"', 1)[1].split(
             "Folder color palette", 1
         )[0]
-        self.assertIn("startRenamePart(part.id)", part_click)
+        self.assertIn("startRenameChapter", folder_click)
+        self.assertIn("startRenamePart", folder_click)
+        self.assertIn("createSceneInFolder", folder_click)
+        self.assertIn("parentFolderId", folder_click)
+        self.assertIn("/api/folders/${folderId}/scenes", self.js)
+        self.assertIn("data-folder-add-scene", self.js)
+        self.assertIn("showFolderContextMenu(event.clientX, event.clientY", self.js)
+        self.assertNotIn("showChapterContextMenu(event.clientX", self.js.split("const openFolderContextFromSection", 1)[1].split("outline.querySelectorAll(\".chapter-row\")", 1)[0])
+        self.assertNotIn('sk === "chapter" || section.dataset?.chapterId', self.js)
         outline_bind = self.js.split('outline.querySelectorAll("[data-scene]")', 1)[1].split(
             "injectChapterInsertSlots", 1
         )[0]
