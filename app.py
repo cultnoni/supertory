@@ -11876,6 +11876,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 )
                 return
 
+            match = re.fullmatch(r"/api/folders/(\d+)/scenes", path)
+            if match:
+                self.send_json(
+                    self.create_scene_in_folder(int(match.group(1)), body),
+                    HTTPStatus.CREATED,
+                )
+                return
+
             match = re.fullmatch(r"/api/projects/(\d+)/characters", path)
             if match:
                 project_id = int(match.group(1))
@@ -23881,19 +23889,41 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 (parent_scene_id, sid),
             )
 
-    def _ensure_transparent_chapter(
+    def _part_id_from_folder_ancestors(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        folder_id: int,
+    ) -> int | None:
+        """Walk folder_id then parents; first source_kind=part source_id wins."""
+        current = int(folder_id)
+        seen: set[int] = set()
+        while current and current not in seen:
+            seen.add(current)
+            row = connection.execute(
+                "SELECT parent_id, source_kind, source_id FROM folder "
+                "WHERE id = ? AND project_id = ? AND deleted_at IS NULL",
+                (current, int(project_id)),
+            ).fetchone()
+            if row is None:
+                break
+            kind = row["source_kind"] if hasattr(row, "keys") else row[1]
+            source_id = row["source_id"] if hasattr(row, "keys") else row[2]
+            parent_id = row["parent_id"] if hasattr(row, "keys") else row[0]
+            if kind == "part" and source_id is not None:
+                return int(source_id)
+            current = int(parent_id) if parent_id is not None else 0
+        return None
+
+    def _legacy_transparent_chapter_id_for_part(
         self,
         connection: sqlite3.Connection,
         project_id: int,
         part_id: int,
-    ) -> int:
-        """Find or create the hidden 「본편」 tray that holds manuscripts directly under a 권."""
-        part = connection.execute(
-            "SELECT id FROM part WHERE id = ? AND project_id = ? AND deleted_at IS NULL",
-            (int(part_id), int(project_id)),
-        ).fetchone()
-        if part is None:
-            raise ValueError("권/부를 찾을 수 없습니다.")
+    ) -> int | None:
+        """Old part-row scan: notes marker or title 「본편」."""
+        marker = import_hierarchy.TRANSPARENT_CHAPTER_MARKER
+        title_key = import_hierarchy.TRANSPARENT_CHAPTER_TITLE
         rows = connection.execute(
             "SELECT id, title, notes_md FROM chapter "
             "WHERE project_id = ? AND part_id = ? AND deleted_at IS NULL "
@@ -23901,30 +23931,86 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "ORDER BY sort_order, id",
             (int(project_id), int(part_id)),
         ).fetchall()
-        marker = import_hierarchy.TRANSPARENT_CHAPTER_MARKER
-        title_key = import_hierarchy.TRANSPARENT_CHAPTER_TITLE
         for row in rows:
             notes = str(row["notes_md"] or "")
             title = str(row["title"] or "").strip()
             if marker in notes or title == title_key:
                 return int(row["id"])
-        sort_order = connection.execute(
-            "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM chapter "
-            "WHERE project_id = ? AND part_id = ? AND parent_scene_id IS NULL "
-            "AND deleted_at IS NULL",
-            (int(project_id), int(part_id)),
-        ).fetchone()[0]
-        part_folder_id = folder_tree.folder_id_for_source(
-            connection, project_id, "part", int(part_id)
-        )
-        if part_folder_id is None:
-            self._mirror_project_folders(connection, project_id)
-            part_folder_id = folder_tree.folder_id_for_source(
-                connection, project_id, "part", int(part_id)
+        return None
+
+    def _ensure_direct_chapter_for_folder(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        folder_id: int,
+    ) -> int:
+        """Find or create a chapter that can host manuscripts under this folder.
+
+        Never rebinds the target folder. Chapter-mapped folders return their own
+        chapter_id. Otherwise reuse a transparent child tray, or create one.
+        """
+        marker = import_hierarchy.TRANSPARENT_CHAPTER_MARKER
+        title_key = import_hierarchy.TRANSPARENT_CHAPTER_TITLE
+        folder = connection.execute(
+            "SELECT id, project_id, source_kind, source_id FROM folder "
+            "WHERE id = ? AND deleted_at IS NULL",
+            (int(folder_id),),
+        ).fetchone()
+        if folder is None:
+            raise ValueError("폴더를 찾을 수 없습니다.")
+        if int(folder["project_id"]) != int(project_id):
+            raise ValueError("같은 작품 안의 폴더가 아닙니다.")
+
+        source_kind = folder["source_kind"]
+        source_id = folder["source_id"]
+
+        if source_kind == "chapter" and source_id is not None:
+            chapter = connection.execute(
+                "SELECT id FROM chapter WHERE id = ? AND deleted_at IS NULL",
+                (int(source_id),),
+            ).fetchone()
+            if chapter is not None:
+                return int(chapter["id"])
+
+        children = connection.execute(
+            "SELECT id, title, notes_md, source_kind, source_id FROM folder "
+            "WHERE project_id = ? AND parent_id = ? AND deleted_at IS NULL "
+            "ORDER BY sort_order, id",
+            (int(project_id), int(folder_id)),
+        ).fetchall()
+        for child in children:
+            notes = str(child["notes_md"] or "")
+            title = str(child["title"] or "").strip()
+            if marker not in notes and title != title_key:
+                continue
+            if child["source_kind"] != "chapter" or child["source_id"] is None:
+                continue
+            chapter = connection.execute(
+                "SELECT id FROM chapter WHERE id = ? AND deleted_at IS NULL",
+                (int(child["source_id"]),),
+            ).fetchone()
+            if chapter is not None:
+                return int(chapter["id"])
+
+        if source_kind == "part" and source_id is not None:
+            existing = self._legacy_transparent_chapter_id_for_part(
+                connection, project_id, int(source_id)
             )
+            if existing is not None:
+                return existing
+
+        part_id = self._part_id_from_folder_ancestors(
+            connection, project_id, int(folder_id)
+        )
+        group_sql, group_params = self._chapter_group_filter_sql(part_id)
+        sort_order = connection.execute(
+            f"SELECT COALESCE(MAX(sort_order) + 1, 0) FROM chapter "
+            f"WHERE project_id = ? AND deleted_at IS NULL AND {group_sql}",
+            (int(project_id), *group_params),
+        ).fetchone()[0]
         try:
             folder_sort = folder_tree.next_folder_sibling_sort(
-                connection, project_id, part_folder_id
+                connection, project_id, int(folder_id)
             )
         except sqlite3.OperationalError:
             folder_sort = int(sort_order)
@@ -23933,7 +24019,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             new_folder_id = folder_tree._insert_folder(
                 connection,
                 project_id=project_id,
-                parent_id=part_folder_id,
+                parent_id=int(folder_id),
                 title=title_key,
                 notes_md=marker,
                 is_box=0,
@@ -23946,7 +24032,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         cursor = connection.execute(
             "INSERT INTO chapter(project_id, part_id, title, notes_md, sort_order) "
             "VALUES (?, ?, ?, ?, ?)",
-            (int(project_id), int(part_id), title_key, marker, int(sort_order)),
+            (int(project_id), part_id, title_key, marker, int(sort_order)),
         )
         chapter_id = int(cursor.lastrowid)
         if new_folder_id is not None:
@@ -23956,6 +24042,22 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         else:
             self._mirror_project_folders(connection, project_id)
         return chapter_id
+
+    def create_scene_in_folder(self, folder_id: int, body: dict) -> dict:
+        """POST /api/folders/{id}/scenes — host 회차 on any binder folder."""
+        with database() as connection:
+            folder = connection.execute(
+                "SELECT id, project_id FROM folder WHERE id = ? AND deleted_at IS NULL",
+                (int(folder_id),),
+            ).fetchone()
+            if folder is None:
+                raise ValueError("폴더를 찾을 수 없습니다.")
+            project_id = int(folder["project_id"])
+            self.require_project(connection, project_id)
+            chapter_id = self._ensure_direct_chapter_for_folder(
+                connection, project_id, int(folder_id)
+            )
+        return self.create_scene(int(chapter_id), body)
 
     def move_scene(self, scene_id: int, body: dict) -> dict:
         """Move a manuscript anywhere: reorder, nest, promote, or change folder."""
@@ -24050,8 +24152,25 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     new_parent_id = old_parent_id
 
             if requested_part is not None and not chapter_in_body:
-                new_chapter_id = self._ensure_transparent_chapter(
-                    connection, project_id, requested_part
+                part_ok = connection.execute(
+                    "SELECT id FROM part "
+                    "WHERE id = ? AND project_id = ? AND deleted_at IS NULL",
+                    (int(requested_part), int(project_id)),
+                ).fetchone()
+                if part_ok is None:
+                    raise ValueError("권/부를 찾을 수 없습니다.")
+                part_folder_id = folder_tree.folder_id_for_source(
+                    connection, project_id, "part", int(requested_part)
+                )
+                if part_folder_id is None:
+                    self._mirror_project_folders(connection, project_id)
+                    part_folder_id = folder_tree.folder_id_for_source(
+                        connection, project_id, "part", int(requested_part)
+                    )
+                if part_folder_id is None:
+                    raise ValueError("권/부를 찾을 수 없습니다.")
+                new_chapter_id = self._ensure_direct_chapter_for_folder(
+                    connection, project_id, int(part_folder_id)
                 )
 
             chapter = connection.execute(
