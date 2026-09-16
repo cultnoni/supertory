@@ -24095,6 +24095,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if part_in_body
             else None
         )
+        folder_in_body = "folder_id" in body
+        requested_folder = (
+            self._parse_optional_int(body.get("folder_id"), "폴더")
+            if folder_in_body
+            else None
+        )
 
         with database() as connection:
             scene = connection.execute(
@@ -24151,7 +24157,18 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 else:
                     new_parent_id = old_parent_id
 
-            if requested_part is not None and not chapter_in_body:
+            if not chapter_in_body and requested_folder is not None:
+                folder_ok = connection.execute(
+                    "SELECT id, project_id FROM folder "
+                    "WHERE id = ? AND deleted_at IS NULL",
+                    (int(requested_folder),),
+                ).fetchone()
+                if folder_ok is None or int(folder_ok["project_id"]) != project_id:
+                    raise ValueError("폴더를 찾을 수 없습니다.")
+                new_chapter_id = self._ensure_direct_chapter_for_folder(
+                    connection, project_id, int(requested_folder)
+                )
+            elif requested_part is not None and not chapter_in_body:
                 part_ok = connection.execute(
                     "SELECT id FROM part "
                     "WHERE id = ? AND project_id = ? AND deleted_at IS NULL",

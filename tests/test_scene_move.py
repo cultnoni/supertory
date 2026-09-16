@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import http.client
 import json
+import sqlite3
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 
 import app
+import folder_tree
 
 
 class SceneMoveTests(unittest.TestCase):
@@ -185,3 +187,61 @@ class SceneMoveTests(unittest.TestCase):
             ).fetchone()
         self.assertIsNotNone(row)
         self.assertIn("supertory:transparent_volume", str(row[1] or ""))
+
+    def test_move_into_folder_id_on_part_uses_hidden_tray(self) -> None:
+        seed = self._seed()
+        s1 = seed["scenes"][0]
+        status, part = self.request(
+            "POST",
+            f"/api/projects/{seed['project_id']}/parts",
+            {"title": "2권"},
+        )
+        self.assertEqual(status, 201, part)
+        with app.database() as conn:
+            conn.row_factory = sqlite3.Row
+            part_folder_id = folder_tree.folder_id_for_source(
+                conn, seed["project_id"], "part", int(part["id"])
+            )
+        self.assertIsNotNone(part_folder_id)
+        status, result = self.request(
+            "POST",
+            f"/api/scenes/{s1['id']}/move",
+            {
+                "folder_id": int(part_folder_id),
+                "part_id": part["id"],
+                "parent_scene_id": None,
+            },
+        )
+        self.assertEqual(status, 200, result)
+        self.assertTrue(result["moved"])
+        self.assertNotEqual(result["chapter_id"], seed["chapter_a"])
+        with app.database() as conn:
+            row = conn.execute(
+                "SELECT notes_md FROM chapter WHERE id = ?",
+                (result["chapter_id"],),
+            ).fetchone()
+            parent = conn.execute(
+                "SELECT parent_id FROM folder "
+                "WHERE source_kind = 'chapter' AND source_id = ?",
+                (result["chapter_id"],),
+            ).fetchone()
+        self.assertIn("supertory:transparent_volume", str(row[0] or ""))
+        self.assertEqual(int(parent[0]), int(part_folder_id))
+
+    def test_move_into_folder_id_on_chapter_keeps_that_chapter(self) -> None:
+        seed = self._seed()
+        s1 = seed["scenes"][0]
+        with app.database() as conn:
+            conn.row_factory = sqlite3.Row
+            chapter_b_folder = folder_tree.folder_id_for_source(
+                conn, seed["project_id"], "chapter", seed["chapter_b"]
+            )
+        self.assertIsNotNone(chapter_b_folder)
+        status, result = self.request(
+            "POST",
+            f"/api/scenes/{s1['id']}/move",
+            {"folder_id": int(chapter_b_folder), "parent_scene_id": None},
+        )
+        self.assertEqual(status, 200, result)
+        self.assertTrue(result["moved"])
+        self.assertEqual(result["chapter_id"], seed["chapter_b"])
