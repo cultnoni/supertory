@@ -67315,6 +67315,11 @@ function partIdForOutlineFolderSection(section) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function folderIdForOutlineFolderSection(section) {
+  const n = Number(section?.dataset?.folderId);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 function chapterIdForOutlineFolderSection(section) {
   if (!section) return 0;
   const host = sceneHostSectionForFolder(section);
@@ -67322,16 +67327,10 @@ function chapterIdForOutlineFolderSection(section) {
   if (hostId) return hostId;
   const direct = Number(section.dataset.chapterId);
   if (direct) return direct;
-  const kids = childListOfOutlineSection(section);
-  const inner = kids?.querySelector?.(
-    ":scope > .outline-chapter[data-chapter-id], :scope > .outline-part[data-chapter-id]",
+  const children = childListOfOutlineSection(host || section);
+  const sceneLink = children?.querySelector?.(
+    ':scope > .scene-tree-item[data-depth="0"] > .scene-row > .scene-link[data-chapter-id]',
   );
-  if (inner) {
-    const nested = Number(inner.dataset.chapterId);
-    if (nested) return nested;
-  }
-  const sceneLink = host?.querySelector?.(":scope > .chapter-children > .scene-tree-item > .scene-row > .scene-link[data-chapter-id]")
-    || section.querySelector(".scene-link[data-chapter-id]");
   return Number(sceneLink?.dataset?.chapterId) || 0;
 }
 
@@ -67347,7 +67346,9 @@ function resolveFolderSectionSceneDrop(section, clientY, subtree) {
   const host = sceneHostSectionForFolder(section) || section;
   const fallbackChapterId = chapterIdForOutlineFolderSection(section);
   const partId = partIdForOutlineFolderSection(section) || partIdForOutlineFolderSection(host);
-  if (!fallbackChapterId && !partId) return null;
+  const folderId = folderIdForOutlineFolderSection(section)
+    || folderIdForOutlineFolderSection(host);
+  if (!fallbackChapterId && !partId && !folderId) return null;
   const children = childListOfOutlineSection(host);
   const childrenVisible = Boolean(
     children && !children.hidden && !children.classList.contains("is-collapsed"),
@@ -67375,6 +67376,7 @@ function resolveFolderSectionSceneDrop(section, clientY, subtree) {
             mode: "before",
             chapterId,
             partId,
+            folderId,
             parentSceneId: null,
             beforeSceneId: nearest.sid,
             el: nearest.link,
@@ -67384,6 +67386,7 @@ function resolveFolderSectionSceneDrop(section, clientY, subtree) {
           mode: "after",
           chapterId,
           partId,
+          folderId,
           parentSceneId: null,
           afterSceneId: nearest.sid,
           el: nearest.link,
@@ -67395,6 +67398,7 @@ function resolveFolderSectionSceneDrop(section, clientY, subtree) {
     mode: "chapter-root",
     chapterId: fallbackChapterId,
     partId,
+    folderId,
     parentSceneId: null,
     el: children || section,
   };
@@ -67548,12 +67552,15 @@ function setupSceneNestDragAndDrop(outline) {
     };
     if (Number(drop.chapterId) > 0) payload.chapter_id = Number(drop.chapterId);
     if (Number(drop.partId) > 0) payload.part_id = Number(drop.partId);
+    if (!payload.chapter_id && Number(drop.folderId) > 0) {
+      payload.folder_id = Number(drop.folderId);
+    }
     if (drop.mode === "before" && drop.beforeSceneId) {
       payload.before_scene_id = Number(drop.beforeSceneId);
     } else if (drop.mode === "after" && drop.afterSceneId) {
       payload.after_scene_id = Number(drop.afterSceneId);
     }
-    if (!payload.chapter_id && !payload.part_id && drop.parentSceneId == null
+    if (!payload.chapter_id && !payload.part_id && !payload.folder_id && drop.parentSceneId == null
       && !payload.before_scene_id && !payload.after_scene_id) {
       return;
     }
