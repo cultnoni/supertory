@@ -2410,8 +2410,18 @@
                 <div class="format-toolbar-cluster format-toolbar-cluster-start">
                 <!-- 실행 취소 · 다시 실행 -->
                 <div class="format-seg format-seg-icon format-seg-history" role="group" aria-label="실행 취소 · 다시 실행" data-i18n-aria-label="index.실행_취소_다시_실행">
-                  <button type="button" class="format-btn" data-format="undo" title="실행 취소 (Ctrl+Z)" data-i18n-title="index.실행_취소_Ctrl_Z" aria-label="실행 취소" data-i18n-aria-label="index.실행_취소">↩</button>
-                  <button type="button" class="format-btn" data-format="redo" title="다시 실행 (Ctrl+Y)" data-i18n-title="index.다시_실행_Ctrl_Y" aria-label="다시 실행" data-i18n-aria-label="index.다시_실행">↪</button>
+                  <button type="button" class="format-btn" data-format="undo" title="실행 취소 (Ctrl+Z)" data-i18n-title="index.실행_취소_Ctrl_Z" aria-label="실행 취소" data-i18n-aria-label="index.실행_취소">
+                    <svg class="format-history-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                      <path d="M3 7v6h6"/>
+                      <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+                    </svg>
+                  </button>
+                  <button type="button" class="format-btn" data-format="redo" title="다시 실행 (Ctrl+Y)" data-i18n-title="index.다시_실행_Ctrl_Y" aria-label="다시 실행" data-i18n-aria-label="index.다시_실행">
+                    <svg class="format-history-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                      <path d="M21 7v6h-6"/>
+                      <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
+                    </svg>
+                  </button>
                 </div>
                 <span class="format-row-divider" aria-hidden="true"></span>
                 <!-- 그룹1: 단락 · 글꼴 · 크기 · 줄간격 · 장평 (균등 칸, 가운데 구분선 고정) -->
@@ -3339,8 +3349,18 @@
               <div class="format-toolbar-row-body format-toolbar-row-body-split">
               <div class="format-toolbar-cluster format-toolbar-cluster-start">
               <div class="format-seg format-seg-icon format-seg-history" role="group" aria-label="실행 취소 · 다시 실행" data-i18n-aria-label="index.실행_취소_다시_실행">
-                <button type="button" class="format-btn" data-format="undo" title="실행 취소 (Ctrl+Z)" data-i18n-title="index.실행_취소_Ctrl_Z" aria-label="실행 취소" data-i18n-aria-label="index.실행_취소">↩</button>
-                <button type="button" class="format-btn" data-format="redo" title="다시 실행 (Ctrl+Y)" data-i18n-title="index.다시_실행_Ctrl_Y" aria-label="다시 실행" data-i18n-aria-label="index.다시_실행">↪</button>
+                <button type="button" class="format-btn" data-format="undo" title="실행 취소 (Ctrl+Z)" data-i18n-title="index.실행_취소_Ctrl_Z" aria-label="실행 취소" data-i18n-aria-label="index.실행_취소">
+                  <svg class="format-history-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <path d="M3 7v6h6"/>
+                    <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+                  </svg>
+                </button>
+                <button type="button" class="format-btn" data-format="redo" title="다시 실행 (Ctrl+Y)" data-i18n-title="index.다시_실행_Ctrl_Y" aria-label="다시 실행" data-i18n-aria-label="index.다시_실행">
+                  <svg class="format-history-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <path d="M21 7v6h-6"/>
+                    <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
+                  </svg>
+                </button>
               </div>
               <span class="format-row-divider" aria-hidden="true"></span>
               <div class="format-field-chips" role="group" aria-label="단락 · 글꼴 · 크기 · 줄간격 · 장평" data-i18n-aria-label="index.단락_글꼴_크기_줄간격_장평">

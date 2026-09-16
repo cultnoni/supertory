@@ -20780,7 +20780,8 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 .format-overflow-item-icon svg,
 .format-overflow-item-icon .format-tool-glyph,
 .format-overflow-item-icon .format-align-icon,
-.format-overflow-item-icon .format-dan-icon {
+.format-overflow-item-icon .format-dan-icon,
+.format-overflow-item-icon .format-history-icon {
   width: 16px;
   height: 16px;
 }
@@ -21098,7 +21099,7 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   width: 100%;
   min-width: 0;
   gap: 0;
-  padding: 0 8px;
+  padding: 0 0 0 8px;
   box-sizing: border-box;
 }
 .format-toolbar-cluster {
@@ -21606,11 +21607,11 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   align-self: center;
 }
 /* 오른쪽 묶음 구분선은 위 규칙(1px) 우선 — 한 줄 유지 */
-.format-toolbar-row-format .format-toolbar-mid-divider {
-  min-height: 18px;
-  height: auto;
+.format-toolbar-row-format .format-row-divider.format-toolbar-mid-divider {
+  height: 14px;
+  min-height: 14px;
   margin: 0 2px;
-  align-self: stretch;
+  align-self: center;
 }
 /* 행 전체 폭 절약(오른쪽 끝 특수문자 버튼이 접기 버튼과 겹치지 않도록) */
 .format-toolbar-row-format .format-toolbar-cluster,
@@ -22109,6 +22110,19 @@ body.typewriter-mode-on .format-typewriter-btn:hover .format-tool-label,
 #sceneContent .ms-dan > *:first-child,
 #synopsisContent .ms-dan > *:first-child {
   margin-top: 0;
+}
+.format-seg-history > .format-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.format-history-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: currentColor;
+  pointer-events: none;
 }
 .format-align-icon {
   display: block;
@@ -26637,7 +26651,7 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   flex-wrap: nowrap;
   align-items: center;
   gap: 4px 6px;
-  padding: 6px 2px 4px;
+  padding: 6px 1.5mm 4px 2px;
   min-height: 0;
   border: 0;
   border-radius: 0;
@@ -27327,8 +27341,7 @@ html[data-ui-theme="eink"] .feature-chip-count {
   gap: 6px 8px;
   min-width: 0;
   flex: 0 0 auto;
-  /* 목표·저장 박스를 왼쪽으로 (게이지가 그만큼 줄어듦) */
-  margin-left: -2mm;
+  margin-left: 0;
 }
 .status-bar-field {
   display: inline-flex !important;
