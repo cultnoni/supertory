@@ -109,7 +109,9 @@ function applyTranslations() {
     el.textContent = decodeHtmlEntities(i18n.t(el.getAttribute("data-i18n")));
   });
   document.querySelectorAll("[data-i18n-html]").forEach((el) => {
-    el.innerHTML = i18n.t(el.getAttribute("data-i18n-html"));
+    el.innerHTML = i18n.t(el.getAttribute("data-i18n-html"), {
+      icon: welcomeFileIconHtml(),
+    });
   });
   document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
     el.setAttribute("placeholder", i18n.t(el.getAttribute("data-i18n-placeholder")));
@@ -128,6 +130,9 @@ function applyTranslations() {
 async function setLanguage(lang) {
   await i18n.loadLocale(lang);
   applyTranslations();
+  if (typeof setWelcomeSpeechLine === "function" && typeof isWelcomeScreenVisible === "function" && isWelcomeScreenVisible()) {
+    setWelcomeSpeechLine(welcomeSpeechIndex || 0);
+  }
   if (typeof applySplitEditMode === "function") applySplitEditMode();
   if (typeof syncSmartPunctuationAdminUi === "function") syncSmartPunctuationAdminUi();
   if (typeof syncDictHighlightMenu === "function") syncDictHighlightMenu();
@@ -139,6 +144,9 @@ async function setLanguage(lang) {
   if (typeof syncOfflineModeBadge === "function") syncOfflineModeBadge();
   if (typeof syncEditorViewZoomChrome === "function") syncEditorViewZoomChrome();
   if (typeof syncHoverHeadPins === "function") syncHoverHeadPins();
+  if (typeof renderHelpContent === "function") {
+    renderHelpContent($("helpSearch")?.value || "");
+  }
   if (
     typeof refreshAdminAccountPanel === "function"
     && $("adminModal")
@@ -10934,12 +10942,136 @@ function setupPurposePicker() {
 
 function refreshProjectSelectOptions() {
   const select = $("projectSelect");
-  if (!select || !state.projects.length) return;
-  const current = state.projectId;
-  select.innerHTML = state.projects
-    .map((project) => `<option value="${project.id}">${escapeHtml(projectOptionLabel(project))}</option>`)
-    .join("");
-  if (current) select.value = String(current);
+  if (select) {
+    if (!state.projects.length) {
+      select.innerHTML = i18n.t('app.option_아직_만든_작품이_없어요_op');
+    } else {
+      const current = state.projectId;
+      select.innerHTML = state.projects
+        .map((project) => `<option value="${project.id}">${escapeHtml(projectOptionLabel(project))}</option>`)
+        .join("");
+      if (current) select.value = String(current);
+    }
+  }
+  syncProjectTitleLabel();
+  renderProjectListDropdown();
+  if (!$("projectListDropdown")?.classList.contains("hidden")) pinProjectListToButton();
+}
+
+function emptyProjectTitle() {
+  return i18n.t('index.아직_만든_작품이_없어요');
+}
+
+function currentProjectTitleText() {
+  const current = state.projects.find((p) => Number(p.id) === Number(state.projectId));
+  if (current) return projectOptionLabel(current);
+  if (!state.projects.length) return emptyProjectTitle();
+  return i18n.t('app.제목_없음');
+}
+
+function syncProjectTitleLabel() {
+  const label = $("projectTitleLabel");
+  if (!label) return;
+  const title = currentProjectTitleText();
+  label.textContent = title;
+  label.title = title;
+}
+
+function renderProjectListDropdown() {
+  const menu = $("projectListDropdown");
+  if (!menu) return;
+  if (!state.projects.length) {
+    menu.innerHTML = `<div class="project-list-empty">${escapeHtml(emptyProjectTitle())}</div>`;
+    return;
+  }
+  const currentId = Number(state.projectId);
+  menu.innerHTML = state.projects.map((project) => {
+    const id = Number(project.id);
+    const title = projectOptionLabel(project);
+    const selected = id === currentId;
+    return `<button type="button" role="option" aria-selected="${selected ? "true" : "false"}" class="${selected ? "is-selected" : ""}" data-project-id="${id}" title="${escapeHtml(title)}">${escapeHtml(title)}</button>`;
+  }).join("");
+}
+
+function closeProjectList() {
+  $("projectListDropdown")?.classList.add("hidden");
+  $("projectLibraryButton")?.setAttribute("aria-expanded", "false");
+}
+
+function pinProjectListToButton() {
+  const menu = $("projectListDropdown");
+  const btn = $("projectLibraryButton");
+  if (!menu || menu.classList.contains("hidden")) return;
+  const ar = btn?.getBoundingClientRect?.();
+  if (!ar) return;
+  menu.style.position = "fixed";
+  menu.style.top = `${Math.round(ar.bottom + 6)}px`;
+  menu.style.left = `${Math.round(ar.left)}px`;
+  menu.style.right = "auto";
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth - 8) {
+    menu.style.left = `${Math.max(8, Math.round(window.innerWidth - rect.width - 8))}px`;
+  }
+  if (rect.bottom > window.innerHeight - 8) {
+    menu.style.top = `${Math.max(8, Math.round(ar.top - rect.height - 6))}px`;
+  }
+}
+
+function openProjectList() {
+  const menu = $("projectListDropdown");
+  const btn = $("projectLibraryButton");
+  if (!menu) return;
+  if (typeof closeCreateMenu === "function") closeCreateMenu();
+  renderProjectListDropdown();
+  menu.classList.remove("hidden");
+  btn?.setAttribute("aria-expanded", "true");
+  pinProjectListToButton();
+}
+
+function toggleProjectList() {
+  const menu = $("projectListDropdown");
+  if (!menu) return;
+  if (menu.classList.contains("hidden")) openProjectList();
+  else closeProjectList();
+}
+
+function selectProjectFromList(id) {
+  const nextId = Number(id);
+  const select = $("projectSelect");
+  if (!select || !Number.isFinite(nextId) || nextId <= 0) return;
+  closeProjectList();
+  if (Number(select.value) === nextId && Number(state.projectId) === nextId) {
+    syncProjectTitleLabel();
+    return;
+  }
+  select.value = String(nextId);
+  syncProjectTitleLabel();
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function setupProjectLibraryMenu() {
+  const btn = $("projectLibraryButton");
+  const menu = $("projectListDropdown");
+  if (!btn || btn.dataset.projectLibraryBound === "1") return;
+  btn.dataset.projectLibraryBound = "1";
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleProjectList();
+  });
+  menu?.addEventListener("click", (event) => {
+    const item = event.target.closest("[data-project-id]");
+    if (!item) return;
+    event.preventDefault();
+    event.stopPropagation();
+    selectProjectFromList(item.dataset.projectId);
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest("#projectLibraryMenu")) closeProjectList();
+  });
+  window.addEventListener("resize", () => {
+    if (!$("projectListDropdown")?.classList.contains("hidden")) pinProjectListToButton();
+  });
 }
 
 function applyProjectsListPayload(projects, listMode = null) {
@@ -11222,10 +11354,11 @@ async function moveProjectInList(direction) {
 }
 
 function setupProjectListContextMenu() {
-  const select = $("projectSelect");
-  if (!select || select.dataset.projectListMenuBound === "1") return;
-  select.dataset.projectListMenuBound = "1";
-  select.addEventListener("contextmenu", (event) => {
+  const hosts = [
+    document.querySelector(".project-picker"),
+    $("projectLibraryMenu"),
+  ].filter(Boolean);
+  const onContextMenu = (event) => {
     if (!state.projects.length) return;
     event.preventDefault();
     event.stopPropagation();
@@ -11262,8 +11395,13 @@ function setupProjectListContextMenu() {
       });
     }
     if (typeof showUiFeatureContextMenu === "function") {
-      showUiFeatureContextMenu(event.clientX, event.clientY, select, items);
+      showUiFeatureContextMenu(event.clientX, event.clientY, $("projectSelect") || event.currentTarget, items);
     }
+  };
+  hosts.forEach((host) => {
+    if (host.dataset.projectListMenuBound === "1") return;
+    host.dataset.projectListMenuBound = "1";
+    host.addEventListener("contextmenu", onContextMenu);
   });
 }
 
@@ -11405,7 +11543,7 @@ async function loadProjects(preferredId = null) {
   pruneStaleEpisodeTabStorage(state.projects);
   const select = $("projectSelect");
   if (!state.projects.length) {
-    select.innerHTML = i18n.t('app.option_아직_만든_작품이_없어요_op');
+    refreshProjectSelectOptions();
   }
   const fromUrl = preferredProjectFromUrl();
   const last = loadLastWorkspace();
@@ -11414,6 +11552,7 @@ async function loadProjects(preferredId = null) {
   state.projectId = chosen && state.projects.some((project) => project.id === Number(chosen))
     ? Number(chosen)
     : (state.projects[0]?.id || null);
+  refreshProjectSelectOptions();
   if (state.projectId) {
     select.value = state.projectId;
     loadEpisodeTabsFromStorage();
@@ -17345,8 +17484,8 @@ function renderIdeaBank() {
     list.innerHTML = state.ideas.map((idea) => {
       const pinned = ideaIsPinned(idea);
       return `
-      <button type="button" class="idea-sticky color-${escapeHtml(idea.color || "yellow")}${pinned ? " is-pinned" : ""}" data-idea="${idea.id}" title="${escapeHtml(idea.title || "메모")}${pinned ? " · 목차 하단 고정" : ""}">
-        ${pinned ? `<span class="idea-sticky-pin" title="목차 하단 고정">${ideaPinGlyphHtml(16)}</span>` : ""}
+      <button type="button" class="idea-sticky color-${escapeHtml(idea.color || "yellow")}${pinned ? " is-pinned" : ""}" data-idea="${idea.id}" title="${escapeHtml(idea.title || "메모")}${pinned ? ` · ${ideaPinHint(true)}` : ""}">
+        ${pinned ? `<span class="idea-sticky-pin" title="${escapeHtml(ideaPinHint(true))}">${ideaPinGlyphHtml(16)}</span>` : ""}
         <span class="idea-sticky-title">${escapeHtml((!idea.title || idea.title === "새 메모") ? i18n.t('app.새_메모') : idea.title)}</span>
         <span class="idea-sticky-body">${escapeHtml(ideaPreview(idea.body_md))}</span>
       </button>`;
@@ -17682,8 +17821,8 @@ function renderIdeaBoard(focusId = null) {
           type="button"
           class="idea-card-pin${pinned ? " is-on" : ""}"
           data-role="pin-idea"
-          title="${pinned ? "목차 하단 고정 해제" : "목차 하단에 고정"}"
-          aria-label="${pinned ? "목차 하단 고정 해제" : "목차 하단에 고정"}"
+          title="${pinned ? ideaPinActionLabel(true) : ideaPinActionLabel(false)}"
+          aria-label="${pinned ? ideaPinActionLabel(true) : ideaPinActionLabel(false)}"
           aria-pressed="${pinned ? "true" : "false"}"
         >${ideaPinGlyphHtml(26)}</button>
       </div>
@@ -17749,12 +17888,22 @@ async function createIdeaNote({ open = "board" } = {}) {
   toast(i18n.t('app.새_포스트잇_메모를_만들었어요'));
 }
 
+function ideaPinActionLabel(pinned) {
+  return pinned
+    ? i18n.t("app.목차_하단_고정을_해제했어요")
+    : i18n.t("app.목차_하단에_고정했어요");
+}
+
+function ideaPinHint(pinned) {
+  return pinned ? i18n.t("index.고정핀으로_목록_하단에_고정") : "";
+}
+
 async function toggleIdeaPin(ideaId) {
   const id = Number(ideaId);
   const index = state.ideas.findIndex((item) => item.id === id);
   if (index < 0) return;
   const nextPinned = !ideaIsPinned(state.ideas[index]);
-  // 로컬 선반영 — 서버 마이그레이션 전이라도 하단 고정이 바로 보이게
+  // 로컬 선반영 — 서버 마이그레이션 전이라도 타이틀바 고정이 바로 보이게
   saveLocalIdeaPin(id, nextPinned);
   state.ideas[index] = { ...state.ideas[index], is_pinned: nextPinned ? 1 : 0 };
   try {
@@ -17775,7 +17924,7 @@ async function toggleIdeaPin(ideaId) {
   });
   renderIdeaBank();
   syncIdeaFloatChrome(state.ideas[index]);
-  toast(nextPinned ? i18n.t('app.목차_하단에_고정했어요') : i18n.t('app.목차_하단_고정을_해제했어요'));
+  toast(ideaPinActionLabel(nextPinned));
 }
 
 async function saveIdeaFromCard(card, options = {}) {
@@ -17909,40 +18058,40 @@ const WORLD_SECTION_LEAD_FIELD = {
   legacy: "legacy",
 };
 const DOCK_TIMELINE_KEY = "dock:timeline";
-const DOCK_TIMELINE_DEFAULT_W = 360;
+const DOCK_TIMELINE_DEFAULT_W = 320;
 const DOCK_TIMELINE_DEFAULT_H = 420;
 const DOCK_TIMELINE_MIN_W = 280;
 const DOCK_TIMELINE_MIN_H = 240;
 const DOCK_APPEARANCES_KEY = "dock:appearances";
-const DOCK_APPEARANCES_DEFAULT_W = 360;
+const DOCK_APPEARANCES_DEFAULT_W = 320;
 const DOCK_APPEARANCES_DEFAULT_H = 420;
 const DOCK_APPEARANCES_MIN_W = 280;
 const DOCK_APPEARANCES_MIN_H = 240;
 const DOCK_DICTIONARY_KEY = "dock:dictionary";
-const DOCK_DICTIONARY_DEFAULT_W = 360;
-const DOCK_DICTIONARY_DEFAULT_H = 440;
+const DOCK_DICTIONARY_DEFAULT_W = 320;
+const DOCK_DICTIONARY_DEFAULT_H = 420;
 const DOCK_DICTIONARY_MIN_W = 280;
 const DOCK_DICTIONARY_MIN_H = 240;
 let dockDictionaryEditingId = 0;
 let dockDictionaryAdding = false;
 const DOCK_BAITS_KEY = "dock:baits";
-const DOCK_BAITS_DEFAULT_W = 360;
+const DOCK_BAITS_DEFAULT_W = 320;
 const DOCK_BAITS_DEFAULT_H = 420;
 const DOCK_BAITS_MIN_W = 280;
 const DOCK_BAITS_MIN_H = 240;
 const DOCK_TORY_VAULT_KEY = "dock:toryVault";
-const DOCK_TORY_VAULT_DEFAULT_W = 360;
+const DOCK_TORY_VAULT_DEFAULT_W = 320;
 const DOCK_TORY_VAULT_DEFAULT_H = 420;
 const DOCK_TORY_VAULT_MIN_W = 280;
 const DOCK_TORY_VAULT_MIN_H = 240;
 const DOCK_SOURCES_KEY = "dock:sources";
-const DOCK_SOURCES_DEFAULT_W = 360;
+const DOCK_SOURCES_DEFAULT_W = 320;
 const DOCK_SOURCES_DEFAULT_H = 420;
 const DOCK_SOURCES_MIN_W = 280;
 const DOCK_SOURCES_MIN_H = 240;
 const DOCK_SUCCESS_PROFILE_KEY = "dock:successProfile";
-const DOCK_SUCCESS_PROFILE_DEFAULT_W = 380;
-const DOCK_SUCCESS_PROFILE_DEFAULT_H = 520;
+const DOCK_SUCCESS_PROFILE_DEFAULT_W = 320;
+const DOCK_SUCCESS_PROFILE_DEFAULT_H = 420;
 const DOCK_SUCCESS_PROFILE_MIN_W = 300;
 const DOCK_SUCCESS_PROFILE_MIN_H = 320;
 const DOCK_MANUSCRIPT_KEY = "dock:manuscript";
@@ -17956,8 +18105,8 @@ const DOCK_RELATION_DEFAULT_H = 380;
 const DOCK_RELATION_MIN_W = 300;
 const DOCK_RELATION_MIN_H = 240;
 const DOCK_SETTINGS_SEARCH_KEY = "dock:settingsSearch";
-const DOCK_SETTINGS_SEARCH_DEFAULT_W = 380;
-const DOCK_SETTINGS_SEARCH_DEFAULT_H = 440;
+const DOCK_SETTINGS_SEARCH_DEFAULT_W = 320;
+const DOCK_SETTINGS_SEARCH_DEFAULT_H = 420;
 const DOCK_SETTINGS_SEARCH_MIN_W = 280;
 const DOCK_SETTINGS_SEARCH_MIN_H = 240;
 const DOCK_TORY_CHECK_KEY = "dock:toryCheck";
@@ -18167,7 +18316,7 @@ function syncIdeaFloatChrome(idea) {
   if (pinBtn) {
     pinBtn.classList.toggle("is-on", pinned);
     pinBtn.setAttribute("aria-pressed", pinned ? "true" : "false");
-    pinBtn.title = pinned ? "목차 하단 고정 해제" : "목차 하단에 고정";
+    pinBtn.title = ideaPinActionLabel(pinned);
     pinBtn.setAttribute("aria-label", pinBtn.title);
   }
   syncIdeaCardClips(card, colorKey);
@@ -18374,8 +18523,8 @@ function openIdeaFloat(ideaId) {
             type="button"
             class="idea-card-pin${pinned ? " is-on" : ""}"
             data-role="pin-idea"
-            title="${pinned ? "목차 하단 고정 해제" : "목차 하단에 고정"}"
-            aria-label="${pinned ? "목차 하단 고정 해제" : "목차 하단에 고정"}"
+            title="${ideaPinActionLabel(pinned)}"
+            aria-label="${ideaPinActionLabel(pinned)}"
             aria-pressed="${pinned ? "true" : "false"}"
           >${ideaPinGlyphHtml(26)}</button>
         </div>
@@ -21135,15 +21284,19 @@ function renderDockIdeasBody(body) {
     const pinned = ideaIsPinned(idea);
     const title = (!idea.title || idea.title === "새 메모") ? i18n.t("app.새_메모") : idea.title;
     return `
-      <button type="button" class="idea-sticky color-${escapeHtml(idea.color || "yellow")}${pinned ? " is-pinned" : ""}" data-idea="${idea.id}" title="${escapeHtml(idea.title || i18n.t("app.메모"))}${pinned ? " · 목차 하단 고정" : ""}">
-        ${pinned ? `<span class="idea-sticky-pin" title="목차 하단 고정">${ideaPinGlyphHtml(16)}</span>` : ""}
+      <button type="button" class="idea-sticky color-${escapeHtml(idea.color || "yellow")}${pinned ? " is-pinned" : ""}" data-idea="${idea.id}" title="${escapeHtml(idea.title || i18n.t("app.메모"))}${pinned ? ` · ${ideaPinHint(true)}` : ""}">
+        ${pinned ? `<span class="idea-sticky-pin" title="${escapeHtml(ideaPinHint(true))}">${ideaPinGlyphHtml(16)}</span>` : ""}
         <span class="idea-sticky-title">${escapeHtml(title)}</span>
         <span class="idea-sticky-body">${escapeHtml(ideaPreview(idea.body_md))}</span>
       </button>`;
   }).join("");
   body.innerHTML = `
     <div class="dock-ideas-toolbar">
-      <button type="button" class="secondary compact-btn" data-role="dock-new-idea"${state.projectId ? "" : " disabled"}>${escapeHtml(i18n.t("app.메모"))}</button>
+      ${dockToolbarIconButtonHtml({
+        role: "dock-new-idea",
+        svg: SETTINGS_ICON_SVG.stickyNotePlus,
+        labelKey: "app.새_메모",
+      })}
     </div>
     <div class="dock-ideas-list">
       ${!state.projectId || !ideas.length
@@ -22647,7 +22800,11 @@ function renderDockDictionaryBody(body) {
     <div class="dock-dictionary">
       ${dockGuideTipHtml("dockDictionary", "index.토리_사전_안내")}
       <div class="dock-dictionary-toolbar">
-        <button type="button" class="secondary compact-btn" data-role="dock-dictionary-add"${state.projectId ? "" : " disabled"}>${escapeHtml(i18n.t("index.plus_단어"))}</button>
+        ${dockToolbarIconButtonHtml({
+          role: "dock-dictionary-add",
+          svg: SETTINGS_ICON_SVG.bookPlus,
+          labelKey: "index.새_단어",
+        })}
       </div>
       <input type="search" data-role="dock-dictionary-search" autocomplete="off" spellcheck="false"
         placeholder="${escapeHtml(i18n.t("index.단어_뜻_검색"))}"
@@ -23018,8 +23175,16 @@ function renderDockToryVaultBody(body) {
     <div class="dock-tory-vault">
       ${dockGuideTipHtml("toryVault", "index.토리의_수집창고_안내")}
       <div class="dock-tory-vault-toolbar">
-        <button type="button" class="secondary compact-btn" data-role="dock-vault-add"${state.projectId ? "" : " disabled"}>${escapeHtml(i18n.t("app.메모"))}</button>
-        <button type="button" class="secondary compact-btn" data-role="dock-vault-clear"${state.projectId ? "" : " disabled"}>${escapeHtml(i18n.t("app.비우기"))}</button>
+        ${dockToolbarIconButtonHtml({
+          role: "dock-vault-add",
+          svg: SETTINGS_ICON_SVG.stickyNotePlus,
+          labelKey: "index.메모로_직접_추가",
+        })}
+        ${dockToolbarIconButtonHtml({
+          role: "dock-vault-clear",
+          svg: SETTINGS_ICON_SVG.trash,
+          labelKey: "index.수집_전부_비우기",
+        })}
       </div>
       <div class="tory-vault-list dock-tory-vault-list" data-role="dock-vault-list"></div>
     </div>
@@ -23056,7 +23221,11 @@ function renderDockSourcesBody(body) {
     <div class="dock-sources">
       ${dockGuideTipHtml("sources", "index.참고자료_출처_안내")}
       <div class="dock-sources-toolbar">
-        <button type="button" class="secondary compact-btn" data-role="dock-source-add"${state.projectId ? "" : " disabled"}>${escapeHtml(i18n.t("app.자료_2"))}</button>
+        ${dockToolbarIconButtonHtml({
+          role: "dock-source-add",
+          svg: SETTINGS_ICON_SVG.layersPlus,
+          labelKey: "index.자료_추가",
+        })}
       </div>
       <div class="source-list dock-sources-list" data-role="dock-sources-list"></div>
     </div>
@@ -34523,7 +34692,7 @@ function updateWritingLogButtonUi() {
     icon = document.createElement("span");
     icon.className = "format-tool-glyph format-timer-icon";
     icon.setAttribute("aria-hidden", "true");
-    icon.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="12" cy="12" r="8.25"/><path d="M12 7.5V12l3 2"/></svg>';
+    icon.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M16 14v2.2l1.6 1"/><path d="M16 2v3"/><path d="M21 7.338V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h2.338"/><path d="M3 9h5.859"/><path d="M8 2v3"/><circle cx="16" cy="16" r="6"/></svg>';
   } else if (!icon.classList.contains("format-tool-glyph")) {
     icon.classList.add("format-tool-glyph");
   }
@@ -36514,6 +36683,7 @@ const SETTINGS_ICON_SVG = {
   stickyNotePlus: `<svg ${SETTINGS_ICON_SVG_ATTR}><path d="M15 3v5a1 1 0 0 0 1 1h5"/><path d="M18 15v6"/><path d="M21 12.356V9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7.355"/><path d="M21 18h-6"/></svg>`,
   fileBox: `<svg ${SETTINGS_ICON_SVG_ATTR}><path d="M14 2v5a1 1 0 001 1h5"/><path d="M14.692 22H18a2 2 0 002-2V8a2.4 2.4 0 00-.706-1.706l-3.588-3.588A2.4 2.4 0 0014 2H6a2 2 0 00-2 2v3.804"/><path d="M2.264 13.752 7 16.5l4.737-2.748"/><path d="M2.995 13.014A2 2 0 002 14.744v3.516a2 2 0 00.996 1.73l3 1.74a2 2 0 002.008 0l3-1.74A2 2 0 0012 18.26v-3.517a2 2 0 00-.995-1.73l-3-1.742a2 2 0 00-1.892-.064z"/><path d="M7 16.5V22"/></svg>`,
   filePlus: `<svg ${SETTINGS_ICON_SVG_ATTR}><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M9 15h6"/><path d="M12 18v-6"/></svg>`,
+  bookPlus: `<svg ${SETTINGS_ICON_SVG_ATTR}><path d="M12 7v6"/><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="M9 10h6"/></svg>`,
   layersPlus: `<svg ${SETTINGS_ICON_SVG_ATTR}><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 .83.18 2 2 0 0 0 .83-.18l8.58-3.9a1 1 0 0 0 0-1.831z"/><path d="M16 17h6"/><path d="M19 14v6"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 .825.178"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l2.116-.962"/></svg>`,
   trash: `<svg ${SETTINGS_ICON_SVG_ATTR}><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
 };
@@ -36530,6 +36700,12 @@ function applySettingsIconButton(btn, { svg, label, labelKey }) {
     btn.setAttribute("title", label);
     btn.setAttribute("aria-label", label);
   }
+}
+
+function dockToolbarIconButtonHtml({ role, svg, labelKey }) {
+  const label = i18n.t(labelKey);
+  const disabled = state.projectId ? "" : " disabled";
+  return `<button type="button" class="secondary compact-btn settings-icon-btn" data-role="${escapeHtml(role)}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}" data-i18n-title="${escapeHtml(labelKey)}" data-i18n-aria-label="${escapeHtml(labelKey)}"${disabled}>${svg}</button>`;
 }
 
 /** 설정집 목록형 메인 (떡밥·수집창고·참고자료) — 목록 DOM을 메인으로 옮겨 표시 */
@@ -47685,7 +47861,7 @@ function bookmarkColorMeta(key) {
 }
 
 /** 목차 회차 북마크 아이콘 (꽉 찬 색 · --bm-color / currentColor) */
-const SCENE_BOOKMARK_ICON_SVG = `<svg class="scene-bookmark-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" focusable="false"><path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"/></svg>`;
+const SCENE_BOOKMARK_ICON_SVG = `<svg class="scene-bookmark-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" focusable="false"><path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"/></svg>`;
 
 function sceneBookmarkMarkHtml(colorKey) {
   const meta = bookmarkColorMeta(colorKey);
@@ -48196,10 +48372,17 @@ function removeBookmarkById(bookmarkId) {
 }
 
 function setHeaderNoticeFillState(sectionId, hasItems) {
+  const filled = Boolean(hasItems);
   const section = $(sectionId);
-  if (!section) return;
-  section.classList.toggle("has-items", Boolean(hasItems));
-  section.classList.toggle("is-empty", !hasItems);
+  if (section) {
+    section.classList.toggle("has-items", filled);
+    section.classList.toggle("is-empty", !filled);
+  }
+  const strip = $("headerNoticeStrip");
+  if (strip) {
+    strip.classList.toggle("has-items", filled);
+    strip.classList.toggle("is-empty", !filled);
+  }
 }
 
 /** 아이콘 행 북마크 패널 목록 · 목차 하단에는 그리지 않음. */
@@ -48350,7 +48533,7 @@ function renderHeaderIdeaBar() {
         return (
           `<button type="button" class="header-idea-chip is-pinned color-${escapeHtml(idea.color || "yellow")}" `
           + `${i18n.t('app.data_header_idea_idea_id', {'idea.id': idea.id, label: label})}`
-          + `<span class="header-idea-chip-pin" aria-hidden="true">${ideaPinGlyphHtml(14)}</span>`
+          + `<span class="header-idea-chip-pin" aria-hidden="true">${ideaPinGlyphHtml(10)}</span>`
           + `<span class="header-idea-chip-label">${label}</span>`
           + `</button>`
         );
@@ -50588,6 +50771,7 @@ function applyDesktopTheme(theme, customColor = null, options = {}) {
   if (fromUser && scope === "scene" && state.sceneId) {
     setScenePageTheme(state.sceneId, next, customColor);
     if (announce) toast(i18n.t('app.현재_회차에만_페이지_색을_적용했어요'));
+    syncManuscriptStatusContrast();
     requestAnimationFrame(() => syncManuscriptStatusContrast());
     return;
   }
@@ -50618,6 +50802,7 @@ function applyDesktopTheme(theme, customColor = null, options = {}) {
   // 테마를 바꿔도 고대비 설정이 유지되도록 다시 덧씌움.
   const highContrastOn = localStorage.getItem(HIGH_CONTRAST_KEY) === "on";
   if (highContrastOn) applyHighContrastMode(true);
+  syncManuscriptStatusContrast();
   requestAnimationFrame(() => syncManuscriptStatusContrast());
 }
 
@@ -50650,13 +50835,30 @@ function applyHighContrastMode(enabled) {
   } catch (_) {
     /* private mode */
   }
+  syncManuscriptStatusContrast();
   return on;
+}
+
+/** 서식 줄 글자: 작성 바탕이 어두우면 밝은 잉크, 밝으면 어두운 잉크 */
+function formatToolbarInkForPage(darkPage) {
+  let ink = "";
+  try {
+    const bodyCs = getComputedStyle(document.body);
+    const rootCs = getComputedStyle(document.documentElement);
+    ink = cssColorToHex(bodyCs.getPropertyValue("--page-ink"))
+      || cssColorToHex(rootCs.getPropertyValue("--page-ink"));
+  } catch (_) {
+    /* ignore */
+  }
+  if (ink && isColorDark(ink) !== Boolean(darkPage)) return ink;
+  return darkPage ? "#F4F0E8" : "#24211d";
 }
 
 /** 글자수 바: 본문 페이지 바탕이 어두우면 글자·칩 대비를 밝게 */
 function syncManuscriptStatusContrast() {
   const wrap = $("manuscriptStatusWrap");
   const frame = $("manuscriptFrame");
+  const tools = $("msToolsCard");
   if (!wrap && !frame) return;
   let hex = "";
   try {
@@ -50678,8 +50880,16 @@ function syncManuscriptStatusContrast() {
     || theme === "night"
     || (normalizeUiThemeId(getUiTheme()) !== "eink" && isColorDark(hex));
   const value = dark ? "dark" : "light";
+  const formatInk = formatToolbarInkForPage(dark);
   wrap?.setAttribute("data-page-contrast", value);
   frame?.setAttribute("data-page-contrast", value);
+  tools?.setAttribute("data-page-contrast", value);
+  if (frame instanceof HTMLElement) {
+    frame.style.setProperty("--format-on-page-ink", formatInk);
+  }
+  if (tools instanceof HTMLElement) {
+    tools.style.setProperty("--format-on-page-ink", formatInk);
+  }
 }
 
 /** Caret/range to restore when inserting from the manuscript context menu. */
@@ -64339,14 +64549,29 @@ const WELCOME_AD_POPUP_DISMISSED_PREFIX = "supertory.welcomeAdPopup.dismissed.";
 const NOTICE_FEED_REMOTE_URL =
   "https://raw.githubusercontent.com/cultnoni/supertory/main/web/notice-feed.json";
 const NOTICE_FEED_LOCAL_URL = "/notice-feed.json";
-const WELCOME_SPEECH_LINES = [
-  i18n.t('app.반가워요_작가님'),
-  i18n.t('app.먼저_왼쪽_위_를_눌러봐요'),
-  i18n.t('app.새_글_쓰기부터_시작하면_돼요'),
-  i18n.t('app.써_둔_글이_있으면_가져오기도_가능'),
-  i18n.t('app.준비되면_같이_써봐요'),
-  i18n.t('app.토리와_함께'),
-];
+function welcomeFileIconHtml() {
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-book-plus welcome-inline-file-icon" aria-hidden="true" focusable="false"><path d="M12 7v6"/><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="M9 10h6"/></svg>';
+}
+
+function welcomeSpeechLines() {
+  return [
+    i18n.t("app.반가워요_작가님"),
+    i18n.t("app.먼저_왼쪽_위_를_눌러봐요", { icon: welcomeFileIconHtml() }),
+    i18n.t("app.새_글_쓰기부터_시작하면_돼요"),
+    i18n.t("app.써_둔_글이_있으면_가져오기도_가능"),
+    i18n.t("app.준비되면_같이_써봐요"),
+    i18n.t("app.토리와_함께"),
+  ];
+}
+
+function setWelcomeSpeechLine(index) {
+  const speech = $("welcomeSpeech");
+  if (!speech) return;
+  const lines = welcomeSpeechLines();
+  const html = lines[((index % lines.length) + lines.length) % lines.length] || "";
+  if (html.includes("<svg")) speech.innerHTML = html;
+  else speech.textContent = html;
+}
 let welcomeSpeechTimer = null;
 let welcomeSpeechIndex = 0;
 let welcomeGuideDismissedSession = false;
@@ -64635,15 +64860,15 @@ function startWelcomeSpeechCycle() {
   if (!speech) return;
   if (welcomeSpeechTimer) return;
   welcomeSpeechIndex = 0;
-  speech.textContent = WELCOME_SPEECH_LINES[0];
+  setWelcomeSpeechLine(0);
   syncWelcomeToryVideo();
   welcomeSpeechTimer = window.setInterval(() => {
     if (!isWelcomeScreenVisible()) {
       stopWelcomeSpeechCycle();
       return;
     }
-    welcomeSpeechIndex = (welcomeSpeechIndex + 1) % WELCOME_SPEECH_LINES.length;
-    speech.textContent = WELCOME_SPEECH_LINES[welcomeSpeechIndex];
+    welcomeSpeechIndex = (welcomeSpeechIndex + 1) % welcomeSpeechLines().length;
+    setWelcomeSpeechLine(welcomeSpeechIndex);
   }, 3200);
 }
 
@@ -79110,6 +79335,7 @@ async function submitImport(event) {
 
 function openAdminModal(tab = null) {
   closeCreateMenu();
+  closeHelpModal();
   hideUiFeatureContextMenu();
   hideSplitDefaultChangeMenu();
   $("adminModal")?.classList.remove("hidden");
@@ -79159,8 +79385,6 @@ function setAdminTab(tabId) {
   }
   if (id === "info") {
     refreshAdminInfoPanel();
-    renderAdminHelpManual($("adminHelpSearch")?.value || "");
-    renderAdminHelpQa();
   }
   if (id === "account") refreshAdminAccountPanel().catch(handleError);
 }
@@ -80052,7 +80276,7 @@ function isFeatureHideExempt(el) {
     || id === "gitsiPopoverButton"
     || id === "uiFeatureHideMenuItem"
     || id === "adminContactDevButton"
-    || id === "adminHelpSearch"
+    || id === "helpSearch"
   ) {
     return true;
   }
@@ -80353,7 +80577,7 @@ function onGlobalUiFeatureContextMenu(event) {
   if (event.defaultPrevented) return;
   if (isManuscriptWritingSurface(event.target)) return;
   if (event.target.closest?.("#ambientSoundPopup, #binderAmbientControl, #adminAmbientSection")) return;
-  if (event.target.closest?.("#projectSelect, .project-picker")) return;
+  if (event.target.closest?.("#projectSelect, .project-picker, #projectLibraryMenu")) return;
   if (event.target.closest?.([
     "#adminModal",
     "#uiFeatureContextMenu",
@@ -80546,173 +80770,249 @@ function setupUiFeatureHideSystem() {
   }
 }
 
-/* —— Admin: info / help / contact / account —— */
-const HELP_MANUAL_SECTIONS = [
-  {
-    id: "overview",
-    title: i18n.t('app.SuperTory가_뭔가요'),
-    keywords: i18n.t('app.소개_개요_용도_로컬_소설_에세이_원고_스크'),
-    body: [
-      i18n.t('app.내_컴퓨터에_직접_설치해서_쓰는_집필_프로그'),
-      i18n.t('app.작품_구조는_이렇게_되어_있어요_작품_바인더'),
-      i18n.t('app.설정집에는_시놉시스_로그라인_세계관_장르_키'),
-    ],
-  },
-  {
-    id: "start",
-    title: i18n.t('app.시작하기'),
-    keywords: i18n.t('app.시작_작품_만들기_열기_종류_장르_purpo'),
-    body: [
-      i18n.t('app.왼쪽_바인더에서_작품을_고르거나_새로_만드세'),
-      i18n.t('app.단_소설류에서_장르를_바꾸면_토리가_새_장르'),
-      i18n.t('app.왼쪽_바인더_목차_에서_챕터_폴더_추가_폴더'),
-    ],
-  },
-  {
-    id: "binder",
-    title: i18n.t('app.바인더_목차'),
-    keywords: i18n.t('app.바인더_목차_폴더_챕터_원고_씬_회차_하위폴'),
-    body: [
-      i18n.t('app.목차_옆_숫자_배지_폴더_수_원고_수_우클릭'),
-      i18n.t('app.폴더_원고는_드래그로_순서_변경_원고_씬_에'),
-      i18n.t('app.우클릭_메뉴에서_복제_내보내기_버리기_등_순'),
-    ],
-  },
-  {
-    id: "editor",
-    title: i18n.t('app.작성_화면_서식'),
-    keywords: i18n.t('app.작성_편집_서식_굵게_글자색_형광펜_목록_목'),
-    body: [
-      i18n.t('app.서식_툴바_글꼴_크기_굵게_정렬_목록_글자색'),
-      i18n.t('app.본문을_드래그_후_우클릭_사전_떡밥_각주_등'),
-      i18n.t('app.하단_상태바에서_글자_수_목표_진행_게이지'),
-    ],
-  },
-  {
-    id: "settings",
-    title: i18n.t('app.설정집'),
-    keywords: i18n.t('app.설정집_시놉시스_로그라인_세계관_장르_키워드'),
-    body: [
-      i18n.t('app.왼쪽_설정_탭에서_관리_가능한_항목_시놉시스'),
-      i18n.t('app.각_상자의_메인에서_보기_가운데_화면을_넓게'),
-      i18n.t('app.항목도_우클릭으로_숨기거나_메뉴_열기_가능'),
-    ],
-  },
-  {
-    id: "ai",
-    title: i18n.t('app.토리_AI'),
-    keywords: i18n.t('app.토리_AI_제미니_gemini_도우미_이어서'),
-    body: [
-      i18n.t('app.오른쪽_패널의_토리가_해주는_것들_이어서_쓰'),
-      i18n.t('app.다음_아이디어_제안_과_브레인스토밍_은_작'),
-      i18n.t('app.도우미_탭_우클릭_토리의_말투_페르소나_선택'),
-    ],
-  },
-  {
-    id: "proof",
-    title: i18n.t('app.교정_교정고'),
-    keywords: i18n.t('app.교정_교열_맞춤법_교정고_매칭_비교_파이프라'),
-    body: [
-      i18n.t('app.맞춤법_교정은_환경에_따라_공개_검사기_또는'),
-      i18n.t('app.문서_가져오기에서_선택_가능한_기능_교정고'),
-      i18n.t('app.파이프라인은_교정고_본문을_정리하고_회차에'),
-    ],
-  },
-  {
-    id: "import-export",
-    title: i18n.t('app.가져오기_내보내기'),
-    keywords: i18n.t('app.가져오기_내보내기_워드_hwp_docx_문서'),
-    body: [
-      i18n.t('app.상단_메뉴에서_문서_가져오기_내보내기_Wor'),
-      i18n.t('app.작품은_projects_폴더의_stg_패키지'),
-    ],
-  },
-  {
-    id: "viewer",
-    title: i18n.t('app.뷰어_테마'),
-    keywords: i18n.t('app.뷰어_pdf_책_폰_전자잉크_eink_다크모'),
-    body: [
-      i18n.t('app.원고를_PDF_책_휴대폰_전자잉크_스타일로'),
-      i18n.t('app.상단_테마_버튼_데이_다크_UI_전환_뷰어'),
-    ],
-  },
-  {
-    id: "hide-ui",
-    title: i18n.t('app.기능_숨기기_화면_정리'),
-    keywords: i18n.t('app.숨기기_우클릭_숨긴기능_활성화_관리자'),
-    body: [
-      i18n.t('app.대부분의_기능_버튼_표시_폴더_원고_개수_포'),
-      i18n.t('app.메뉴가_이미_많은_버튼은_우클릭_메뉴_맨_아'),
-      i18n.t('app.숨긴_항목_되돌리기_왼쪽_위_톱니바퀴_관리자'),
-    ],
-  },
-  {
-    id: "trash",
-    title: i18n.t('app.휴지통'),
-    keywords: i18n.t('app.휴지통_버리기_복원_삭제_폴더_cascade'),
-    body: [
-      i18n.t('app.바인더에서_버린_폴더_원고는_휴지통에_보관돼'),
-      i18n.t('app.관리자_휴지통에서_복원하기_휴지통_비우기_로'),
-    ],
-  },
-  {
-    id: "safety",
-    title: i18n.t('app.저장_안전'),
-    keywords: i18n.t('app.저장_자동저장_로컬_초안_백업_안전_inde'),
-    body: [
-      i18n.t('app.편집할_때_기기_저장소에_먼저_초안을_남긴'),
-      i18n.t('app.중요한_작품은_내보내기나_기기_백업을_정기적'),
-    ],
-  },
-  {
-    id: "admin",
-    title: i18n.t('app.관리자_모드'),
-    keywords: i18n.t('app.관리자_정보_도움말_사용자_숨긴기능_휴지통'),
-    body: [
-      i18n.t('app.왼쪽_위_톱니바퀴를_누르면_관리자_모드가_열'),
-      i18n.t('app.정보_도움말_버전_Gemini_상태_사용_설'),
-    ],
-  },
+/* —— Help: 기능 안내 + QnA (titlebar 도움말) —— */
+const HELP_MANUAL_CATEGORIES = [
+  { id: "immersion", titleKey: "help.cat.immersion" },
+  { id: "import", titleKey: "help.cat.import" },
+  { id: "binder", titleKey: "help.cat.binder" },
+  { id: "settings", titleKey: "help.cat.settings" },
+  { id: "editor", titleKey: "help.cat.editor" },
+  { id: "check", titleKey: "help.cat.check" },
+  { id: "ideate", titleKey: "help.cat.ideate" },
+  { id: "write", titleKey: "help.cat.write" },
+  { id: "special", titleKey: "help.cat.special" },
+  { id: "stage", titleKey: "help.cat.stage" },
+  { id: "chat", titleKey: "help.cat.chat" },
+  { id: "mobile", titleKey: "help.cat.mobile" },
 ];
 
-/** @type {{ id?: string, q: string, a: string }[]} */
-const HELP_QA_ITEMS = [
-  {
-    id: "qa-local",
-    q: i18n.t('app.데이터가_어디에_저장되나요'),
-    a: i18n.t('app.이_기기의_로컬_DB에_저장됩니다_클라우드'),
-  },
-  {
-    id: "qa-child-folder",
-    q: i18n.t('app.원고_아래_하위_폴더는_어떻게_만드나요'),
-    a: i18n.t('app.바인더에서_원고_씬_를_우클릭_하위_폴더_만'),
-  },
-  {
-    id: "qa-genre",
-    q: i18n.t('app.장르는_어떻게_바꾸나요'),
-    a: i18n.t('app.설정집_장르_키워드_에서_작품_종류_메인_하'),
-  },
-  {
-    id: "qa-ai-ideas",
-    q: i18n.t('app.다음_아이디어_브레인스토밍은_무엇을_보나요'),
-    a: i18n.t('app.작품_인덱스_설정_누적_정보를_참고해_제안해'),
-  },
-  {
-    id: "qa-proof",
-    q: i18n.t('app.HWP_DOCX_교정고는_어떻게_넣나요'),
-    a: i18n.t('app.문서_가져오기에서_교정고_비교_분석_또는_H'),
-  },
-  {
-    id: "qa-hidden",
-    q: i18n.t('app.버튼을_숨겼는데_어떻게_다시_켜나요'),
-    a: i18n.t('app.관리자_모드_설정_옵션_숨긴_기능_에서_항목'),
-  },
-  {
-    id: "qa-trash",
-    q: i18n.t('app.버린_원고를_되돌릴_수_있나요'),
-    a: i18n.t('app.관리자_휴지통에서_복원할_수_있습니다_휴지통'),
-  },
-];
+let helpActiveTab = "manual";
+
+function helpManualCatalog() {
+  const t = (key) => i18n.t(key);
+  return [
+    { id: "immersion-theme", cat: "immersion", title: t("help.qa.immersion.theme.q"), body: t("help.qa.immersion.theme.a"), keywords: "테마 14 theme" },
+    { id: "immersion-ambient", cat: "immersion", title: t("help.qa.immersion.ambient.q"), body: t("help.qa.immersion.ambient.a"), keywords: "앰비언트 사운드 배경음" },
+    { id: "immersion-jitsi", cat: "immersion", title: t("help.qa.immersion.jitsi.q"), body: t("help.qa.immersion.jitsi.a"), keywords: "jitsi 짓시 화상" },
+
+    { id: "import-formats", cat: "import", title: t("help.qa.import.formats.q"), body: t("help.qa.import.formats.a"), keywords: "docx hwp epub markdown 목차 불러오기" },
+    { id: "import-auto", cat: "import", title: t("help.qa.import.auto.q"), body: t("help.qa.import.auto.a"), keywords: "캐릭터 세계관 자동 추출" },
+    { id: "import-proof", cat: "import", title: t("help.qa.import.proof.q"), body: t("help.qa.import.proof.a"), keywords: "교정고 비교 보고서 덮어쓰기" },
+
+    { id: "binder-features", cat: "binder", title: t("help.qa.binder.features.q"), body: t("help.qa.binder.features.a"), keywords: "색 북마크 고정 순번 뱃지 목차" },
+
+    { id: "settings-notes", cat: "settings", title: t("help.qa.settings.notes.q"), body: t("help.qa.settings.notes.a"), keywords: "생각수첩 메모" },
+    { id: "settings-docs", cat: "settings", title: t("help.qa.settings.docs.q"), body: t("help.qa.settings.docs.a"), keywords: "작품소개 기획의도 로그라인 시놉시스 장르 키워드 세계관 캐릭터" },
+    { id: "settings-traits", cat: "settings", title: t("help.qa.settings.traits.q"), body: t("help.qa.settings.traits.a"), keywords: "인물 특징 자동채움 프로필" },
+    { id: "settings-bait", cat: "settings", title: t("help.qa.settings.bait.q"), body: t("help.qa.settings.bait.a"), keywords: "떡밥" },
+    { id: "settings-profile", cat: "settings", title: t("help.qa.settings.profile.q"), body: t("help.qa.settings.profile.a"), keywords: "흥행작 프로파일" },
+    { id: "settings-refs", cat: "settings", title: t("help.qa.settings.refs.q"), body: t("help.qa.settings.refs.a"), keywords: "참고자료 출처" },
+    { id: "settings-vault", cat: "settings", title: t("help.qa.settings.vault.q"), body: t("help.qa.settings.vault.a"), keywords: "수집창고 결과" },
+    { id: "settings-backup", cat: "settings", title: t("help.qa.settings.backup.q"), body: t("help.qa.settings.backup.a"), keywords: "구글 드라이브 백업 클라우드" },
+
+    { id: "editor-view", cat: "editor", title: t("help.qa.editor.view.q"), body: t("help.qa.editor.view.a"), keywords: "확장 분할 팝업 뷰어 책 리더기" },
+    { id: "editor-layout", cat: "editor", title: t("help.qa.editor.layout.q"), body: t("help.qa.editor.layout.a"), keywords: "조판 문피아 카카오 리디 네이버" },
+    { id: "editor-compare", cat: "editor", title: t("help.qa.editor.compare.q"), body: t("help.qa.editor.compare.a"), keywords: "비교 보기 스냅샷" },
+    { id: "editor-log", cat: "editor", title: t("help.qa.editor.log.q"), body: t("help.qa.editor.log.a"), keywords: "기록 글자 시간" },
+    { id: "editor-tools", cat: "editor", title: t("help.qa.editor.tools.q"), body: t("help.qa.editor.tools.a"), keywords: "타자기 북마크 검색 사전 맞춤법" },
+    { id: "editor-float", cat: "editor", title: t("help.qa.editor.float.q"), body: t("help.qa.editor.float.a"), keywords: "플로팅 툴바 드래그" },
+    { id: "editor-tts", cat: "editor", title: t("help.qa.editor.tts.q"), body: t("help.qa.editor.tts.a"), keywords: "tts 음성 듣기" },
+    { id: "editor-widgets", cat: "editor", title: t("help.qa.editor.widgets.q"), body: t("help.qa.editor.widgets.a"), keywords: "위젯 레일 타임라인 관계도" },
+
+    { id: "check-list", cat: "check", title: t("help.qa.check.list.q"), body: t("help.qa.check.list.a"), keywords: "회차요약 복선 개연성 템포 훅 설정붕괴 중복" },
+
+    { id: "ideate-list", cat: "ideate", title: t("help.qa.ideate.list.q"), body: t("help.qa.ideate.list.a"), keywords: "구상 아이디어 브레인스토밍 피드백" },
+
+    { id: "write-continue", cat: "write", title: t("help.qa.write.continue.q"), body: t("help.qa.write.continue.a"), keywords: "이어서 쓰기" },
+    { id: "write-polish", cat: "write", title: t("help.qa.write.polish.q"), body: t("help.qa.write.polish.a"), keywords: "글 다듬기 간결화 풍부화 대사" },
+    { id: "write-world", cat: "write", title: t("help.qa.write.world.q"), body: t("help.qa.write.world.a"), keywords: "세계관 묘사" },
+    { id: "write-synopsis", cat: "write", title: t("help.qa.write.synopsis.q"), body: t("help.qa.write.synopsis.a"), keywords: "투고 공모 시놉시스" },
+
+    { id: "special-hit", cat: "special", title: t("help.qa.special.hit.q"), body: t("help.qa.special.hit.a"), keywords: "흥행 공식 분석" },
+    { id: "special-glump", cat: "special", title: t("help.qa.special.glump.q"), body: t("help.qa.special.glump.a"), keywords: "글럼프 응급실 와일드카드" },
+    { id: "special-play", cat: "special", title: t("help.qa.special.play.q"), body: t("help.qa.special.play.a"), keywords: "손가락 놀이터 타로" },
+
+    { id: "stage-list", cat: "stage", title: t("help.qa.stage.list.q"), body: t("help.qa.stage.list.a"), keywords: "각본 오디오북 번역 준비중" },
+
+    { id: "chat-list", cat: "chat", title: t("help.qa.chat.list.q"), body: t("help.qa.chat.list.a"), keywords: "소통방 캐릭터 가상독자" },
+
+    { id: "mobile-write", cat: "mobile", title: t("help.qa.mobile.write.q"), body: t("help.qa.mobile.write.a"), keywords: "모바일 집필 원고" },
+    { id: "mobile-notes", cat: "mobile", title: t("help.qa.mobile.notes.q"), body: t("help.qa.mobile.notes.a"), keywords: "메모 토리 대화 자료 준비중" },
+    { id: "mobile-notify", cat: "mobile", title: t("help.qa.mobile.notify.q"), body: t("help.qa.mobile.notify.a"), keywords: "알림 떡밥 작성 기록" },
+  ];
+}
+
+function helpFaqCatalog() {
+  const t = (key) => i18n.t(key);
+  return [
+    { id: "qa-local", q: t("app.데이터가_어디에_저장되나요"), a: t("app.이_기기의_로컬_DB에_저장됩니다_클라우드"), keywords: "저장 db sqlite 로컬 클라우드 백업" },
+    { id: "qa-child-folder", q: t("app.원고_아래_하위_폴더는_어떻게_만드나요"), a: t("app.바인더에서_원고_씬_를_우클릭_하위_폴더_만"), keywords: "하위 폴더 우클릭 씬" },
+    { id: "qa-genre", q: t("app.장르는_어떻게_바꾸나요"), a: t("app.설정집_장르_키워드_에서_작품_종류_메인_하"), keywords: "장르 키워드 종류" },
+    { id: "qa-ai-ideas", q: t("app.다음_아이디어_브레인스토밍은_무엇을_보나요"), a: t("app.작품_인덱스_설정_누적_정보를_참고해_제안해"), keywords: "아이디어 브레인스토밍 토리" },
+    { id: "qa-hidden", q: t("app.버튼을_숨겼는데_어떻게_다시_켜나요"), a: t("app.관리자_모드_설정_옵션_숨긴_기능_에서_항목"), keywords: "숨긴 기능 우클릭" },
+    { id: "qa-trash", q: t("app.버린_원고를_되돌릴_수_있나요"), a: t("app.관리자_휴지통에서_복원할_수_있습니다_휴지통"), keywords: "휴지통 복원 버리기" },
+  ];
+}
+
+function helpCategoryLead(catId) {
+  const key = `help.qa.${catId}.overview.a`;
+  const text = i18n.t(key);
+  if (!text || text === key) return "";
+  return text;
+}
+
+function helpMatchTokens(haystack, tokens) {
+  if (!tokens.length) return true;
+  const hay = String(haystack || "").toLowerCase();
+  return tokens.every((token) => hay.includes(token));
+}
+
+function formatHelpAnswer(text) {
+  const lines = String(text || "").split("\n").map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return "";
+  const isBullet = (line) => /^[·•\-]\s+/.test(line);
+  const chunks = [];
+  let bullets = [];
+  const flushBullets = () => {
+    if (!bullets.length) return;
+    chunks.push(`<ul>${bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`);
+    bullets = [];
+  };
+  lines.forEach((line) => {
+    if (isBullet(line)) {
+      bullets.push(line.replace(/^[·•\-]\s+/, ""));
+      return;
+    }
+    flushBullets();
+    chunks.push(`<p>${escapeHtml(line)}</p>`);
+  });
+  flushBullets();
+  return chunks.join("");
+}
+
+function closeHelpModal() {
+  $("helpModal")?.classList.add("hidden");
+}
+
+function setHelpTab(tab) {
+  helpActiveTab = tab === "qa" ? "qa" : "manual";
+  document.querySelectorAll("[data-help-tab]").forEach((btn) => {
+    const on = btn.dataset.helpTab === helpActiveTab;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll("[data-help-panel]").forEach((panel) => {
+    const on = panel.dataset.helpPanel === helpActiveTab;
+    panel.hidden = !on;
+    panel.classList.toggle("is-active", on);
+  });
+  renderHelpContent($("helpSearch")?.value || "");
+}
+
+function openHelpModal() {
+  closeCreateMenu();
+  if (typeof closeProjectList === "function") closeProjectList();
+  if (typeof closeAdminModal === "function") closeAdminModal();
+  hideUiFeatureContextMenu();
+  $("helpModal")?.classList.remove("hidden");
+  setHelpTab(helpActiveTab || "manual");
+  try {
+    $("helpSearch")?.focus({ preventScroll: true });
+  } catch (_) {
+    $("helpSearch")?.focus();
+  }
+}
+
+function renderHelpContent(filterText = "") {
+  const q = String(filterText || "").trim().toLowerCase();
+  const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+  const manuals = helpManualCatalog();
+  const faqs = helpFaqCatalog();
+  const matchedManual = manuals.filter((item) => {
+    const lead = helpCategoryLead(item.cat);
+    const catMeta = HELP_MANUAL_CATEGORIES.find((cat) => cat.id === item.cat);
+    const catTitle = catMeta ? i18n.t(catMeta.titleKey) : "";
+    return helpMatchTokens(`${item.title} ${item.body} ${item.keywords || ""} ${lead} ${catTitle}`, tokens);
+  });
+  const matchedFaq = faqs.filter((item) => helpMatchTokens(`${item.q} ${item.a} ${item.keywords || ""}`, tokens));
+  const count = helpActiveTab === "qa" ? matchedFaq.length : matchedManual.length;
+  const hint = $("helpSearchHint");
+  if (hint) {
+    hint.textContent = tokens.length
+      ? (count ? i18n.t("help.search_hits", { n: count }) : i18n.t("app.검색_결과가_없습니다_다른_단어를_시도해_보"))
+      : i18n.t(helpActiveTab === "qa" ? "help.search_qa_all" : "help.search_all", { n: count });
+  }
+  renderHelpManual(matchedManual, tokens);
+  renderHelpQa(matchedFaq);
+}
+
+function renderHelpManual(matched, tokens = []) {
+  const host = $("helpManualList");
+  if (!host) return;
+  if (!matched.length) {
+    host.innerHTML = i18n.t("app.p_class_hint_trash_empt_9");
+    return;
+  }
+  const firstVisible = HELP_MANUAL_CATEGORIES.find((cat) => matched.some((item) => item.cat === cat.id));
+  host.innerHTML = HELP_MANUAL_CATEGORIES.map((cat) => {
+    const group = matched.filter((item) => item.cat === cat.id);
+    if (!group.length) return "";
+    const title = escapeHtml(i18n.t(cat.titleKey));
+    const lead = helpCategoryLead(cat.id);
+    const leadHtml = lead ? `<div class="help-manual-lead">${formatHelpAnswer(lead)}</div>` : "";
+    const articles = group.map((item) => `
+      <article class="admin-help-article" data-help-id="${escapeHtml(item.id)}">
+        <h4 class="admin-help-article-title">${escapeHtml(item.title)}</h4>
+        <div class="admin-qa-a">${formatHelpAnswer(item.body)}</div>
+      </article>
+    `).join("");
+    const shouldOpen = tokens.length || cat.id === firstVisible?.id;
+    return `<details class="help-manual-group"${shouldOpen ? " open" : ""} data-help-cat="${escapeHtml(cat.id)}"><summary class="help-qa-group-title">${title}</summary>${leadHtml}${articles}</details>`;
+  }).join("");
+}
+
+function renderHelpQa(matched) {
+  const host = $("helpQaList");
+  if (!host) return;
+  if (!matched.length) {
+    host.innerHTML = i18n.t("app.p_class_hint_trash_empt_9");
+    return;
+  }
+  host.innerHTML = matched.map((item) => `
+    <details class="admin-qa-item" data-qa-id="${escapeHtml(item.id)}">
+      <summary>${escapeHtml(item.q)}</summary>
+      <div class="admin-qa-a">${formatHelpAnswer(item.a)}</div>
+    </details>
+  `).join("");
+}
+
+function setupHelpModal() {
+  const search = $("helpSearch");
+  if (search && search.dataset.helpBound !== "1") {
+    search.dataset.helpBound = "1";
+    search.addEventListener("input", (event) => {
+      renderHelpContent(event.target.value);
+    });
+  }
+  document.querySelectorAll("[data-close-help]").forEach((el) => {
+    if (el.dataset.helpBound === "1") return;
+    el.dataset.helpBound = "1";
+    el.addEventListener("click", closeHelpModal);
+  });
+  document.querySelectorAll("[data-help-tab]").forEach((btn) => {
+    if (btn.dataset.helpBound === "1") return;
+    btn.dataset.helpBound = "1";
+    btn.addEventListener("click", () => setHelpTab(btn.dataset.helpTab));
+  });
+  const openFromAdmin = $("adminOpenHelpButton");
+  if (openFromAdmin && openFromAdmin.dataset.helpBound !== "1") {
+    openFromAdmin.dataset.helpBound = "1";
+    openFromAdmin.addEventListener("click", (event) => {
+      event.preventDefault();
+      openHelpModal();
+    });
+  }
+}
 
 function getAppVersionSync() {
   try {
@@ -81170,53 +81470,6 @@ async function saveAdminPrimaryDevice() {
   }
 }
 
-function renderAdminHelpManual(filterText = "") {
-  const host = $("adminHelpManual");
-  if (!host) return;
-  const q = String(filterText || "").trim().toLowerCase();
-  const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
-  const matched = HELP_MANUAL_SECTIONS.filter((sec) => {
-    if (!tokens.length) return true;
-    const hay = `${sec.title} ${sec.keywords} ${sec.body.join(" ")}`.toLowerCase();
-    return tokens.every((t) => hay.includes(t));
-  });
-  const hint = $("adminHelpSearchHint");
-  if (hint) {
-    hint.textContent = tokens.length
-      ? (matched.length ? `${i18n.t('app.검색_결과_matched_length_개', {'matched.length': matched.length})}` : i18n.t('app.검색_결과가_없습니다_다른_단어를_시도해_보'))
-      : `${i18n.t('app.설명서_HELP_MANUAL_SECTIONS', {'HELP_MANUAL_SECTIONS.length': HELP_MANUAL_SECTIONS.length})}`;
-  }
-  if (!matched.length) {
-    host.innerHTML = i18n.t('app.p_class_hint_trash_empt_9');
-    return;
-  }
-  host.innerHTML = matched.map((sec) => `
-    <article class="admin-help-article" data-help-id="${escapeHtml(sec.id)}" id="help-sec-${escapeHtml(sec.id)}">
-      <h5 class="admin-help-article-title">${escapeHtml(sec.title)}</h5>
-      ${sec.body.map((p) => `<p>${escapeHtml(p)}</p>`).join("")}
-    </article>
-  `).join("");
-}
-
-function renderAdminHelpQa() {
-  const host = $("adminHelpQa");
-  if (!host) return;
-  if (!HELP_QA_ITEMS.length) {
-    host.innerHTML = `
-      <div class="admin-qa-empty">
-        <p class="hint">아직 등록된 Q&amp;A가 없습니다.</p>
-        <p class="hint">업데이트로 질문·답변이 추가되면 이 목록에 표시됩니다.</p>
-      </div>`;
-    return;
-  }
-  host.innerHTML = HELP_QA_ITEMS.map((item, index) => `
-    <details class="admin-qa-item" data-qa-id="${escapeHtml(item.id || String(index))}">
-      <summary>${escapeHtml(item.q)}</summary>
-      <div class="admin-qa-a">${escapeHtml(item.a)}</div>
-    </details>
-  `).join("");
-}
-
 /** Open mail client without showing the address in the UI. */
 function openDeveloperContact() {
   const local = ["cult", "noni"].join("");
@@ -81367,7 +81620,7 @@ function buildOnboardingSteps() {
         title: i18n.t('app.숨긴_기능'),
         description: i18n.t('app.안_쓰는_기능은_숨길_수_있어요_미니멀리스트'),
         side: "bottom",
-        align: "end",
+        align: "start",
       },
     },
   ];
@@ -81570,9 +81823,7 @@ function setupAdminMode() {
     btn.addEventListener("click", () => setAdminTab(btn.dataset.adminTab));
   });
   if (typeof setupAdminCollapsibleSections === "function") setupAdminCollapsibleSections();
-  $("adminHelpSearch")?.addEventListener("input", (event) => {
-    renderAdminHelpManual(event.target.value);
-  });
+  setupHelpModal();
   $("adminContactDevButton")?.addEventListener("click", (event) => {
     event.preventDefault();
     openDeveloperContact();
@@ -81662,8 +81913,6 @@ function setupAdminMode() {
   });
   setupUiFeatureHideSystem();
   setupIconGuideTooltips();
-  renderAdminHelpManual();
-  renderAdminHelpQa();
   refreshAdminInfoPanel();
   setupAutoUpdateUi();
 }
@@ -82240,7 +82489,7 @@ const EINK_BW_FORCE_CSS = [
   'background:#000!important;background-color:#000!important;color:#fff!important;-webkit-text-fill-color:#fff!important;}',
   'html[data-theme="eink"] .tory-priority-box,html[data-theme="eink"] .tory-priority-box.is-open,',
   'html[data-theme="eink"] .tory-priority-toggle:hover,html[data-ui-theme="eink"] .tory-priority-box{',
-  'background:#fff!important;border-color:#000!important;}',
+  'background:transparent!important;border:0!important;border-bottom:1px solid #000!important;box-shadow:none!important;}',
   'html[data-theme="eink"] .feature-chip,html[data-theme="eink"] .status-clip-select,',
   'html[data-theme="eink"] .tools-kit-button.is-active-split,html[data-theme="eink"] .compact-btn.is-active-split,',
   'html[data-ui-theme="eink"] .feature-chip{background:#fff!important;border-color:#000!important;color:#000!important;box-shadow:none!important;}',
@@ -83597,6 +83846,7 @@ function openCreateMenu() {
   const menu = $("createMenuDropdown");
   const btn = $("createMenuButton");
   if (!menu) return;
+  closeProjectList();
   menu.classList.remove("hidden");
   btn?.setAttribute("aria-expanded", "true");
   // Binder clips absolute menus; pin to viewport when hosted in the left panel.
@@ -83630,10 +83880,34 @@ function toggleCreateMenu() {
   else closeCreateMenu();
 }
 
+function goTitlebarHome() {
+  closeCreateMenu();
+  if (typeof closeProjectList === "function") closeProjectList();
+  if (typeof closeHelpModal === "function") closeHelpModal();
+  if (typeof closeAdminModal === "function") closeAdminModal();
+  state.ideaBoardOpen = false;
+  state.keywordBoardOpen = false;
+  $("ideaBoard")?.classList.add("hidden");
+  $("keywordBoard")?.classList.add("hidden");
+  showWelcome();
+}
+
 function setupCreateMenu() {
   $("createMenuButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
     toggleCreateMenu();
+  });
+  $("titlebarHomeButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    goTitlebarHome();
+  });
+  $("titlebarHelpButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeCreateMenu();
+    if (typeof closeProjectList === "function") closeProjectList();
+    openHelpModal();
   });
   $("createMenuDropdown")?.addEventListener("click", (event) => {
     const item = event.target.closest("[data-create-action]");
@@ -83712,12 +83986,20 @@ document.querySelectorAll("[data-close-import]").forEach((element) => {
 });
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
+  if (!$("helpModal")?.classList.contains("hidden")) {
+    closeHelpModal();
+    return;
+  }
   if (!$("adminModal")?.classList.contains("hidden")) {
     closeAdminModal();
     return;
   }
   if (!$("createMenuDropdown")?.classList.contains("hidden")) {
     closeCreateMenu();
+    return;
+  }
+  if (!$("projectListDropdown")?.classList.contains("hidden")) {
+    closeProjectList();
     return;
   }
   if (!$("exportModal")?.classList.contains("hidden")) {
@@ -83901,6 +84183,7 @@ onEl("projectSelect", "change", (event) => {
 });
 safeSetup("setupEpisodeChrome", setupEpisodeChrome);
 safeSetup("setupProjectListContextMenu", setupProjectListContextMenu);
+safeSetup("setupProjectLibraryMenu", setupProjectLibraryMenu);
 onEl("sceneEditor", "submit", (event) => saveScene(event).catch(handleError));
 onEl("characterEditor", "submit", (event) => saveCharacter(event).catch(handleError));
 onEl("addAliasButton", "click", () => addAlias().catch(handleError));

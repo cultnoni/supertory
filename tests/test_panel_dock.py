@@ -379,6 +379,8 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("openDockAppearancesFloat(data.id, event.currentTarget)", self.js)
         self.assertIn('data-role="dock-char-appearances"', self.js)
         self.assertIn(".idea-float.dock-float.dock-float-appearances", self.css)
+        self.assertIn("const DOCK_APPEARANCES_DEFAULT_W = 320", self.js)
+        self.assertIn("const DOCK_APPEARANCES_DEFAULT_H = 420", self.js)
         self.assertIn("dock-appearance-snippet", self.js)
         self.assertIn("dock-appearance-line", self.js)
         self.assertIn(".dock-appearance-item.is-latest", self.css)
@@ -433,6 +435,8 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("function addToryDictionaryFromSelection(", self.js)
         self.assertIn('data-context-action="add-tory-dict"', self.html)
         self.assertIn(".idea-float.dock-float.dock-float-dictionary", self.css)
+        self.assertIn("const DOCK_DICTIONARY_DEFAULT_W = 320", self.js)
+        self.assertIn("const DOCK_DICTIONARY_DEFAULT_H = 420", self.js)
         lookup = self.html.find('data-context-action="lookup-dict"')
         similar = self.html.find('data-context-action="similar-words"')
         add_dict = self.html.find('data-context-action="add-tory-dict"')
@@ -503,8 +507,8 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22", writing_timer)
         self.assertIn('stroke="currentColor"', writing_timer)
         tool_timer = self.html.split('id="writingLogButton"', 1)[1].split("</button>", 1)[0]
-        self.assertIn('<circle cx="12" cy="12" r="8.25"/>', tool_timer)
-        self.assertIn("M12 7.5V12l3 2", tool_timer)
+        self.assertIn('d="M16 14v2.2l1.6 1"', tool_timer)
+        self.assertIn('cx="16" cy="16" r="6"', tool_timer)
         self.assertIn('data-i18n="app.기록"', tool_timer)
         self.assertIn('name="writingTimerStylePref"', self.html)
         self.assertIn('value="hourglass"', self.html)
@@ -804,8 +808,8 @@ class PanelDockContractTests(unittest.TestCase):
             "/* 아이콘바: 12개 도구가 행 폭에 맞춰 같은 비율로 늘어남 */",
             1,
         )[1].split("}", 1)[0]
-        self.assertIn("justify-content: space-between", icons)
-        self.assertNotIn("justify-content: flex-start", icons)
+        self.assertIn("justify-content: flex-start", icons)
+        self.assertNotIn("justify-content: space-between", icons)
         self.assertIn("gap: 0", icons)
         format_clusters = self.css.split(
             ".format-toolbar-row-format .format-toolbar-cluster-start,\n"
@@ -813,12 +817,30 @@ class PanelDockContractTests(unittest.TestCase):
             1,
         )[1].split("}", 1)[0]
         self.assertIn("display: contents", format_clusters)
+        history = self.css.split(
+            ".format-toolbar-row-format .format-toolbar-cluster-start > .format-seg-history {",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("justify-content: center", history)
+        self.assertIn("flex: 1 0 auto", history)
+        self.assertNotIn("max-width: 7.5rem", history)
+        format_split = self.css.split(
+            ".format-toolbar-row-format .format-toolbar-row-body.format-toolbar-row-body-split {",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("justify-content: flex-start", format_split)
+        jangpyeong = self.css.split(
+            ".format-toolbar-row-format .format-field-chip.format-jangpyeong-chip {",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("flex: 1 0 auto", jangpyeong)
+        self.assertIn("justify-content: center", jangpyeong)
         split_icons = self.css.split(
             ".scene-workspace.split-active .format-toolbar-row-icons "
             ".format-toolbar-row-body.format-toolbar-row-body-split {",
             1,
         )[1].split("}", 1)[0]
-        self.assertIn("justify-content: space-between", split_icons)
+        self.assertIn("justify-content: flex-start", split_icons)
         self.assertIn("gap: 0", split_icons)
 
     def test_view_tool_icons_include_page_write_placeholder(self) -> None:
@@ -898,6 +920,12 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn(f"padding: {panel_inset} 2px 0", tab_bar)
         # The old 6px lip is what pushed the centre column below the panels.
         self.assertNotIn("padding: 6px 2px 0", tab_bar)
+        self.assertIn("flex: 0 1 auto", tab_bar)
+        self.assertIn("width: max-content", tab_bar)
+        self.assertIn("max-width: calc(100% - 32px)", tab_bar)
+        self.assertNotIn("flex: 1 1 auto", tab_bar)
+        add_btn = self.css.split(".episode-tab-add {", 1)[1].split("}", 1)[0]
+        self.assertNotIn("translateX", add_btn)
         # Tab size itself must stay untouched.
         tab = self.css.split(".episode-tab {", 1)[1].split("}", 1)[0]
         self.assertIn("min-height: 28px", tab)
@@ -910,6 +938,11 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertNotIn("function renderDockPinnedIdeas(", self.js)
         self.assertIn('id="headerIdeaBar"', self.html)
         self.assertIn('id="headerIdeaNotice"', self.html)
+        titlebar = self.html.split('class="app-titlebar"', 1)[1].split("</header>", 1)[0]
+        self.assertIn('id="headerIdeaBar"', titlebar)
+        self.assertIn('id="headerNoticeStrip"', titlebar)
+        footer = self.html.split('id="binderFooterStack"', 1)[1].split("binder-panel", 1)[0]
+        self.assertNotIn('id="headerIdeaBar"', footer)
         header_fn = self.js.split("function renderHeaderIdeaBar(", 1)[1].split(
             "function setupHeaderNotices(", 1
         )[0]
@@ -975,19 +1008,14 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("--widget-gradient-accent", self.js)
         self.assertIn("setupWidgetTransparency();", self.js)
         dock_float = self.css.split(".idea-float.dock-float {", 1)[1].split("}", 1)[0]
-        self.assertIn("linear-gradient(", dock_float)
-        self.assertIn("var(--widget-gradient-light, 34%)", dock_float)
-        self.assertIn("var(--widget-gradient-accent, 10%)", dock_float)
-        self.assertIn("--widget-surface: color-mix(in srgb, var(--surface) 74%", dock_float)
-        self.assertIn("var(--widget-surface, var(--surface))", dock_float)
-        self.assertIn("var(--widget-surface-opacity-top, 92%)", dock_float)
-        self.assertIn("var(--widget-surface-opacity-bottom, 82%)", dock_float)
+        self.assertNotIn("145deg", dock_float)
+        self.assertNotIn("linear-gradient(", dock_float)
+        self.assertIn("var(--panel)", dock_float)
+        self.assertIn("var(--widget-surface-opacity, 92%)", dock_float)
+        self.assertIn("0 6px 16px rgba(0, 0, 0, 0.10)", dock_float)
         self.assertNotIn("backdrop-filter", dock_float)
         self.assertIn(".idea-float.dock-float.is-front", self.css)
-        dock_header = self.css.split(
-            ".idea-float.dock-float .idea-float-drag {", 1
-        )[1].split("}", 1)[0]
-        self.assertIn("--widget-gradient-header", dock_header)
+        self.assertNotIn(".idea-float.dock-float .idea-float-drag {", self.css)
         for locale in self.locales.values():
             self.assertIn("app.위젯_투명도", locale)
             self.assertIn("app.위젯_투명도_설명", locale)
@@ -1225,6 +1253,8 @@ class PanelDockContractTests(unittest.TestCase):
         )[0]
         self.assertIn("syncDockSuccessProfileFloat()", link)
         self.assertIn(".idea-float.dock-float.dock-float-success-profile", self.css)
+        self.assertIn("const DOCK_SUCCESS_PROFILE_DEFAULT_W = 320", self.js)
+        self.assertIn("const DOCK_SUCCESS_PROFILE_DEFAULT_H = 420", self.js)
         self.assertIn(".dock-success-profile-actions", self.css)
         for locale in self.locales.values():
             for key in (
@@ -1262,6 +1292,8 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("if (itemId === \"timeline\") return openDockTimelineFloat(0, sourceEl);", self.js)
         self.assertIn('options.kind === "item"', self.js.split("function openDockTimelineFloat(", 1)[1].split("function dockBaitEpisodeLabel(", 1)[0])
         self.assertIn(".idea-float.dock-float.dock-float-timeline", self.css)
+        self.assertIn("const DOCK_TIMELINE_DEFAULT_W = 320", self.js)
+        self.assertIn("const DOCK_TIMELINE_DEFAULT_H = 420", self.js)
         self.assertIn(".dock-timeline-list", self.css)
         self.assertIn(".trait-chronicle-who", self.css)
         for locale in self.locales.values():
@@ -1328,6 +1360,8 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("renderSettingsSearchResults({}, \"\")", apply_fn)
         self.assertIn("function scheduleSettingsSearch(", self.js)
         self.assertIn(".idea-float.dock-float.dock-float-settings-search", self.css)
+        self.assertIn("const DOCK_SETTINGS_SEARCH_DEFAULT_W = 320", self.js)
+        self.assertIn("const DOCK_SETTINGS_SEARCH_DEFAULT_H = 420", self.js)
         self.assertIn(".settings-search-live", self.css)
         for locale in self.locales.values():
             self.assertIn("app.크로스_레퍼런스_시스템", locale)
@@ -1354,6 +1388,8 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("method: \"PATCH\"", self.js.split("function setDockBaitResolved(", 1)[1].split("function loadDockBaitsAndCollected(", 1)[0])
         self.assertIn("baits: DOCK_BAITS_KEY", self.js)
         self.assertIn(".idea-float.dock-float.dock-float-baits", self.css)
+        self.assertIn("const DOCK_BAITS_DEFAULT_W = 320", self.js)
+        self.assertIn("const DOCK_BAITS_DEFAULT_H = 420", self.js)
         self.assertIn(".dock-bait-item.is-resolved", self.css)
         self.assertIn(".dock-baits-tabs", self.css)
         self.assertIn("data-settings-section=\"baits\"", self.html)
@@ -1410,6 +1446,10 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("handleSourceListClick", self.js.split("function renderDockSourcesBody(", 1)[1].split("function dockManuscriptWin(", 1)[0])
         self.assertIn(".idea-float.dock-float.dock-float-tory-vault", self.css)
         self.assertIn(".idea-float.dock-float.dock-float-sources", self.css)
+        self.assertIn("const DOCK_TORY_VAULT_DEFAULT_W = 320", self.js)
+        self.assertIn("const DOCK_TORY_VAULT_DEFAULT_H = 420", self.js)
+        self.assertIn("const DOCK_SOURCES_DEFAULT_W = 320", self.js)
+        self.assertIn("const DOCK_SOURCES_DEFAULT_H = 420", self.js)
         self.assertIn(".dock-tory-vault-list", self.css)
         self.assertIn(".dock-sources-list", self.css)
         for locale in self.locales.values():
@@ -1712,6 +1752,77 @@ class PanelDockContractTests(unittest.TestCase):
             self.assertIn("index.구분선_직접_입력_자리표시", locale)
             self.assertIn("app.본문에_구분선을_넣었어요", locale)
             self.assertIn("app.구분선에_넣을_글을_먼저_적어_주세요", locale)
+
+    def test_titlebar_file_menu_and_project_library(self) -> None:
+        self.assertIn("titlebar-file-btn", self.html)
+        self.assertIn('class="titlebar-icon-btn titlebar-file-btn"', self.html)
+        self.assertIn('data-i18n-aria-label="index.메뉴_파일"', self.html)
+        self.assertIn('id="projectLibraryButton"', self.html)
+        self.assertIn("lucide-library-big", self.html)
+        self.assertIn('id="projectTitleLabel"', self.html)
+        self.assertIn('id="projectListDropdown"', self.html)
+        header = self.html.split('class="app-titlebar"', 1)[1].split("<main>", 1)[0]
+        self.assertIn('id="createMenu"', header)
+        self.assertIn('id="createMenuButton"', header)
+        self.assertIn('id="titlebarHomeButton"', header)
+        self.assertIn('id="titlebarHelpButton"', header)
+        self.assertIn('id="adminModeButton"', header)
+        self.assertIn("lucide-house", header)
+        self.assertIn("lucide-book-plus", header)
+        self.assertIn("lucide-settings", header)
+        self.assertIn("lucide-info", header)
+        home_idx = header.find('id="titlebarHomeButton"')
+        file_idx = header.find('id="createMenuButton"')
+        admin_idx = header.find('id="adminModeButton"')
+        help_idx = header.find('id="titlebarHelpButton"')
+        self.assertLess(home_idx, file_idx)
+        self.assertLess(file_idx, admin_idx)
+        self.assertLess(admin_idx, help_idx)
+        self.assertNotIn('data-i18n="index.메뉴_파일"', header)
+        binder = self.html.split("binder-work-row-project", 1)[1].split("binder-panel-top", 1)[0]
+        self.assertIn('id="projectLibraryButton"', binder)
+        self.assertNotIn('id="createMenu"', binder)
+        footer = self.html.split('id="binderFooterStack"', 1)[1].split("binder-panel", 1)[0]
+        self.assertNotIn('id="adminModeButton"', footer)
+        self.assertIn(".project-title-label", self.css)
+        self.assertIn(".project-library-btn", self.css)
+        self.assertIn(".titlebar-icon-btn", self.css)
+        self.assertIn("text-overflow: ellipsis", self.css.split(".project-title-label", 1)[1][:400])
+        self.assertIn("function setupProjectLibraryMenu", self.js)
+        self.assertIn("function syncProjectTitleLabel", self.js)
+        self.assertIn("function openProjectList", self.js)
+        self.assertIn("function goTitlebarHome", self.js)
+        self.assertIn("function openHelpModal", self.js)
+        self.assertIn("function helpFaqCatalog", self.js)
+        self.assertIn("function helpManualCatalog", self.js)
+        self.assertIn("function renderHelpContent", self.js)
+        self.assertIn('id="helpModal"', self.html)
+        self.assertIn('id="helpManualList"', self.html)
+        self.assertIn('id="helpQaList"', self.html)
+        self.assertIn('data-help-tab="manual"', self.html)
+        self.assertIn('data-help-tab="qa"', self.html)
+        self.assertNotIn('id="adminHelpQa"', self.html)
+        self.assertNotIn('id="adminHelpManual"', self.html)
+        self.assertIn('openAdminModal("info")', self.js)
+        for locale in self.locales.values():
+            self.assertIn("index.메뉴_파일", locale)
+            self.assertIn("index.파일_메뉴", locale)
+            self.assertIn("index.작품_목록", locale)
+            self.assertIn("index.아직_만든_작품이_없어요", locale)
+            self.assertIn("index.시작_화면", locale)
+            self.assertIn("index.도움말", locale)
+            self.assertIn("help.cat.immersion", locale)
+            self.assertIn("help.tab.manual", locale)
+            self.assertIn("help.tab.qa", locale)
+            self.assertIn("help.qa.import.proof.q", locale)
+        self.assertEqual(self.locales["ko"]["index.메뉴_파일"], "파일")
+        self.assertEqual(self.locales["en"]["index.메뉴_파일"], "File")
+        self.assertEqual(self.locales["es"]["index.메뉴_파일"], "Archivo")
+        self.assertEqual(self.locales["ko"]["index.시작_화면"], "시작 화면")
+        self.assertEqual(self.locales["ko"]["index.도움말"], "도움말")
+        self.assertEqual(self.locales["ko"]["help.tab.manual"], "기능 안내")
+        self.assertEqual(self.locales["ko"]["help.tab.qa"], "QnA")
+        self.assertEqual(self.locales["ko"]["help.qa.import.proof.q"], "교정고 불러오기")
 
 
 if __name__ == "__main__":

@@ -1007,8 +1007,6 @@ html[data-theme="classroom"] .idea-card,
 html[data-ui-theme="classroom"] .idea-card,
 html[data-theme="classroom"] .character-board-card,
 html[data-ui-theme="classroom"] .character-board-card,
-html[data-theme="classroom"] .tory-priority-box,
-html[data-ui-theme="classroom"] .tory-priority-box,
 html[data-theme="classroom"] .bookmark-list-panel,
 html[data-ui-theme="classroom"] .bookmark-list-panel,
 html[data-theme="classroom"] .view-mode-dropdown,
@@ -1090,7 +1088,7 @@ header.app-chrome {
   border-bottom: 0; /* 로고·제품명 아래 전체 가로선 제거 */
   background: var(--header-bg);
   position: relative;
-  z-index: auto;
+  z-index: 50;
 }
 /* Window caption strip: logo + name on the left, OS min/max/close on the right (Electron) */
 .app-titlebar {
@@ -1104,6 +1102,7 @@ header.app-chrome {
   background: var(--chrome-bg, var(--header-bg));
   border-bottom: 0; /* 로고·제품명 아래 가로선 제거 */
   -webkit-app-region: drag;
+  overflow: visible;
   position: relative;
   gap: 8px;
   /* Leave room for Windows caption buttons when titleBarOverlay is active */
@@ -1124,6 +1123,11 @@ html.is-electron .app-toolbar a,
 html.is-electron .app-toolbar label,
 html.is-electron .header-notice-strip button,
 html.is-electron .create-menu,
+html.is-electron .titlebar-leading,
+html.is-electron .titlebar-icon-btn,
+html.is-electron .titlebar-file-btn,
+html.is-electron .project-library-btn,
+html.is-electron .project-list-dropdown,
 html.is-electron .genre-display,
 html.is-electron .purpose-display,
 html.is-electron .offline-mode-badge,
@@ -1220,22 +1224,25 @@ html.is-electron-mac .app-titlebar {
 .icon-btn:hover { background: var(--surface-3); }
 .project-picker {
   margin-left: 2px;
-  color: var(--muted);
+  color: var(--ink);
   font-size: 12px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
 }
-.project-picker select {
-  min-height: 30px;
-  height: 30px;
-  min-width: 120px;
-  max-width: 200px;
-  padding: 2px 8px;
-  font-size: 13px;
-  font-family: var(--font-ui);
+.project-title-label {
+  display: block;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--ink);
 }
 /* Work purpose (소설/에세이…) — changeable anytime */
 .purpose-picker {
@@ -1425,95 +1432,116 @@ html.is-electron-mac .app-titlebar {
   opacity: 0.55;
   cursor: not-allowed;
 }
-/* Header notice strip: idea memos | bookmarks (half / half, dismissible) */
+/* Titlebar pinned memos: square post-its in a row */
 .header-notice-strip {
   display: flex;
   align-items: center;
   gap: 4px;
   flex: 1 1 auto;
   min-width: 0;
-  margin-left: 4px;
-  align-self: stretch;
+  margin: 0 8px 0 6px;
+  align-self: center;
+  height: 32px;
+  max-height: 32px;
+  overflow: visible;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.header-notice-strip.is-empty {
+  display: none !important;
 }
 .header-notice {
-  flex: 1 1 50%;
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 4px;
-  padding: 0 4px 0 6px;
-  min-height: 26px;
-  max-height: 28px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  padding: 0;
+  min-height: 0;
+  max-height: 32px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .header-notice-strip .header-idea-notice {
-  flex-basis: 100%;
+  flex-basis: auto;
+  width: 100%;
 }
-.header-notice-head {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: 0 0 auto;
-  min-height: 0;
-  order: 0;
-}
-.header-notice.has-items .header-notice-head {
-  order: 2;
-}
+.header-notice-head,
 .header-notice-title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--muted);
-  line-height: 1;
-  white-space: nowrap;
-}
-.header-notice.has-items .header-notice-title {
-  display: none;
+  display: none !important;
 }
 .header-notice-body {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  order: 1;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+.header-notice-body::-webkit-scrollbar {
+  display: none;
 }
 .header-notice.is-empty .header-notice-body {
   display: none;
 }
 .header-idea-bar .header-idea-chip {
   position: relative;
-  flex: 0 0 auto;
-  max-width: 110px;
-  padding: 1px 6px 1px 14px;
-  border: 1px solid #00000018;
-  border-radius: 4px;
-  font-size: 10px;
-  line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--ink);
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  max-width: 30px;
+  padding: 8px 2px 2px;
+  border: 1px solid #0000001a;
+  border-radius: 1px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #3a342c;
   background: #fff8c8;
-  box-shadow: 0 1px 1px #00000012;
+  box-shadow:
+    1px 1px 0 #00000014,
+    0 2px 4px #00000016;
+  overflow: hidden;
+  transform: rotate(-1.2deg);
+  cursor: pointer;
+}
+.header-idea-bar .header-idea-chip:nth-child(2n) { transform: rotate(1deg); }
+.header-idea-bar .header-idea-chip:nth-child(3n) { transform: rotate(-0.6deg); }
+.header-idea-bar .header-idea-chip:hover {
+  z-index: 2;
+  transform: rotate(0deg) translateY(-1px);
+  box-shadow:
+    1px 2px 0 #00000014,
+    0 3px 7px #00000018;
+}
+.header-idea-bar .header-idea-chip::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 7px 7px 0;
+  border-color: transparent #00000016 transparent transparent;
+  pointer-events: none;
 }
 .header-idea-bar .header-idea-chip-pin {
   position: absolute;
-  left: 2px;
-  bottom: 0;
+  top: -1px;
+  left: 50%;
+  transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
   color: #dc2626;
   opacity: 0.95;
   pointer-events: none;
@@ -1521,16 +1549,22 @@ html.is-electron-mac .app-titlebar {
 }
 .header-idea-bar .header-idea-chip-pin .idea-pin-glyph {
   display: block;
+  width: 10px;
+  height: 10px;
 }
 .header-idea-bar .header-idea-chip-label {
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-align: center;
+  word-break: break-all;
 }
 .header-idea-bar .header-idea-chip.color-yellow { background: #fff3a8; }
 .header-idea-bar .header-idea-chip.color-pink { background: #ffd6e4; }
 .header-idea-bar .header-idea-chip.color-blue { background: #d6e8ff; }
 .header-idea-bar .header-idea-chip.color-green { background: #d8f0d0; }
+.header-idea-bar .header-idea-chip.color-orange { background: #ffe0b8; }
 .header-idea-bar .header-idea-chip.color-purple { background: #e8d8ff; }
 /* 북마크 색 표시(목차 회차 등) — 하단 목록 UI는 제거됨 */
 .bookmark-chip {
@@ -1574,9 +1608,9 @@ html.is-electron-mac .app-titlebar {
 /* 북마크: 트리/lead 열 · 호버 박스 밖 · SVG 아이콘(색=--bm-color) */
 .scene-bookmark-slot {
   flex: 0 0 auto;
-  width: 12px;
-  min-width: 12px;
-  height: 14px;
+  width: 15px;
+  min-width: 15px;
+  height: 17px;
   margin: 0;
   padding: 0;
   display: inline-flex;
@@ -1591,8 +1625,8 @@ html.is-electron-mac .app-titlebar {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 12px;
-  height: 12px;
+  width: 15px;
+  height: 15px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -1605,8 +1639,8 @@ html.is-electron-mac .app-titlebar {
 }
 .scene-bookmark-mark .scene-bookmark-icon {
   display: block;
-  width: 12px;
-  height: 12px;
+  width: 15px;
+  height: 15px;
   fill: currentColor;
   stroke: none;
   flex: 0 0 auto;
@@ -1750,6 +1784,45 @@ body[data-ui-scheme="dark"] .header-theme-btn {
   align-items: center;
   flex: 0 0 auto;
   vertical-align: middle;
+}
+.titlebar-leading {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.titlebar-icon-btn,
+.titlebar-file-btn {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.titlebar-icon-btn svg,
+.titlebar-file-btn svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+.titlebar-icon-btn:hover,
+.titlebar-file-btn:hover,
+.titlebar-file-btn[aria-expanded="true"] {
+  background: var(--surface-3);
 }
 .create-menu-dropdown {
   position: absolute;
@@ -2450,6 +2523,74 @@ html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-pro
 .admin-qa-empty {
   padding: 8px 4px;
 }
+.help-modal-card {
+  width: min(720px, calc(100vw - 28px));
+}
+.help-tabs {
+  margin: 10px 0 4px;
+}
+.help-panel[hidden] {
+  display: none;
+}
+.help-manual-list,
+.help-qa-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+.help-manual-group {
+  display: grid;
+  gap: 8px;
+  padding: 4px 0 6px;
+  border-bottom: 1px solid var(--line);
+}
+.help-manual-group:last-child {
+  border-bottom: 0;
+}
+.help-manual-group > summary {
+  cursor: pointer;
+  list-style: none;
+  margin: 0;
+}
+.help-manual-group > summary::-webkit-details-marker {
+  display: none;
+}
+.help-qa-group-title {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--accent-dark, #5c4a32);
+}
+.help-manual-lead {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+.help-manual-list .admin-help-article {
+  margin: 0;
+}
+.help-qa-list .admin-qa-a p,
+.help-manual-list .admin-qa-a p,
+.help-manual-lead p {
+  margin: 0 0 6px;
+}
+.help-qa-list .admin-qa-a p:last-child,
+.help-manual-list .admin-qa-a p:last-child,
+.help-manual-lead p:last-child {
+  margin-bottom: 0;
+}
+.help-qa-list .admin-qa-a ul,
+.help-manual-list .admin-qa-a ul,
+.help-manual-lead ul {
+  margin: 0 0 6px;
+  padding-left: 1.15em;
+}
+.help-qa-list .admin-qa-a li,
+.help-manual-list .admin-qa-a li,
+.help-manual-lead li {
+  margin: 0 0 3px;
+}
 .admin-contact-block .primary {
   margin-top: 4px;
 }
@@ -2828,13 +2969,15 @@ aside { padding: 18px 14px; min-width: 0; }
  */
 .outline-panel:has(.ambient-sound-popup.is-open),
 .outline-panel:has(.gitsi-popover.is-open),
-.outline-panel:has(.ui-theme-rail.is-open) {
+.outline-panel:has(.ui-theme-rail.is-open),
+.outline-panel:has(.project-list-dropdown:not(.hidden)) {
   z-index: 40;
   overflow: visible;
 }
 .outline-panel:has(.ambient-sound-popup.is-open) .outline-panel-inner,
 .outline-panel:has(.gitsi-popover.is-open) .outline-panel-inner,
-.outline-panel:has(.ui-theme-rail.is-open) .outline-panel-inner {
+.outline-panel:has(.ui-theme-rail.is-open) .outline-panel-inner,
+.outline-panel:has(.project-list-dropdown:not(.hidden)) .outline-panel-inner {
   overflow: visible;
 }
 /* 바인더 본체 카드: 작품 제목 · 본문/설정집 · 목차 · 하단 메모까지 */
@@ -2915,33 +3058,91 @@ body.ai-panel-collapsed .outline-panel-inner {
   display: flex;
   align-items: center;
 }
-.binder-work-row-project .project-picker select {
-  width: 100%;
+.binder-work-row-project .project-title-label {
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: none;
-  /* 전역 select 30px보다 낮게 — 오른쪽 로고 줄(22px)과 수직 정렬 */
-  min-height: var(--panel-collapse-w, 22px);
-  height: var(--panel-collapse-w, 22px);
-  padding: 0 6px;
-  font-size: 12px;
-  line-height: 1.2;
-  box-sizing: border-box;
+  max-width: 100%;
 }
-/* 작품 제목 행: [+] [작품명] [⟨] — 한 줄 균형 */
-.binder-work-row-project .create-menu {
+.project-library {
+  position: relative;
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
   margin: 0 4px 0 0;
   align-self: center;
 }
-.binder-work-row-project .header-plus-btn {
+.project-library-btn {
   width: var(--panel-collapse-w, 22px);
   height: var(--panel-collapse-w, 22px);
   min-width: var(--panel-collapse-w, 22px);
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-dark);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   flex: 0 0 auto;
 }
-.binder-work-row-project .header-plus-btn .header-plus-glyph {
-  font-size: 16px;
-  transform: translateY(-1px);
+.project-library-btn svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+.project-library-btn:hover,
+.project-library-btn[aria-expanded="true"] {
+  background: var(--surface-3);
+}
+.project-list-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: auto;
+  z-index: 45;
+  min-width: 180px;
+  max-width: min(280px, calc(100vw - 16px));
+  max-height: min(60vh, 320px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 12px 28px #00000022;
+  display: grid;
+  gap: 2px;
+}
+.project-list-dropdown.hidden { display: none !important; }
+.project-list-dropdown > button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-list-dropdown > button:hover {
+  background: var(--selection);
+}
+.project-list-dropdown > button.is-selected {
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.project-list-dropdown > .project-list-empty {
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 12px;
 }
 .binder-work-row-project .binder-collapse-btn {
   flex: 0 0 auto;
@@ -3055,19 +3256,7 @@ body.ai-panel-collapsed .outline-panel-inner {
   min-width: 0;
 }
 .binder-footer-stack .header-notice-strip {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  max-height: 120px;
-  overflow: auto;
-}
-/* 카드 안 메모 알림 — 카드와 이질감 없이 */
-.outline-panel-inner .header-idea-notice,
-.outline-panel-inner .header-notice {
-  border-radius: 10px;
-  border-color: color-mix(in srgb, var(--line) 70%, transparent);
-  background: color-mix(in srgb, var(--surface-2) 55%, var(--surface, #fffdf8));
+  display: none;
 }
 .binder-footer-actions {
   display: flex;
@@ -4863,9 +5052,9 @@ body.ai-panel-resizing * {
 }
 .ai-panel-top {
   flex-shrink: 0;
-  padding: 0 2px 6px;
-  /* 구분선↔세그먼트 · 세그먼트↔작가지침 동일 간격 */
+  /* 구분선↔세그먼트 · 세그먼트↔작가지침 · 작가지침↔아래 박스 동일 간격 */
   --ai-block-gap: calc(8px + 0.5mm);
+  padding: 0 2px var(--ai-block-gap);
 }
 /* SuperTORY 제목 — 닫기는 마스코트 왼쪽 끝 · 제목은 가운데 (balance 스페이서)
    카드 안 상단 구획 */
@@ -5263,7 +5452,8 @@ html[data-ui-scheme="dark"] .ai-writing-status {
   display: flex;
   flex-direction: column;
   gap: 0;
-  padding-bottom: 8px;
+  /* 보내기 ↔ 토리 알림: 기본 8px에서 2mm 더 붙임 */
+  padding-bottom: calc(8px - 2mm);
 }
 .ai-panel-view.hidden { display: none !important; }
 
@@ -7549,24 +7739,22 @@ html[data-ui-scheme="dark"] .tory-switch-track::after {
   line-height: 1.45;
 }
 .tory-priority-box {
-  /* 세그먼트↔작가지침 = 구분선↔세그먼트 (--ai-block-gap) */
+  /* 세그먼트↔작가지침 = 작가지침↔아래 박스 (--ai-block-gap) */
   margin: var(--ai-block-gap, calc(8px + 0.5mm)) 0 0;
   padding: 0;
-  border: 1px solid var(--border-color, var(--line));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--primary, var(--accent)) 6%, var(--bg-surface, var(--surface)));
-  overflow: hidden;
-  transition: background 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease, border-color 0.12s ease;
+  border: 0;
+  border-bottom: 1px solid var(--border-color, var(--line));
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+  transition: border-color 0.12s ease;
 }
 .tory-priority-box:hover {
-  box-shadow: var(--depth-shadow-hover, 0 6px 16px rgba(28, 25, 23, 0.12));
-  transform: translateY(-1px);
-  outline: 1px solid var(--hover-border, #D6D3D1);
-  outline-offset: -1px;
+  border-bottom-color: color-mix(in srgb, var(--primary, var(--accent)) 42%, var(--border-color, var(--line)));
 }
 .tory-priority-box.is-open {
-  border-color: color-mix(in srgb, var(--primary, var(--accent)) 40%, var(--border-color, var(--line)));
-  background: color-mix(in srgb, var(--primary, var(--accent)) 10%, var(--bg-surface, var(--surface)));
+  border-bottom-color: color-mix(in srgb, var(--primary, var(--accent)) 55%, var(--border-color, var(--line)));
+  background: transparent;
 }
 .tory-priority-toggle {
   display: flex;
@@ -7574,7 +7762,7 @@ html[data-ui-scheme="dark"] .tory-switch-track::after {
   gap: 8px;
   width: 100%;
   margin: 0;
-  padding: 6px 9px;
+  padding: 4px 2px 6px;
   border: 0;
   background: transparent;
   color: var(--text-primary, var(--ink));
@@ -7585,7 +7773,7 @@ html[data-ui-scheme="dark"] .tory-switch-track::after {
   transition: background 0.12s ease;
 }
 .tory-priority-toggle:hover {
-  background: color-mix(in srgb, var(--primary, var(--accent)) 8%, transparent);
+  background: transparent;
 }
 .tory-priority-toggle:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--primary, var(--accent)) 50%, transparent);
@@ -7774,12 +7962,12 @@ body.popup-resizing * {
   cursor: inherit !important;
 }
 html[data-ui-scheme="dark"] .tory-priority-box {
-  background: color-mix(in srgb, var(--primary, var(--accent)) 12%, var(--bg-surface, var(--surface)));
-  border-color: var(--border-color, var(--line));
+  background: transparent;
+  border-bottom-color: var(--border-color, var(--line));
 }
 html[data-ui-scheme="dark"] .tory-priority-toggle:hover,
 html[data-ui-scheme="dark"] .tory-priority-box.is-open {
-  background: color-mix(in srgb, var(--primary, var(--accent)) 18%, var(--bg-surface, var(--surface)));
+  background: transparent;
 }
 html[data-ui-scheme="dark"] .tory-priority-popup {
   background: #3a3224;
@@ -11006,43 +11194,13 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   display: flex;
 }
 .idea-float.dock-float {
-  --widget-surface: color-mix(in srgb, var(--surface) 74%, var(--hover-lift-bg, var(--surface-2)));
   width: min(320px, calc(100vw - 24px));
   height: min(420px, calc(100vh - 24px));
-  border-color: color-mix(in srgb, var(--hover-lift-bg, var(--surface)) 40%, var(--line));
-  background:
-    linear-gradient(
-      145deg,
-      color-mix(in srgb, var(--hover-lift-bg, var(--surface)) var(--widget-gradient-light, 34%), transparent) 0%,
-      transparent 48%,
-      color-mix(in srgb, var(--accent) var(--widget-gradient-accent, 10%), transparent) 100%
-    ),
-    linear-gradient(
-      145deg,
-      color-mix(in srgb, var(--widget-surface, var(--surface)) var(--widget-surface-opacity-top, 92%), transparent) 0%,
-      color-mix(in srgb, var(--widget-surface, var(--surface)) var(--widget-surface-opacity-bottom, 82%), transparent) 100%
-    );
-  box-shadow:
-    -6px -6px 16px color-mix(in srgb, var(--hover-lift-bg, var(--surface)) 28%, transparent),
-    10px 14px 30px color-mix(in srgb, var(--ink) 22%, transparent),
-    inset 1px 1px 0 color-mix(in srgb, var(--hover-lift-bg, var(--surface)) 52%, transparent),
-    inset -1px -1px 0 color-mix(in srgb, var(--accent) 12%, transparent);
+  background: color-mix(in srgb, var(--panel) var(--widget-surface-opacity, 92%), transparent);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.10);
 }
 .idea-float.dock-float.is-front {
-  box-shadow:
-    -7px -7px 18px color-mix(in srgb, var(--hover-lift-bg, var(--surface)) 32%, transparent),
-    12px 18px 36px color-mix(in srgb, var(--ink) 28%, transparent),
-    inset 1px 1px 0 color-mix(in srgb, var(--hover-lift-bg, var(--surface)) 58%, transparent),
-    inset -1px -1px 0 color-mix(in srgb, var(--accent) 14%, transparent);
-}
-.idea-float.dock-float .idea-float-drag {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--hover-lift-bg, var(--surface)) var(--widget-gradient-header, 15%), transparent),
-    transparent 56%,
-    color-mix(in srgb, var(--accent) var(--widget-gradient-header, 15%), transparent)
-  );
-  border-bottom-color: color-mix(in srgb, var(--line) 72%, transparent);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
 }
 .idea-float.dock-float .idea-float-body {
   display: flex;
@@ -11421,8 +11579,8 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   overflow: auto;
 }
 .idea-float.dock-float.dock-float-timeline {
-  width: 360px;
-  height: 420px;
+  width: min(320px, calc(100vw - 24px));
+  height: min(420px, calc(100vh - 24px));
   min-width: 280px;
   min-height: 240px;
 }
@@ -11430,8 +11588,8 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   overflow: hidden;
 }
 .idea-float.dock-float.dock-float-appearances {
-  width: 360px;
-  height: 420px;
+  width: min(320px, calc(100vw - 24px));
+  height: min(420px, calc(100vh - 24px));
   min-width: 280px;
   min-height: 240px;
 }
@@ -11439,8 +11597,8 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   overflow: hidden;
 }
 .idea-float.dock-float.dock-float-dictionary {
-  width: 360px;
-  height: 440px;
+  width: min(320px, calc(100vw - 24px));
+  height: min(420px, calc(100vh - 24px));
   min-width: 280px;
   min-height: 240px;
 }
@@ -11666,8 +11824,8 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   margin-top: 0;
 }
 .idea-float.dock-float.dock-float-baits {
-  width: 360px;
-  height: 420px;
+  width: min(320px, calc(100vw - 24px));
+  height: min(420px, calc(100vh - 24px));
   min-width: 280px;
   min-height: 240px;
 }
@@ -11676,8 +11834,8 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
 }
 .idea-float.dock-float.dock-float-tory-vault,
 .idea-float.dock-float.dock-float-sources {
-  width: 360px;
-  height: 420px;
+  width: min(320px, calc(100vw - 24px));
+  height: min(420px, calc(100vh - 24px));
   min-width: 280px;
   min-height: 240px;
 }
@@ -11711,9 +11869,20 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   gap: 6px;
 }
 .dock-tory-vault-toolbar button,
-.dock-tory-vault-toolbar .compact-btn {
+.dock-tory-vault-toolbar .compact-btn,
+.dock-sources-toolbar button,
+.dock-sources-toolbar .compact-btn,
+.dock-ideas-toolbar button,
+.dock-ideas-toolbar .compact-btn {
   flex: 0 0 auto;
   width: auto;
+}
+.dock-tory-vault-toolbar .settings-icon-btn,
+.dock-sources-toolbar .settings-icon-btn,
+.dock-ideas-toolbar .settings-icon-btn,
+.dock-dictionary-toolbar .settings-icon-btn {
+  width: 30px;
+  min-width: 30px;
 }
 .dock-tory-vault-list.tory-vault-list,
 .dock-sources-list.source-list {
@@ -11729,8 +11898,8 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   overflow: auto;
 }
 .idea-float.dock-float.dock-float-success-profile {
-  width: 380px;
-  height: 520px;
+  width: min(320px, calc(100vw - 24px));
+  height: min(420px, calc(100vh - 24px));
   min-width: 300px;
   min-height: 320px;
 }
@@ -11976,8 +12145,8 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   overflow: hidden;
 }
 .idea-float.dock-float.dock-float-settings-search {
-  width: 380px;
-  height: 440px;
+  width: min(320px, calc(100vw - 24px));
+  height: min(420px, calc(100vh - 24px));
   min-width: 280px;
   min-height: 240px;
 }
@@ -14551,10 +14720,10 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
 .scene-lead > .chapter-twistie[data-toggle-scene] { left: -7px; }
 /* 북마크+떡밥(+접기): 트리 쪽에 나란히 */
 .scene-lead:has(> .scene-bookmark-slot):has(> .scene-bait-slot) > .scene-bookmark-slot {
-  left: -12px;
+  left: -14px;
 }
 .scene-lead:has(> .scene-bookmark-slot):has(> .scene-bait-slot) > .scene-bait-slot {
-  left: -2px;
+  left: -1px;
 }
 /* 북마크+접기 / 떡밥+접기: 접기는 약간 더 왼쪽(트리), 마크는 그 오른쪽 */
 .scene-lead:has(> .scene-twistie):has(> .scene-bookmark-slot):not(:has(> .scene-bait-slot)) > .scene-twistie,
@@ -15396,6 +15565,14 @@ body[data-ui-scheme="dark"] .scene-status.is-complete {
   letter-spacing: -0.02em;
   min-height: 1.35em;
   line-height: 1.35;
+  flex: 0 0 auto;
+}
+.welcome-inline-file-icon {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  margin: 0 0.08em;
+  vertical-align: -0.2em;
   flex: 0 0 auto;
 }
 .welcome-tory-blurb {
@@ -19545,10 +19722,11 @@ button.alias-chip.is-tori-draft,
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  flex: 1 1 auto;
+  /* 탭 수만큼만 차지 → +가 맨 오른쪽 탭 바로 옆에 붙고, 가득 차면 오른쪽 끝에 고정 */
+  flex: 0 1 auto;
+  width: max-content;
   min-width: 0;
-  /* 오른쪽 끝(둥근 모서리·+)까지 탭이 붙지 않게 */
-  max-width: calc(100% - 34px);
+  max-width: calc(100% - 32px);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
@@ -19573,7 +19751,7 @@ button.alias-chip.is-tori-draft,
   width: 28px;
   min-width: 28px;
   height: 28px;
-  margin: 0 6px 2px 2px;
+  margin: 0 2px 2px 2px;
   padding: 0;
   border: 0 !important;
   border-radius: 0 !important;
@@ -20803,6 +20981,7 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 .format-overflow-item-icon .format-tool-glyph svg {
   width: 16px;
   height: 16px;
+  stroke-width: 1.7;
 }
 .format-overflow-item-label {
   flex: 1 1 auto;
@@ -21043,6 +21222,54 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   color: var(--primary, var(--accent-dark));
   border: 0 !important;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary, #292524) 40%, transparent) !important;
+}
+/*
+ * 서식 줄은 작성 바탕(--page-editor-bg) 위에 투명하게 얹힘.
+ * UI --ink/--toolbar-icon 을 쓰면 심야다락방(밝은 회색 바탕+밝은 글자)·
+ * 추억교실(칠판+검정)처럼 글자가 사라지므로 본문 잉크로 대비한다.
+ */
+.writing-block.manuscript-frame > .ms-tools-card {
+  --format-on-page-ink: var(--page-ink, var(--toolbar-icon, var(--ink)));
+}
+.writing-block.manuscript-frame > .ms-tools-card .format-toolbar-row-format .format-row-divider {
+  border-left-color: color-mix(in srgb, var(--format-on-page-ink, var(--page-ink, var(--ink))) 38%, transparent);
+}
+.writing-block.manuscript-frame > .ms-tools-card .format-toolbar-row-format .format-seg.format-seg-icon > .format-btn:not(.format-special-btn),
+.writing-block.manuscript-frame > .ms-tools-card .format-toolbar-row-format .format-seg.format-seg-icon > .format-btn.format-special-btn,
+.writing-block.manuscript-frame > .ms-tools-card .format-btn,
+.writing-block.manuscript-frame > .ms-tools-card .format-btn-solo,
+html[data-ui-scheme="dark"] .writing-block.manuscript-frame > .ms-tools-card .format-btn,
+html[data-ui-scheme="dark"] .writing-block.manuscript-frame > .ms-tools-card .format-btn-solo {
+  color: var(--format-on-page-ink, var(--page-ink, var(--toolbar-icon, var(--ink)))) !important;
+}
+.writing-block.manuscript-frame > .ms-tools-card .toolbar-field,
+.writing-block.manuscript-frame > .ms-tools-card .toolbar-field select,
+.writing-block.manuscript-frame > .ms-tools-card .format-field-chip select,
+.writing-block.manuscript-frame > .ms-tools-card .format-field-chip .format-font-select {
+  color: var(--format-on-page-ink, var(--page-ink, var(--toolbar-icon, var(--ink)))) !important;
+}
+.writing-block.manuscript-frame > .ms-tools-card .format-toolbar-row-format .format-seg.format-seg-icon > .format-btn:hover,
+.writing-block.manuscript-frame > .ms-tools-card .format-btn:hover,
+.writing-block.manuscript-frame > .ms-tools-card .format-btn-solo:hover,
+.writing-block.manuscript-frame > .ms-tools-card .format-field-chip select:hover,
+.writing-block.manuscript-frame > .ms-tools-card .format-field-chip .format-font-select:hover {
+  color: var(--format-on-page-ink, var(--page-ink, var(--primary, var(--ink)))) !important;
+  background: color-mix(in srgb, var(--format-on-page-ink, var(--page-ink)) 14%, transparent) !important;
+}
+.writing-block.manuscript-frame > .ms-tools-card .format-toolbar-row-format .format-seg.format-seg-icon > .format-btn.active,
+.writing-block.manuscript-frame > .ms-tools-card .format-btn.active,
+.writing-block.manuscript-frame > .ms-tools-card .format-btn-solo.active {
+  color: var(--format-on-page-ink, var(--page-ink, var(--primary, var(--ink)))) !important;
+  background: color-mix(in srgb, var(--format-on-page-ink, var(--page-ink)) 18%, transparent) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--format-on-page-ink, var(--page-ink)) 40%, transparent) !important;
+}
+.writing-block.manuscript-frame[data-page-contrast="dark"] > .ms-tools-card .format-field-chip select,
+.writing-block.manuscript-frame[data-page-contrast="dark"] > .ms-tools-card .format-field-chip .format-font-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23F4F0E8' d='M1 1l4 4 4-4'/%3E%3C/svg%3E") !important;
+}
+.writing-block.manuscript-frame[data-page-contrast="light"] > .ms-tools-card .format-field-chip select,
+.writing-block.manuscript-frame[data-page-contrast="light"] > .ms-tools-card .format-field-chip .format-font-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%2324211d' d='M1 1l4 4 4-4'/%3E%3C/svg%3E") !important;
 }
 .format-toolbar-row-format .format-seg.format-seg-icon > .format-btn-wide {
   min-width: 28px;
@@ -21487,28 +21714,25 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   width: auto;
   min-width: max-content;
 }
-/* 왼쪽 서식 묶음(실행취소~장평): 행 안에서 다른 그룹과 같은 비율로 간격 */
-.format-toolbar-row-format .format-toolbar-cluster-start {
-  justify-content: flex-start;
-  width: auto;
-  min-width: max-content;
-}
+/* 실행취소·다시실행: 칸이 넓어져도 가운데 */
 .format-toolbar-row-format .format-toolbar-cluster-start > .format-seg-history {
-  flex: 0 0 auto;
+  flex: 1 0 auto;
+  justify-content: center;
+  min-width: 56px;
 }
 .format-toolbar-row-format .format-toolbar-cluster-start > .format-row-divider:not(.format-toolbar-mid-divider) {
   flex: 0 0 auto;
 }
 .format-toolbar-row-format .format-toolbar-cluster-start > .format-field-chips {
-  flex: 0 0 auto;
+  flex: 1 0 auto;
   min-width: max-content;
   width: auto;
   max-width: none;
   display: flex;
   align-items: center;
+  justify-content: stretch;
 }
-/* 오른쪽 서식 묶음(B~특수문자): 그룹 간격은 고정.
-   본문이 가로로 넓어져도 접기(∧) 쪽으로 벌어지지 않는다. */
+/* 오른쪽 서식 묶음(B~특수문자): 아이콘바와 같이 남은 폭을 칸마다 같은 비율로 나눔 */
 .format-toolbar-row-format .format-toolbar-cluster-end {
   justify-content: flex-start;
   align-items: center;
@@ -21516,10 +21740,10 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   flex-wrap: nowrap;
   min-width: max-content;
   width: auto;
-  flex: 0 0 auto;
 }
 .format-toolbar-row-format .format-toolbar-cluster-end > .format-seg {
-  flex: 0 0 auto;
+  flex: 1 0 auto;
+  justify-content: center;
 }
 .format-toolbar-row-format .format-toolbar-cluster-end > .format-row-divider {
   flex: 0 0 auto;
@@ -21605,10 +21829,9 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 .ms-tools-card .format-toolbar-row-format.is-collapsed {
   border-bottom: 0;
 }
-/* 서식 칸(B/I/U 등): 공통 3열 그리드 + 묶음 안 왼쪽 나열 */
+/* 서식 칸: 아이콘바처럼 남은 폭을 같은 비율로 나눔 */
 .format-toolbar-row-format .format-toolbar-row-body.format-toolbar-row-body-split {
-  /* 왼쪽 여백을 줄여 전체 버튼 묶음을 살짝 왼쪽으로 당김 — 오른쪽 끝
-     특수문자 버튼이 접기(∧) 버튼 칸과 겹치지 않도록. */
+  justify-content: flex-start;
   padding: 2px 0 2px 2px;
   min-height: 26px;
   align-items: center;
@@ -21631,32 +21854,33 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 /* 행 전체 폭 절약(오른쪽 끝 특수문자 버튼이 접기 버튼과 겹치지 않도록) */
 .format-toolbar-row-format .format-toolbar-cluster,
 .format-toolbar-row-format .format-seg {
-  flex-shrink: 0;
+  flex: 1 0 auto;
   min-width: max-content;
+  justify-content: center;
 }
 .format-toolbar-row-format .format-field-chips {
   display: flex;
   align-items: center;
   gap: 0;
-  flex: 0 0 auto;
+  flex: 1 0 auto;
   min-width: max-content;
   width: auto;
 }
-/* 기본: 단락·글꼴·크기·줄간격·장평은 자연 폭, 넘치면 » 메뉴 */
+/* 단락·글꼴·크기·줄간격·장평: 남은 폭을 칸마다 균등 분배 */
 .format-toolbar-row-format .format-field-chip {
   border-radius: 4px;
-  flex: 0 0 auto;
+  flex: 1 0 auto;
   min-width: max-content;
   max-width: none;
-  justify-content: flex-start;
+  justify-content: center;
 }
 .format-toolbar-row-format .format-field-chip:has([data-role="format-size"]),
 .format-toolbar-row-format .format-field-chip:has([data-role="format-line-height"]),
 .format-toolbar-row-format .format-field-chip.format-jangpyeong-chip {
-  flex: 0 0 auto;
+  flex: 1 0 auto;
   min-width: max-content;
   max-width: none;
-  justify-content: flex-start;
+  justify-content: center;
 }
 /* 단락 · 글꼴 · 크기 · 줄간격 · 장평 사이 세로 구분선 */
 .format-toolbar-row-format .format-field-chips .format-field-divider,
@@ -21673,6 +21897,7 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 }
 .format-toolbar-row-format .format-field-chip select,
 .format-toolbar-row-format .format-field-chip .format-font-select {
+  flex: 0 0 auto;
   min-height: 24px !important;
   height: 24px !important;
   padding: 0 16px 0 4px !important;
@@ -26954,6 +27179,7 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .format-toolbar-row-icons .format-viewer-icon {
   width: 22px !important;
   height: 22px !important;
+  stroke-width: 1.7;
 }
 /* 분할 화면: 라벨은 아이콘 칸 폭을 따르고, 넘치는 도구는 » 메뉴로 */
 .format-viewer-comments-dot {
@@ -30381,7 +30607,7 @@ body[data-ui-scheme="dark"] .proof-diff-card {
   .genre-field-label { display: none; } /* save horizontal space */
   .genre-display { min-width: 96px; max-width: 140px; font-size: 11px; }
   .genre-custom-input { width: 72px; max-width: 88px; font-size: 11px; }
-  .header-notice-strip { min-width: 120px; }
+  .header-notice-strip { min-width: 0; }
   .scene-workspace.split-active {
     flex-direction: column;
   }
@@ -31405,6 +31631,7 @@ body[data-ui-scheme="dark"] .tory-opening-hint-btn {
 
 /* —— Dark UI mode: hard-coded light surfaces —— */
 html[data-ui-scheme="dark"] .create-menu-dropdown,
+html[data-ui-scheme="dark"] .project-list-dropdown,
 html[data-ui-scheme="dark"] .view-mode-dropdown,
 html[data-ui-scheme="dark"] .tools-kit-menu,
 html[data-ui-scheme="dark"] .modal-card,
@@ -31788,6 +32015,7 @@ html[data-ui-scheme="dark"] .ai-mode-picker-option:hover,
 html[data-ui-scheme="dark"] .ai-mode-picker-option.is-active,
 html[data-ui-scheme="dark"] .view-mode-dropdown button:hover,
 html[data-ui-scheme="dark"] .create-menu-dropdown > button:hover,
+html[data-ui-scheme="dark"] .project-list-dropdown > button:hover,
 html[data-ui-scheme="dark"] .context-menu button:hover,
 html[data-ui-scheme="dark"] .context-menu button.is-active {
   background: var(--selection);
@@ -34442,8 +34670,10 @@ html[data-theme="eink"] .tory-priority-box,
 html[data-theme="eink"] .tory-priority-box.is-open,
 html[data-theme="eink"] .tory-priority-toggle:hover,
 html[data-ui-theme="eink"] .tory-priority-box {
-  background: #fff !important;
-  border-color: #000 !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-bottom: 1px solid #000 !important;
+  box-shadow: none !important;
 }
 
 html[data-theme="eink"] .feature-chip,
@@ -34664,6 +34894,39 @@ html[data-ui-theme="eink"] .folder-color-swatch {
 /* E ink — editor paper lock (white page / black ink only)
    UI chrome can stay high-contrast B/W; the manuscript itself is always
    forced to pure paper so drafting stays sharp on e-ink screens. */
+html[data-theme="eink"] .titlebar-icon-btn,
+html[data-theme="eink"] .titlebar-file-btn,
+html[data-ui-theme="eink"] .titlebar-icon-btn,
+html[data-ui-theme="eink"] .titlebar-file-btn,
+html[data-eink-editor-lock="1"] .titlebar-icon-btn,
+html[data-eink-editor-lock="1"] .titlebar-file-btn {
+  background: transparent !important;
+  color: #000 !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .titlebar-icon-btn:hover,
+html[data-theme="eink"] .titlebar-file-btn:hover,
+html[data-theme="eink"] .titlebar-file-btn[aria-expanded="true"],
+html[data-ui-theme="eink"] .titlebar-icon-btn:hover,
+html[data-ui-theme="eink"] .titlebar-file-btn:hover,
+html[data-ui-theme="eink"] .titlebar-file-btn[aria-expanded="true"] {
+  background: #000 !important;
+  color: #fff !important;
+}
+html[data-theme="eink"] .project-library-btn,
+html[data-ui-theme="eink"] .project-library-btn {
+  color: #000 !important;
+  background: transparent !important;
+}
+html[data-theme="eink"] .project-library-btn:hover,
+html[data-theme="eink"] .project-library-btn[aria-expanded="true"],
+html[data-ui-theme="eink"] .project-library-btn:hover,
+html[data-ui-theme="eink"] .project-library-btn[aria-expanded="true"] {
+  background: #000 !important;
+  color: #fff !important;
+}
+
 html[data-theme="eink"] .header-plus-btn,
 html[data-ui-theme="eink"] .header-plus-btn,
 html[data-eink-editor-lock="1"] .header-plus-btn {
