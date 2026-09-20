@@ -4222,6 +4222,9 @@ body.ai-panel-collapsed .ai-dock-rail {
   height: 18px;
   stroke-width: 1.7;
 }
+.panel-dock-expand svg {
+  overflow: hidden;
+}
 .panel-dock-expand {
   background: color-mix(in srgb, var(--selection) 70%, var(--surface-2));
   border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
