@@ -48543,10 +48543,72 @@ function renderHeaderIdeaBar() {
       });
     }
   }
+  scheduleHeaderNoticeStripLayout();
+}
+
+let headerNoticeStripLayoutRaf = 0;
+
+function scheduleHeaderNoticeStripLayout() {
+  if (headerNoticeStripLayoutRaf) return;
+  headerNoticeStripLayoutRaf = requestAnimationFrame(() => {
+    headerNoticeStripLayoutRaf = 0;
+    syncHeaderNoticeStripLayout();
+  });
+}
+
+function syncHeaderNoticeStripLayout() {
+  const strip = $("headerNoticeStrip");
+  if (!strip) return;
+  if (strip.classList.contains("is-empty")) {
+    strip.style.left = "";
+    strip.style.width = "";
+    return;
+  }
+  const titlebar = strip.closest(".app-titlebar");
+  const work = $("workArea");
+  const lead = titlebar?.querySelector(".titlebar-leading");
+  if (!titlebar || !work || !lead) return;
+  const tb = titlebar.getBoundingClientRect();
+  const wr = work.getBoundingClientRect();
+  const ld = lead.getBoundingClientRect();
+  const padRight = parseFloat(getComputedStyle(titlebar).paddingRight) || 0;
+  const gap = 6;
+  const leftVp = Math.max(ld.right + gap, wr.left);
+  let rightVp = wr.right;
+  const capRight = tb.right - padRight - 4;
+  if (Number.isFinite(capRight)) rightVp = Math.min(rightVp, capRight);
+  const badge = $("offlineModeBadge");
+  if (badge && !badge.hidden && !badge.classList.contains("hidden")) {
+    const br = badge.getBoundingClientRect();
+    if (br.width > 0) rightVp = Math.min(rightVp, br.left - gap);
+  }
+  const left = Math.max(0, Math.round(leftVp - tb.left));
+  const width = Math.max(0, Math.round(rightVp - tb.left - left));
+  strip.style.left = `${left}px`;
+  strip.style.width = `${width}px`;
+}
+
+function setupHeaderNoticeStripLayout() {
+  if (setupHeaderNoticeStripLayout._bound) return;
+  setupHeaderNoticeStripLayout._bound = true;
+  const ro = typeof ResizeObserver === "function"
+    ? new ResizeObserver(() => scheduleHeaderNoticeStripLayout())
+    : null;
+  const work = $("workArea");
+  const lead = document.querySelector(".titlebar-leading");
+  const titlebar = document.querySelector(".app-titlebar");
+  if (ro) {
+    if (work) ro.observe(work);
+    if (lead) ro.observe(lead);
+    if (titlebar) ro.observe(titlebar);
+  }
+  window.addEventListener("resize", scheduleHeaderNoticeStripLayout);
+  scheduleHeaderNoticeStripLayout();
 }
 
 function setupHeaderNotices() {
   renderHeaderIdeaBar();
+  setupHeaderNoticeStripLayout();
 }
 
 function setupBookmarkListPanel() {
@@ -53356,6 +53418,7 @@ function setAiPanelOpen(open, options = {}) {
   }
   if (open) refreshAiStatus().catch(handleError);
   try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
+  scheduleHeaderNoticeStripLayout();
 }
 
 function setupAiPanelToggle() {
@@ -53386,6 +53449,7 @@ function setBinderPanelOpen(open, options = {}) {
       /* private mode */
     }
   }
+  scheduleHeaderNoticeStripLayout();
   // Split layout may need a reflow after side panels change.
   if (typeof applySplitLayout === "function" && state.splitEnabled && state.splitMode === "split") {
     requestAnimationFrame(() => {
@@ -61261,6 +61325,10 @@ function isGitsiPopoverOpen() {
   return Boolean(popup && !popup.hidden && popup.classList.contains("is-open"));
 }
 
+function isTitlebarChromeButton(el) {
+  return Boolean(el?.closest?.(".app-titlebar"));
+}
+
 function positionGitsiPopover() {
   const popup = $("gitsiPopover");
   const button = $("gitsiPopoverButton");
@@ -61271,15 +61339,18 @@ function positionGitsiPopover() {
   popup.hidden = false;
   popup.style.visibility = "hidden";
   popup.classList.add("is-open");
+  const fromTitlebar = isTitlebarChromeButton(button);
+  popup.classList.toggle("is-below", fromTitlebar);
   const mw = Math.min(popup.offsetWidth || 280, window.innerWidth - pad * 2);
-  let left = rect.right + 8;
-  let top = rect.bottom - (popup.offsetHeight || 200);
+  const mh = popup.offsetHeight || 200;
+  let left = fromTitlebar ? rect.left : rect.right + 8;
+  let top = fromTitlebar ? rect.bottom + 6 : rect.bottom - mh;
   if (left + mw > window.innerWidth - pad) {
     left = Math.max(pad, window.innerWidth - mw - pad);
   }
   if (top < pad) top = pad;
-  if (top + (popup.offsetHeight || 200) > window.innerHeight - pad) {
-    top = Math.max(pad, window.innerHeight - (popup.offsetHeight || 200) - pad);
+  if (top + mh > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - mh - pad);
   }
   popup.style.left = `${Math.round(left)}px`;
   popup.style.top = `${Math.round(top)}px`;
@@ -62231,6 +62302,7 @@ function applyOutlineWidth(widthPx) {
   document.documentElement.style.setProperty("--outline-width", `${width}px`);
   scheduleToolbarOverflowLayout();
   scheduleEpisodeNavLayout();
+  scheduleHeaderNoticeStripLayout();
   return width;
 }
 
@@ -62313,6 +62385,7 @@ function applyAiPanelWidth(widthPx) {
   document.documentElement.style.setProperty("--ai-panel-width", `${width}px`);
   scheduleToolbarOverflowLayout();
   scheduleEpisodeNavLayout();
+  scheduleHeaderNoticeStripLayout();
   return width;
 }
 
@@ -80770,7 +80843,7 @@ function setupUiFeatureHideSystem() {
   }
 }
 
-/* —— Help: 기능 안내 + QnA (titlebar 도움말) —— */
+/* —— Help: 기능 안내 + QnA (관리자 모드) —— */
 const HELP_MANUAL_CATEGORIES = [
   { id: "immersion", titleKey: "help.cat.immersion" },
   { id: "import", titleKey: "help.cat.import" },
@@ -80845,6 +80918,7 @@ function helpManualCatalog() {
 function helpFaqCatalog() {
   const t = (key) => i18n.t(key);
   return [
+    { id: "qa-ai-learn", q: t("help.qa.privacy.learn.q"), a: t("help.qa.privacy.learn.a"), keywords: "학습 학습하나요 ai 토리 gemini 데이터 원고 프라이버시 개인정보", featured: true },
     { id: "qa-local", q: t("app.데이터가_어디에_저장되나요"), a: t("app.이_기기의_로컬_DB에_저장됩니다_클라우드"), keywords: "저장 db sqlite 로컬 클라우드 백업" },
     { id: "qa-child-folder", q: t("app.원고_아래_하위_폴더는_어떻게_만드나요"), a: t("app.바인더에서_원고_씬_를_우클릭_하위_폴더_만"), keywords: "하위 폴더 우클릭 씬" },
     { id: "qa-genre", q: t("app.장르는_어떻게_바꾸나요"), a: t("app.설정집_장르_키워드_에서_작품_종류_메인_하"), keywords: "장르 키워드 종류" },
@@ -80979,7 +81053,7 @@ function renderHelpQa(matched) {
     return;
   }
   host.innerHTML = matched.map((item) => `
-    <details class="admin-qa-item" data-qa-id="${escapeHtml(item.id)}">
+    <details class="admin-qa-item${item.featured ? " is-featured" : ""}" data-qa-id="${escapeHtml(item.id)}"${item.featured ? " open" : ""}>
       <summary>${escapeHtml(item.q)}</summary>
       <div class="admin-qa-a">${formatHelpAnswer(item.a)}</div>
     </details>
@@ -82336,6 +82410,8 @@ function positionUiThemeRail() {
   const rect = button.getBoundingClientRect();
   const pad = 8;
   const wasOpen = rail.classList.contains("is-open");
+  const fromTitlebar = isTitlebarChromeButton(button);
+  rail.classList.toggle("is-below", fromTitlebar);
   rail.style.position = "fixed";
   rail.style.right = "auto";
   rail.style.width = "";
@@ -82349,16 +82425,26 @@ function positionUiThemeRail() {
   rail.style.visibility = "hidden";
   rail.classList.add("is-open");
   const mw = Math.min(rail.offsetWidth || 520, window.innerWidth - pad * 2);
-  let left = rect.right + 8;
+  let left = fromTitlebar ? rect.left : rect.right + 8;
   if (left + mw > window.innerWidth - pad) {
     left = Math.max(pad, window.innerWidth - mw - pad);
   }
-  const bottom = Math.max(pad, window.innerHeight - rect.bottom);
-  const maxH = Math.max(120, rect.bottom - pad);
-  rail.style.left = `${Math.round(left)}px`;
-  rail.style.top = "auto";
-  rail.style.bottom = `${Math.round(bottom)}px`;
-  rail.style.maxHeight = `${Math.round(maxH)}px`;
+  let maxH;
+  if (fromTitlebar) {
+    const top = rect.bottom + 6;
+    maxH = Math.max(120, window.innerHeight - top - pad);
+    rail.style.left = `${Math.round(left)}px`;
+    rail.style.top = `${Math.round(top)}px`;
+    rail.style.bottom = "auto";
+    rail.style.maxHeight = `${Math.round(maxH)}px`;
+  } else {
+    const bottom = Math.max(pad, window.innerHeight - rect.bottom);
+    maxH = Math.max(120, rect.bottom - pad);
+    rail.style.left = `${Math.round(left)}px`;
+    rail.style.top = "auto";
+    rail.style.bottom = `${Math.round(bottom)}px`;
+    rail.style.maxHeight = `${Math.round(maxH)}px`;
+  }
   rail.style.overflowY = (rail.scrollHeight || 0) > maxH ? "auto" : "";
   rail.style.visibility = "";
   if (!wasOpen) {
@@ -83479,15 +83565,18 @@ function positionAmbientPopup() {
   popup.hidden = false;
   popup.style.visibility = "hidden";
   popup.classList.add("is-open");
+  const fromTitlebar = isTitlebarChromeButton(button);
+  popup.classList.toggle("is-below", fromTitlebar);
   const mw = Math.min(popup.offsetWidth || 520, window.innerWidth - pad * 2);
-  let left = rect.right + 8;
-  let top = rect.bottom - (popup.offsetHeight || 56);
+  const mh = popup.offsetHeight || 56;
+  let left = fromTitlebar ? rect.left : rect.right + 8;
+  let top = fromTitlebar ? rect.bottom + 6 : rect.bottom - mh;
   if (left + mw > window.innerWidth - pad) {
     left = Math.max(pad, window.innerWidth - mw - pad);
   }
   if (top < pad) top = pad;
-  if (top + (popup.offsetHeight || 56) > window.innerHeight - pad) {
-    top = Math.max(pad, window.innerHeight - (popup.offsetHeight || 56) - pad);
+  if (top + mh > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - mh - pad);
   }
   popup.style.left = `${Math.round(left)}px`;
   popup.style.top = `${Math.round(top)}px`;
@@ -83901,13 +83990,6 @@ function setupCreateMenu() {
     event.preventDefault();
     event.stopPropagation();
     goTitlebarHome();
-  });
-  $("titlebarHelpButton")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    closeCreateMenu();
-    if (typeof closeProjectList === "function") closeProjectList();
-    openHelpModal();
   });
   $("createMenuDropdown")?.addEventListener("click", (event) => {
     const item = event.target.closest("[data-create-action]");

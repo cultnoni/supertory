@@ -1126,6 +1126,10 @@ html.is-electron .create-menu,
 html.is-electron .titlebar-leading,
 html.is-electron .titlebar-icon-btn,
 html.is-electron .titlebar-file-btn,
+html.is-electron .binder-theme-control,
+html.is-electron .header-theme-btn,
+html.is-electron .header-ambient-btn,
+html.is-electron .header-gitsi-btn,
 html.is-electron .project-library-btn,
 html.is-electron .project-list-dropdown,
 html.is-electron .genre-display,
@@ -1159,7 +1163,7 @@ html.is-electron-mac .app-titlebar {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin: 0;
+  margin: 0 0 0 auto;
   padding: 2px 8px 2px 6px;
   border: 1px solid color-mix(in srgb, var(--accent-dark) 22%, transparent);
   border-radius: 999px;
@@ -1432,20 +1436,24 @@ html.is-electron-mac .app-titlebar {
   opacity: 0.55;
   cursor: not-allowed;
 }
-/* Titlebar pinned memos: square post-its in a row */
+/* Titlebar pinned memos: sit above the center writing column, not after the icon row */
 .header-notice-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
   display: flex;
   align-items: center;
   gap: 4px;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
-  margin: 0 8px 0 6px;
+  margin: 0;
   align-self: center;
   height: 32px;
   max-height: 32px;
   overflow: visible;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
+  box-sizing: border-box;
+  z-index: 2;
+  pointer-events: none;
 }
 .header-notice-strip.is-empty {
   display: none !important;
@@ -1488,6 +1496,12 @@ html.is-electron-mac .app-titlebar {
 }
 .header-notice.is-empty .header-notice-body {
   display: none;
+}
+.header-notice-strip .header-idea-chip,
+.header-notice-strip button {
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 .header-idea-bar .header-idea-chip {
   position: relative;
@@ -1818,6 +1832,61 @@ body[data-ui-scheme="dark"] .header-theme-btn {
   width: 16px;
   height: 16px;
   pointer-events: none;
+}
+.titlebar-icon-btn img,
+.titlebar-mascot-btn .titlebar-mascot {
+  display: block;
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  pointer-events: none;
+}
+.titlebar-mascot-btn {
+  overflow: visible;
+}
+.app-titlebar .header-theme-btn,
+.app-titlebar .header-theme-btn.icon-btn {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0 !important;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+}
+.app-titlebar .header-theme-btn:hover,
+.app-titlebar .header-theme-btn[aria-expanded="true"],
+.app-titlebar .header-theme-btn.icon-btn:hover {
+  background: var(--surface-3);
+  box-shadow: none;
+  border: 0;
+}
+.app-titlebar .header-theme-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.app-titlebar .header-theme-btn .theme-icon.theme-icon-img,
+.app-titlebar .header-theme-btn .theme-icon.theme-icon-img-fixed {
+  width: 16px;
+  height: 16px;
+}
+.app-titlebar .header-ambient-btn.is-playing {
+  color: var(--accent-dark, var(--accent));
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.app-titlebar .header-ambient-btn.is-playing:hover {
+  background: var(--surface-3);
+}
+.app-titlebar .header-gitsi-btn.is-in-call::after {
+  right: 1px;
+  bottom: 1px;
+  width: 6px;
+  height: 6px;
 }
 .titlebar-icon-btn:hover,
 .titlebar-file-btn:hover,
@@ -2555,6 +2624,11 @@ html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-pro
 .help-manual-group > summary::-webkit-details-marker {
   display: none;
 }
+.help-qa-list .admin-qa-item.is-featured summary,
+.help-qa-list .admin-qa-item.is-featured .admin-qa-a,
+.help-qa-list .admin-qa-item.is-featured .admin-qa-a p {
+  font-weight: 800;
+}
 .help-qa-group-title {
   margin: 4px 0 0;
   font-size: 12px;
@@ -3255,6 +3329,10 @@ body.ai-panel-collapsed .outline-panel-inner {
   border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
   min-width: 0;
 }
+.binder-footer-stack:empty,
+.binder-footer-stack[hidden] {
+  display: none !important;
+}
 .binder-footer-stack .header-notice-strip {
   display: none;
 }
@@ -3363,6 +3441,17 @@ body.ai-panel-collapsed .outline-panel-inner {
   opacity: 1;
   pointer-events: auto;
   transform: translateX(0) scale(1);
+}
+.ui-theme-rail.is-below,
+.ambient-sound-popup.is-below,
+.gitsi-popover.is-below {
+  transform-origin: left top;
+  transform: translateY(-8px) scale(0.98);
+}
+.ui-theme-rail.is-below.is-open,
+.ambient-sound-popup.is-below.is-open,
+.gitsi-popover.is-below.is-open {
+  transform: translateY(0) scale(1);
 }
 .ui-theme-chip {
   appearance: none;
@@ -7732,6 +7821,9 @@ html[data-ui-scheme="dark"] .tory-switch-track::after {
   width: 22px;
   height: 22px;
   object-fit: contain;
+}
+.ai-panel-title .ai-mini-logo {
+  color: inherit;
 }
 .ai-status-line {
   margin: 6px 0 0;
