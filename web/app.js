@@ -11767,6 +11767,7 @@ async function loadProject() {
   renderSettingsCodex();
   try { applyClusterFeatureGating(); } catch (_) { /* ignore */ }
   $("newChapterButton").disabled = false;
+  if ($("outlineEndAddButton")) $("outlineEndAddButton").disabled = false;
   if ($("renumberChaptersButton")) $("renumberChaptersButton").disabled = false;
   $("newCharacterButton").disabled = false;
   if ($("newItemButton")) $("newItemButton").disabled = false;
@@ -49151,6 +49152,7 @@ function showFolderContextMenu(clientX, clientY, folder) {
   hideDesktopContextMenu();
   hideSettingsContextMenu();
   hideBookmarkContextMenu();
+  hideOutlineEndAddMenu();
   const title = String(folder.title || i18n.t('app.폴더')).trim() || i18n.t('app.폴더');
   const folderId = folder.folderId != null && folder.folderId !== ""
     ? Number(folder.folderId)
@@ -49220,6 +49222,7 @@ function showBinderContextMenu(clientX, clientY, scene) {
   hideDesktopContextMenu();
   hideSettingsContextMenu();
   hideBookmarkContextMenu();
+  hideOutlineEndAddMenu();
   const title = String(scene.title || i18n.t('app.원고')).trim() || i18n.t('app.원고');
   binderContextScene = {
     id: Number(scene.id),
@@ -49826,6 +49829,7 @@ function setupBinderContextMenu() {
     if (!event.target.closest("#folderColorMenu")) hideFolderColorMenu();
     if (!event.target.closest("#settingsContextMenu")) hideSettingsContextMenu();
     if (!event.target.closest("#bookmarkContextMenu")) hideBookmarkContextMenu();
+    if (!event.target.closest("#outlineEndAddMenu, #outlineEndAddButton")) hideOutlineEndAddMenu();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
@@ -49834,6 +49838,7 @@ function setupBinderContextMenu() {
       hideFolderColorMenu();
       hideSettingsContextMenu();
       hideBookmarkContextMenu();
+      hideOutlineEndAddMenu();
     }
   });
   window.addEventListener("blur", () => {
@@ -49842,12 +49847,14 @@ function setupBinderContextMenu() {
     hideFolderColorMenu();
     hideSettingsContextMenu();
     hideBookmarkContextMenu();
+    hideOutlineEndAddMenu();
   });
   window.addEventListener("resize", () => {
     hideBinderContextMenu();
     hideFolderContextMenu();
     hideSettingsContextMenu();
     hideBookmarkContextMenu();
+    hideOutlineEndAddMenu();
   });
 }
 
@@ -62723,15 +62730,14 @@ function normalizeApiFolderNode(folder, depth = 0, parentPartSourceId = null) {
   const sourceKind = folder.source_kind || null;
   const rawSid = folder.source_id;
   const sourceId = rawSid != null && rawSid !== "" ? Number(rawSid) : null;
-  // is_box is a visual flag independent of hierarchy. Explicit false wins.
-  // Legacy part maps default to boxed when is_box omitted.
+  // is_box is a visual grouping shell. Omitted / unknown → unboxed (default).
   let isBox;
   if (folder.is_box === false || folder.is_box === 0 || folder.is_box === "0") {
     isBox = false;
   } else if (folder.is_box === true || folder.is_box === 1 || folder.is_box === "1") {
     isBox = true;
   } else {
-    isBox = sourceKind === "part";
+    isBox = false;
   }
   const legacyId = Number.isFinite(sourceId) && sourceId > 0 ? sourceId : folderId;
   // part_id for child styling: if parent is source part, keep link even when unboxed
@@ -63465,7 +63471,8 @@ function buildOutlineTreeHtml({ readOnly = false, chaptersArg } = {}) {
   const flatChapters = getBinderChaptersInOrder();
   const foldersEmpty = useFolders && !(state.folders || []).length;
   if (foldersEmpty || (!useFolders && !flatChapters.length && !parts.length)) {
-    return i18n.t('app.p_class_hint_아직_챕터가_없어요');
+    const empty = i18n.t('app.p_class_hint_아직_챕터가_없어요');
+    return readOnly ? empty : `${empty}${renderOutlineEndAddHtml()}`;
   }
 
   ensureActiveSceneChapterExpanded(flatChapters);
@@ -63511,10 +63518,132 @@ function buildOutlineTreeHtml({ readOnly = false, chaptersArg } = {}) {
         : "");
     bodyHtml = `${partBlocks}${ungroupedHtml}`;
   }
-  return `${renderPinnedOutlineSectionHtml({ readOnly })}${bodyHtml}`;
+  return `${renderPinnedOutlineSectionHtml({ readOnly })}${bodyHtml}${readOnly ? "" : renderOutlineEndAddHtml()}`;
+}
+
+function renderOutlineEndAddHtml() {
+  const disabled = state.projectId ? "" : " disabled";
+  const title = escapeHtml(i18n.t("index.맨_아래에_폴더나_회차를_넣어요"));
+  const label = escapeHtml(i18n.t("index.폴더_또는_회차_추가"));
+  return `
+    <div class="outline-end-add">
+      <button
+        type="button"
+        id="outlineEndAddButton"
+        class="outline-end-add-btn"
+        ${disabled}
+        title="${title}"
+        data-i18n-title="index.맨_아래에_폴더나_회차를_넣어요"
+        aria-label="${label}"
+        data-i18n-aria-label="index.폴더_또는_회차_추가"
+        aria-haspopup="menu"
+        aria-expanded="false"
+        aria-controls="outlineEndAddMenu"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-plus" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M8 12h8"/>
+          <path d="M12 8v8"/>
+        </svg>
+      </button>
+    </div>`;
+}
+
+function hideOutlineEndAddMenu() {
+  const menu = $("outlineEndAddMenu");
+  menu?.classList.add("hidden");
+  const btn = $("outlineEndAddButton");
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+function showOutlineEndAddMenu(anchor) {
+  const menu = $("outlineEndAddMenu");
+  const btn = anchor || $("outlineEndAddButton");
+  if (!menu || !btn || btn.disabled) return;
+  hideBinderContextMenu();
+  hideFolderContextMenu();
+  hideFolderColorMenu();
+  hideDesktopContextMenu();
+  hideSettingsContextMenu();
+  hideBookmarkContextMenu();
+  const rect = btn.getBoundingClientRect();
+  positionContextMenu(menu, rect.left + rect.width / 2 - 110, rect.bottom + 6, 140);
+  btn.setAttribute("aria-expanded", "true");
+}
+
+function toggleOutlineEndAddMenu(anchor) {
+  const menu = $("outlineEndAddMenu");
+  if (!menu) return;
+  if (menu.classList.contains("hidden")) showOutlineEndAddMenu(anchor);
+  else hideOutlineEndAddMenu();
+}
+
+function lastRootFolderIdForEndAdd() {
+  let last = null;
+  const walk = (nodes) => {
+    for (const node of nodes || []) {
+      const id = Number(node?.id);
+      if (Number.isFinite(id) && id > 0) last = id;
+      walk(node.children);
+    }
+  };
+  if (shouldUseFoldersOutline()) {
+    walk(Array.isArray(state.folders) ? state.folders : []);
+    return last;
+  }
+  const chapters = typeof getBinderChaptersInOrder === "function" ? getBinderChaptersInOrder() : [];
+  const lastChapter = chapters[chapters.length - 1];
+  const folderId = Number(lastChapter?.folder_id);
+  if (Number.isFinite(folderId) && folderId > 0) return folderId;
+  return null;
+}
+
+function lastChapterIdForEndAdd() {
+  const chapters = typeof getBinderChaptersInOrder === "function" ? getBinderChaptersInOrder() : [];
+  const last = chapters[chapters.length - 1];
+  const id = Number(last?.id);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+async function addOutlineEndScene() {
+  if (!state.projectId) return toast(i18n.t("app.먼저_새_작품을_만들어_주세요"));
+  const folderId = lastRootFolderIdForEndAdd();
+  if (folderId) {
+    await createSceneInFolder(folderId);
+    return;
+  }
+  const chapterId = lastChapterIdForEndAdd();
+  if (chapterId) {
+    await createScene(chapterId);
+    return;
+  }
+  toast(i18n.t("app.폴더를_찾지_못했어요"));
+}
+
+function setupOutlineEndAdd() {
+  if (setupOutlineEndAdd._bound) return;
+  setupOutlineEndAdd._bound = true;
+  $("outline")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("#outlineEndAddButton");
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    toggleOutlineEndAddMenu(btn);
+  });
+  $("outlineEndAddMenu")?.addEventListener("click", (event) => {
+    const item = event.target.closest?.("[data-outline-end-add]");
+    if (!item) return;
+    event.preventDefault();
+    event.stopPropagation();
+    hideOutlineEndAddMenu();
+    const kind = item.getAttribute("data-outline-end-add");
+    if (kind === "folder") createChapter().catch(handleError);
+    else if (kind === "scene") addOutlineEndScene().catch(handleError);
+  });
 }
 
 function renderOutline(chaptersArg) {
+  hideOutlineEndAddMenu();
   const outline = $("outline");
   if (!outline) {
     syncDockManuscriptFloat();
@@ -64609,6 +64738,7 @@ function showWelcome() {
   $("characterEditor").classList.add("hidden");
   hideSynopsisMain();
   $("newChapterButton").disabled = !state.projectId;
+  if ($("outlineEndAddButton")) $("outlineEndAddButton").disabled = !state.projectId;
   if ($("renumberChaptersButton")) $("renumberChaptersButton").disabled = !state.projectId;
   $("newCharacterButton").disabled = !state.projectId;
   if ($("newItemButton")) $("newItemButton").disabled = !state.projectId;
@@ -66474,6 +66604,7 @@ function setupOutlineOverview() {
 function setupOutlineBinderChrome() {
   if (setupOutlineBinderChrome._bound) return;
   setupOutlineBinderChrome._bound = true;
+  setupOutlineEndAdd();
   applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false });
   applyOutlineRowGap(getOutlineRowGap(), { persist: false });
   syncOutlineTipBox();
@@ -66946,7 +67077,7 @@ function setOutlineSceneAddButtonsDisabled(disabled) {
   const root = $("outline");
   if (!root) return;
   root.querySelectorAll(
-    "[data-add-after-scene], [data-add-child-scene], button.chapter-add-scene, button.scene-add-btn, [data-folder-add-scene]",
+    "[data-add-after-scene], [data-add-child-scene], button.chapter-add-scene, button.scene-add-btn, [data-folder-add-scene], #outlineEndAddButton",
   ).forEach((btn) => {
     btn.disabled = !!disabled;
   });

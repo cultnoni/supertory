@@ -1934,6 +1934,59 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("index.화면_배율_Ctrl_휠로_조절", self.js)
         self.assertIn("app.선택한_글의_서식_글꼴_크기_색_굵기_등_만", self.js)
 
+    def test_outline_end_add_button(self) -> None:
+        self.assertIn('id="outlineEndAddMenu"', self.html)
+        self.assertIn('data-outline-end-add="folder"', self.html)
+        self.assertIn('data-outline-end-add="scene"', self.html)
+        self.assertIn("function renderOutlineEndAddHtml(", self.js)
+        self.assertIn("function setupOutlineEndAdd(", self.js)
+        self.assertIn("lucide-circle-plus", self.js)
+        self.assertIn("id=\"outlineEndAddButton\"", self.js)
+        tree_fn = self.js.split("function buildOutlineTreeHtml(", 1)[1].split(
+            "function renderOutlineEndAddHtml(", 1
+        )[0]
+        self.assertIn("renderOutlineEndAddHtml()", tree_fn)
+        self.assertIn('readOnly ? "" : renderOutlineEndAddHtml()', tree_fn)
+        chrome_fn = self.js.split("function setupOutlineBinderChrome()", 1)[1].split(
+            "function setupRenumberChaptersModal()", 1
+        )[0]
+        self.assertIn("setupOutlineEndAdd()", chrome_fn)
+        self.assertIn(".outline-end-add", self.css)
+        self.assertIn(".outline-end-add-btn", self.css)
+        self.assertNotIn('id="outlineEndAddButton"', self.html.split('id="outline"', 1)[0])
+        for locale in self.locales.values():
+            self.assertIn("index.폴더_또는_회차_추가", locale)
+            self.assertIn("index.맨_아래에_폴더나_회차를_넣어요", locale)
+            self.assertIn("index.폴더_추가", locale)
+            self.assertIn("index.맨_아래에_새_폴더를_만들어요", locale)
+            self.assertIn("index.마지막_폴더_아래에_새_회차를_만들어요", locale)
+        self.assertEqual(self.locales["ko"]["index.폴더_추가"], "폴더 추가")
+        self.assertEqual(self.locales["ko"]["index.폴더_또는_회차_추가"], "폴더 또는 회차 추가")
+
+    def test_outline_box_shell_is_visible_when_boxed(self) -> None:
+        part_css = self.css.split("/* 기본 폴더는 상자 없음. 박스로 묶기(.outline-part)만 테두리 상자로 감쌈. */", 1)[1]
+        shell = part_css.split(".outline-part {", 1)[1].split("}", 1)[0]
+        self.assertIn("border: 1px solid", shell)
+        self.assertNotIn("border: 0", shell)
+        self.assertIn("border-radius: 8px", shell)
+        self.assertIn("background:", shell)
+        self.assertNotIn("background: transparent", shell)
+        nested = self.css.split("/* Nested boxed folders keep the grouping shell; only tighten spacing. */", 1)[1]
+        nested_block = nested.split(".outline-chapter .outline-part {", 1)[1].split("}", 1)[0]
+        self.assertNotIn("border: 0", nested_block)
+        self.assertNotIn("background: transparent", nested_block)
+        depth_wash = self.css.split(
+            "/* Unboxed folders stay frameless at every depth. Boxed .outline-part keeps its shell. */",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertNotIn(".outline-part.binder-depth-1", depth_wash)
+        self.assertIn(".outline-chapter.binder-depth-1", depth_wash)
+        classroom = self.css.split("/* 추억 교실 — 얇은 초록 프레임으로 박스 꾸미기 */", 1)[1].split("}", 1)[0]
+        self.assertIn(".outline-part", classroom)
+        self.assertNotIn(".outline-chapter", classroom)
+        self.assertIn("isBox = false", self.js.split("function normalizeApiFolderNode(", 1)[1][:1200])
+        self.assertIn('data-folder-action="toggle-box"', self.html)
+
 
 if __name__ == "__main__":
     unittest.main()

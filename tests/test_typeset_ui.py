@@ -371,6 +371,25 @@ class TypesetToolbarUiTests(unittest.TestCase):
             self.assertTrue(str(data["app.조판_안내"]).strip())
             self.assertTrue(str(data["app.뷰어_안내"]).strip())
 
+    def test_page_write_uses_theme_and_manuscript_page_colors(self) -> None:
+        css = (ROOT / "web" / "styles.css").read_text(encoding="utf-8")
+        card = css.split(".page-write-card {", 1)[1].split("}", 1)[0]
+        self.assertIn("background: var(--chrome-bg", card)
+        self.assertNotIn("#f7f1e8", card)
+        body = css.split(".page-write-body {", 1)[1].split("}", 1)[0]
+        self.assertIn("background: var(--chrome-bg", body)
+        self.assertNotIn("#ece7de", body)
+        page = css.split(".page-write-page {", 1)[1].split("}", 1)[0]
+        self.assertIn("background: var(--page-editor-bg", page)
+        self.assertIn("color: var(--page-ink", page)
+        self.assertIn("border: 1px solid var(--page-line", page)
+        self.assertNotIn("#fbf7ef", page)
+        self.assertNotIn("#c9c1b4", page)
+        focus = css.split(".page-write-page:focus {", 1)[1].split("}", 1)[0]
+        self.assertIn("var(--accent)", focus)
+        manuscript = css.split(".scene-workspace .manuscript-page {", 1)[1].split("}", 1)[0]
+        self.assertIn("var(--page-editor-bg", manuscript)
+
 
 if __name__ == "__main__":
     unittest.main()
