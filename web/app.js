@@ -147,6 +147,7 @@ async function setLanguage(lang) {
   if (typeof renderHelpContent === "function") {
     renderHelpContent($("helpSearch")?.value || "");
   }
+  if (typeof renderAdminShortcutList === "function") renderAdminShortcutList();
   if (
     typeof refreshAdminAccountPanel === "function"
     && $("adminModal")
@@ -53903,6 +53904,10 @@ function loadFocusWriteA4Spread() {
   }
 }
 
+function isFocusWriteSpreadBlocked() {
+  return Boolean(state.splitEnabled);
+}
+
 function setFocusWriteA4SpreadPref(on) {
   try {
     localStorage.setItem(FOCUS_WRITE_A4_SPREAD_KEY, on ? "1" : "0");
@@ -53917,16 +53922,36 @@ function isFocusWriteA4Spread() {
 function syncFocusWriteSpreadButton(on) {
   const btn = $("focusWriteSpreadButton");
   if (!btn) return;
-  const active = Boolean(on);
+  const blocked = isFocusWriteSpreadBlocked();
+  const active = Boolean(on) && !blocked;
+  btn.disabled = blocked;
   btn.classList.toggle("is-active", active);
   btn.classList.toggle("active", active);
   btn.setAttribute("aria-pressed", active ? "true" : "false");
-  const key = active ? "index.두_페이지_보기_끄기" : "index.두_페이지_보기_A4";
+  const key = blocked
+    ? "index.두_페이지_보기는_비교_분할에서_쓸_수_없어요"
+    : (active ? "index.두_페이지_보기_끄기" : "index.두_페이지_보기_A4");
   const label = i18n.t(key);
   btn.title = label;
   btn.setAttribute("data-i18n-title", key);
   btn.setAttribute("aria-label", label);
   btn.setAttribute("data-i18n-aria-label", key);
+}
+
+/** 비교·분할 중에는 두 페이지 보기를 끄고 버튼을 막는다. 선호값은 유지한다. */
+function syncFocusWriteSpreadAvailability() {
+  const blocked = isFocusWriteSpreadBlocked();
+  if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
+    if (blocked && isFocusWriteA4Spread()) {
+      applyFocusWriteA4Spread(false, { persist: false });
+    } else if (!blocked) {
+      const want = loadFocusWriteA4Spread();
+      if (want !== isFocusWriteA4Spread()) {
+        applyFocusWriteA4Spread(want, { persist: false });
+      }
+    }
+  }
+  syncFocusWriteSpreadButton(isFocusWriteA4Spread());
 }
 
 function focusWriteSpreadStyleSnapshot(editor) {
@@ -54753,6 +54778,10 @@ function applyFocusWriteA4Spread(on, { persist = true } = {}) {
   const stack = $("focusWriteSpreadStack");
   const label = $("focusWriteSpreadLabel");
   if (!page) return;
+  if (on && isFocusWriteSpreadBlocked()) {
+    syncFocusWriteSpreadButton(false);
+    return;
+  }
 
   if (!on && page.classList.contains("is-a4-spread")) {
     if (focusWriteSpreadReflowTimer) {
@@ -54805,6 +54834,10 @@ function setupFocusWriteA4Spread() {
   btn.dataset.fwA4Bound = "1";
   btn.addEventListener("click", () => {
     if (!isFocusWriteOpen()) return;
+    if (isFocusWriteSpreadBlocked()) {
+      toast(i18n.t("index.두_페이지_보기는_비교_분할에서_쓸_수_없어요"));
+      return;
+    }
     applyFocusWriteA4Spread(!isFocusWriteA4Spread(), { persist: true });
   });
   window.addEventListener("resize", () => {
@@ -54856,7 +54889,8 @@ function openFocusWrite() {
   // Re-host 함께보기 inside / above 큰 창
   if (state.splitEnabled) applySplitLayout();
   applyEditorViewZoom(editorViewZoom, { persist: false, preserveScroll: false });
-  applyFocusWriteA4Spread(loadFocusWriteA4Spread(), { persist: false });
+  applyFocusWriteA4Spread(loadFocusWriteA4Spread() && !state.splitEnabled, { persist: false });
+  syncFocusWriteSpreadAvailability();
 
   requestAnimationFrame(() => {
     if (isFocusWriteA4Spread()) return;
@@ -77008,6 +77042,7 @@ function applySplitLayout() {
   applySplitEditMode();
   if (state.splitKind === "source") setSplitSourceUiMode(true);
   if (state.splitKind === "compare") applyCompareSplitUi();
+  if (typeof syncFocusWriteSpreadAvailability === "function") syncFocusWriteSpreadAvailability();
   const editor = $("sceneContent");
   if (editor) {
     editor.setAttribute("contenteditable", "true");
@@ -77451,6 +77486,9 @@ function isOtherDocumentSplitOpen() {
 
 function capturePrimaryManuscriptHtml() {
   const focusOpen = typeof isFocusWriteOpen === "function" && isFocusWriteOpen();
+  if (focusOpen && typeof isFocusWriteA4Spread === "function" && isFocusWriteA4Spread()) {
+    try { syncFocusWriteEditorFromSpreadPages(); } catch (_) { /* ignore */ }
+  }
   const editor = (focusOpen && $("focusWriteEditor")) || $("sceneContent");
   return getEditorContent(editor) || "";
 }
@@ -79422,6 +79460,7 @@ function openAdminModal(tab = null) {
   if (typeof renderHiddenGuideTipsList === "function") renderHiddenGuideTipsList();
   if (typeof syncSmartPunctuationAdminUi === "function") syncSmartPunctuationAdminUi();
   refreshAdminInfoPanel();
+  renderAdminShortcutList();
   refreshAdminAccountPanel().catch(handleError);
   loadTrashList().catch(handleError);
 }
@@ -79458,6 +79497,9 @@ function setAdminTab(tabId) {
   }
   if (id === "info") {
     refreshAdminInfoPanel();
+  }
+  if (id === "shortcuts") {
+    renderAdminShortcutList();
   }
   if (id === "account") refreshAdminAccountPanel().catch(handleError);
 }
@@ -80861,6 +80903,133 @@ const HELP_MANUAL_CATEGORIES = [
 
 let helpActiveTab = "manual";
 
+function formatShortcutKeys(keys) {
+  const list = Array.isArray(keys)
+    ? keys
+    : String(keys || "").split(/\s*\/\s*/).filter(Boolean);
+  return list.map((key) => `<kbd class="shortcut-kbd">${escapeHtml(key)}</kbd>`).join(" ");
+}
+
+function shortcutCatalog() {
+  const t = (key) => i18n.t(key);
+  return [
+    {
+      id: "editor",
+      title: t("help.shortcut.group.editor"),
+      rows: [
+        { keys: ["Ctrl+B", "Ctrl+I", "Ctrl+U"], action: t("help.shortcut.bold"), note: t("help.shortcut.note.editor") },
+        { keys: ["Ctrl+Shift+X"], action: t("help.shortcut.strike"), note: t("help.shortcut.note.editor") },
+        { keys: ["Ctrl+Z"], action: t("help.shortcut.undo"), note: t("help.shortcut.note.editor") },
+        { keys: ["Ctrl+Y", "Ctrl+Shift+Z"], action: t("help.shortcut.redo"), note: t("help.shortcut.note.editor") },
+        { keys: ["Ctrl+A"], action: t("help.shortcut.select_all"), note: t("help.shortcut.note.editor") },
+        { keys: ["Ctrl+S"], action: t("help.shortcut.split_save"), note: t("help.shortcut.note.split_save") },
+        { keys: ["Esc"], action: t("help.shortcut.painter_cancel"), note: t("help.shortcut.note.painter") },
+        { keys: ["Ctrl+C", "Ctrl+X", "Ctrl+V"], action: t("help.shortcut.clipboard"), note: t("help.shortcut.note.clipboard") },
+      ],
+    },
+    {
+      id: "find",
+      title: t("help.shortcut.group.find"),
+      rows: [
+        { keys: ["Ctrl+F"], action: t("help.shortcut.find"), note: t("help.shortcut.note.find") },
+        { keys: ["Enter"], action: t("help.shortcut.find_next"), note: t("help.shortcut.note.find_input") },
+        { keys: ["Shift+Enter"], action: t("help.shortcut.find_prev"), note: t("help.shortcut.note.find_input") },
+        { keys: ["Esc"], action: t("help.shortcut.find_close"), note: t("help.shortcut.note.find_input") },
+      ],
+    },
+    {
+      id: "view",
+      title: t("help.shortcut.group.view"),
+      rows: [
+        { keys: ["F10"], action: t("help.shortcut.expand"), note: t("help.shortcut.note.f10") },
+        { keys: ["F11"], action: t("help.shortcut.fullscreen"), note: t("help.shortcut.note.f11") },
+        { keys: ["Ctrl+Alt+S"], action: t("help.shortcut.split"), note: t("help.shortcut.note.split") },
+        { keys: ["Ctrl+Alt+P"], action: t("help.shortcut.popup"), note: t("help.shortcut.note.split") },
+        { keys: [t("help.shortcut.key.ctrl_wheel")], action: t("help.shortcut.zoom_wheel"), note: t("help.shortcut.note.zoom_wheel") },
+        { keys: ["Ctrl++", "Ctrl+−", "Ctrl+0"], action: t("help.shortcut.zoom_keys"), note: t("help.shortcut.note.zoom_keys") },
+      ],
+    },
+    {
+      id: "viewer",
+      title: t("help.shortcut.group.viewer"),
+      rows: [
+        { keys: ["Esc"], action: t("help.shortcut.viewer_close"), note: "" },
+        { keys: ["→", "PageDown", "Space"], action: t("help.shortcut.viewer_next"), note: "" },
+        { keys: ["←", "PageUp"], action: t("help.shortcut.viewer_prev"), note: "" },
+        { keys: ["↓", "PageDown", "Space"], action: t("help.shortcut.viewer_pdf_next"), note: "" },
+        { keys: ["↑", "PageUp"], action: t("help.shortcut.viewer_pdf_prev"), note: "" },
+        { keys: ["Home", "End"], action: t("help.shortcut.viewer_home"), note: "" },
+      ],
+    },
+    {
+      id: "binder",
+      title: t("help.shortcut.group.binder"),
+      rows: [
+        { keys: ["Ctrl+Z", "Ctrl+Y", "Ctrl+Shift+Z"], action: t("help.shortcut.folder_undo"), note: t("help.shortcut.note.folder") },
+      ],
+    },
+    {
+      id: "chat",
+      title: t("help.shortcut.group.chat"),
+      rows: [
+        { keys: ["Enter"], action: t("help.shortcut.chat_send"), note: t("help.shortcut.note.chat") },
+        { keys: ["Shift+Enter"], action: t("help.shortcut.chat_break"), note: t("help.shortcut.note.chat") },
+      ],
+    },
+    {
+      id: "esc",
+      title: t("help.shortcut.group.esc"),
+      rows: [
+        { keys: ["Esc"], action: t("help.shortcut.esc_stack"), note: t("help.shortcut.note.esc") },
+      ],
+    },
+    {
+      id: "special",
+      title: t("help.shortcut.group.special"),
+      rows: [
+        { keys: ["Enter"], action: t("help.shortcut.spread_enter"), note: t("help.shortcut.note.spread") },
+        { keys: ["Shift+Enter"], action: t("help.shortcut.spread_shift"), note: t("help.shortcut.note.spread") },
+        { keys: ["←", "→", "Backspace"], action: t("help.shortcut.pagewrite_caret"), note: t("help.shortcut.note.pagewrite") },
+      ],
+    },
+  ];
+}
+
+function renderAdminShortcutList() {
+  const host = $("adminShortcutList");
+  if (!host) return;
+  const groups = shortcutCatalog();
+  const keyLabel = escapeHtml(i18n.t("help.shortcut.keys"));
+  const actionLabel = escapeHtml(i18n.t("help.shortcut.action"));
+  const noteLabel = escapeHtml(i18n.t("help.shortcut.note"));
+  host.innerHTML = groups.map((group, index) => {
+    const rows = (group.rows || []).map((row) => `
+      <tr>
+        <td class="admin-shortcut-keys">${formatShortcutKeys(row.keys)}</td>
+        <td>${escapeHtml(row.action || "")}</td>
+        <td class="admin-shortcut-note">${escapeHtml(row.note || "")}</td>
+      </tr>
+    `).join("");
+    return `
+      <details class="admin-shortcut-group help-manual-group"${index === 0 ? " open" : ""} data-shortcut-group="${escapeHtml(group.id)}">
+        <summary class="help-qa-group-title">${escapeHtml(group.title)}</summary>
+        <div class="admin-shortcut-table-wrap">
+          <table class="admin-shortcut-table">
+            <thead>
+              <tr>
+                <th scope="col">${keyLabel}</th>
+                <th scope="col">${actionLabel}</th>
+                <th scope="col">${noteLabel}</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </details>
+    `;
+  }).join("");
+}
+
 function helpManualCatalog() {
   const t = (key) => i18n.t(key);
   return [
@@ -81898,6 +82067,10 @@ function setupAdminMode() {
   });
   if (typeof setupAdminCollapsibleSections === "function") setupAdminCollapsibleSections();
   setupHelpModal();
+  $("adminOpenShortcutsButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    setAdminTab("shortcuts");
+  });
   $("adminContactDevButton")?.addEventListener("click", (event) => {
     event.preventDefault();
     openDeveloperContact();

@@ -260,7 +260,7 @@
     </style>
 
     <link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
-    <link rel="stylesheet" href="/styles.css?v=1.4.228">
+    <link rel="stylesheet" href="/styles.css?v=1.4.233">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -2397,16 +2397,16 @@
                   <input type="search" id="findInput" placeholder="찾을 내용" data-i18n-placeholder="index.찾을_내용" autocomplete="off" spellcheck="false">
                 </label>
                 <span class="find-bar-count" id="findCount" aria-live="polite">0/0</span>
-                <button type="button" class="format-btn" id="findPrevButton" title="이전" data-i18n-title="app.이전">↑</button>
-                <button type="button" class="format-btn" id="findNextButton" title="다음" data-i18n-title="app.다음">↓</button>
-                <button type="button" class="format-btn" id="findCloseButton" title="닫기" data-i18n-title="app.닫기">×</button>
+                <button type="button" class="format-btn" id="findPrevButton" title="이전 (Shift+Enter)" data-i18n-title="index.찾기_이전_Shift_Enter">↑</button>
+                <button type="button" class="format-btn" id="findNextButton" title="다음 (Enter)" data-i18n-title="index.찾기_다음_Enter">↓</button>
+                <button type="button" class="format-btn" id="findCloseButton" title="닫기 (Esc)" data-i18n-title="index.찾기_닫기_Esc">×</button>
               </div>
 
               <!-- 북마크 목록 패널 (아이콘 행 버튼 · 목차 하단에는 표시하지 않음) -->
               <div id="bookmarkListPanel" class="bookmark-list-panel hidden" role="dialog" aria-label="북마크 목록" data-i18n-aria-label="index.북마크_목록" aria-modal="false">
                 <div class="bookmark-list-panel-head">
                   <strong data-i18n="app.북마크">북마크</strong>
-                  <button type="button" class="format-btn" id="bookmarkListClose" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
+                  <button type="button" class="format-btn" id="bookmarkListClose" title="닫기 (Esc)" data-i18n-title="app.닫기_Esc" aria-label="닫기 (Esc)" data-i18n-aria-label="app.닫기_Esc">×</button>
                 </div>
                 <div class="guide-tip-box bookmark-list-guide-tip" data-guide-tip="bookmarkList" role="note">
                   <p class="hint bookmark-list-panel-hint" data-i18n="index.회차_설정집에서_우클릭으로_추가해요_이유_칸">지금 연 회차를 북마크하거나, 목차·설정집에서 우클릭으로 추가해요. 이유 칸에 메모를 적을 수 있어요.</p>
@@ -2427,7 +2427,7 @@
               <div id="similarWordPanel" class="similar-word-panel hidden" role="dialog" aria-label="유사단어 찾기" data-i18n-aria-label="index.유사단어_찾기" aria-modal="false">
                 <div class="similar-word-panel-head">
                   <strong data-i18n="app.단어찾기">단어 찾기</strong>
-                  <button type="button" class="format-btn" id="similarWordClose" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
+                  <button type="button" class="format-btn" id="similarWordClose" title="닫기 (Esc)" data-i18n-title="app.닫기_Esc" aria-label="닫기 (Esc)" data-i18n-aria-label="app.닫기_Esc">×</button>
                 </div>
                 <div class="similar-word-panel-query">
                   <label class="similar-word-field">
@@ -2459,7 +2459,7 @@
                       <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
                     </svg>
                   </button>
-                  <button type="button" class="format-btn" data-format="redo" title="다시 실행 (Ctrl+Y)" data-i18n-title="index.다시_실행_Ctrl_Y" aria-label="다시 실행" data-i18n-aria-label="index.다시_실행">
+                  <button type="button" class="format-btn" data-format="redo" title="다시 실행 (Ctrl+Y · Ctrl+Shift+Z)" data-i18n-title="index.다시_실행_Ctrl_Y" aria-label="다시 실행" data-i18n-aria-label="index.다시_실행">
                     <svg class="format-history-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                       <path d="M21 7v6h-6"/>
                       <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
@@ -2761,7 +2761,7 @@
                   type="button"
                   class="status-view-zoom-btn"
                   id="editorViewZoomButton"
-                  title="화면 배율 · Ctrl+휠로 조절"
+                  title="화면 배율 · Ctrl+휠 · Ctrl++ / − / 0"
                   data-i18n-title="index.화면_배율_Ctrl_휠로_조절"
                   aria-label="화면 배율"
                   data-i18n-aria-label="index.화면_배율"
@@ -3064,7 +3064,7 @@
                         class="secondary split-mode-switch"
                         aria-haspopup="menu"
                         aria-expanded="false"
-                        title="화면 나누기 / 팝업 선택 · 닫기" data-i18n-title="index.화면_나누기_팝업_선택_닫기"
+                        title="화면 나누기 / 팝업 선택 · 닫기 (Ctrl+Alt+S / Ctrl+Alt+P)" data-i18n-title="index.화면_나누기_팝업_선택_닫기"
                         aria-label="보기 방식" data-i18n-aria-label="index.보기_방식"
                       >
                         <span class="split-mode-switch-icon hidden" data-split-chrome="split" aria-hidden="true">
@@ -3117,7 +3117,7 @@
                         <button type="button" class="view-mode-mini-link" data-split-rightclick-hint="hide" data-i18n="index.우클릭_안내_숨기기">우클릭 안내 숨기기</button>
                       </div>
                     </div>
-                    <button id="closeSplitButton" type="button" title="분할 닫기" data-i18n-title="index.분할_닫기">×</button>
+                    <button id="closeSplitButton" type="button" title="분할 닫기 (Esc)" data-i18n-title="index.분할_닫기">×</button>
                   </div>
                 </div>
                 <label class="split-scene-label">
@@ -3398,7 +3398,7 @@
                     <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
                   </svg>
                 </button>
-                <button type="button" class="format-btn" data-format="redo" title="다시 실행 (Ctrl+Y)" data-i18n-title="index.다시_실행_Ctrl_Y" aria-label="다시 실행" data-i18n-aria-label="index.다시_실행">
+                <button type="button" class="format-btn" data-format="redo" title="다시 실행 (Ctrl+Y · Ctrl+Shift+Z)" data-i18n-title="index.다시_실행_Ctrl_Y" aria-label="다시 실행" data-i18n-aria-label="index.다시_실행">
                   <svg class="format-history-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                     <path d="M21 7v6h-6"/>
                     <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
@@ -3471,7 +3471,7 @@
                 <button type="button" class="format-btn" data-format="bold" title="굵게 (Ctrl+B)" data-i18n-title="index.굵게_Ctrl_B"><strong>B</strong></button>
                 <button type="button" class="format-btn" data-format="italic" title="기울임 (Ctrl+I)" data-i18n-title="index.기울임_Ctrl_I"><em>I</em></button>
                 <button type="button" class="format-btn" data-format="underline" title="밑줄 (Ctrl+U)" data-i18n-title="index.밑줄_Ctrl_U"><span class="u-mark">U</span></button>
-                <button type="button" class="format-btn" data-format="strike" title="취소선" data-i18n-title="index.취소선" aria-label="취소선" data-i18n-aria-label="index.취소선"><span class="s-mark">S</span></button>
+                <button type="button" class="format-btn" data-format="strike" title="취소선 (Ctrl+Shift+X)" data-i18n-title="index.취소선_Ctrl_Shift_X" aria-label="취소선" data-i18n-aria-label="index.취소선"><span class="s-mark">S</span></button>
               </div>
               <span class="format-row-divider" aria-hidden="true"></span>
               <div class="format-seg format-seg-icon format-seg-colors" role="group" aria-label="색 · 음영" data-i18n-aria-label="index.색_음영">
@@ -3765,7 +3765,7 @@
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
                 <span data-i18n="app.전체_보기">전체 보기</span>
               </button>
-              <button type="button" class="secondary compact-btn hidden relation-tool-btn" id="relationFullscreenExitButton" data-i18n="app.전체화면_닫기">전체화면 닫기</button>
+              <button type="button" class="secondary compact-btn hidden relation-tool-btn" id="relationFullscreenExitButton" title="전체화면 닫기 (Esc)" data-i18n-title="app.전체화면_닫기_Esc" data-i18n="app.전체화면_닫기">전체화면 닫기</button>
               <button type="button" class="secondary compact-btn relation-tool-btn" id="relationLayoutButton">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 5H3"/><path d="M15 12H3"/><path d="M17 19H3"/></svg>
                 <span data-i18n="app.정렬">정렬</span>
@@ -6932,10 +6932,10 @@
         <button type="button" class="paste-option-btn" role="menuitem" data-context-action="paste-merge" title="서식 병합: 굵기·기울임 등은 남기고, 글꼴·크기·색은 지금 문서에 맞춰요" data-i18n-title="index.서식_병합_굵기_기울임_등은_남기고_글꼴_크" data-i18n="index.서식_병합">서식 병합</button>
         <button type="button" class="paste-option-btn" role="menuitem" data-context-action="paste-text" title="텍스트만 유지: 서식 없이 글자만 넣어요" data-i18n-title="index.텍스트만_유지_서식_없이_글자만_넣어요" data-i18n="index.텍스트만_유지">텍스트만 유지</button>
       </div>
-      <button type="button" role="menuitem" data-context-action="select-all" id="selectAllMenuItem" data-ctx-selection-ok title="본문만 모두 선택해요" data-i18n-title="index.본문만_모두_선택해요">
+      <button type="button" role="menuitem" data-context-action="select-all" id="selectAllMenuItem" data-ctx-selection-ok title="본문만 모두 선택해요 (Ctrl+A)" data-i18n-title="index.본문만_모두_선택해요">
         <span data-i18n="index.전체_선택">전체 선택</span>
       </button>
-      <button type="button" role="menuitem" data-context-action="copy-format" id="copyFormatMenuItem" data-ctx-selection-only title="선택한 글의 서식(글꼴·크기·색·굵기 등)만 복사해요" data-i18n-title="app.선택한_글의_서식_글꼴_크기_색_굵기_등_만">
+      <button type="button" role="menuitem" data-context-action="copy-format" id="copyFormatMenuItem" data-ctx-selection-only title="선택한 글의 서식(글꼴·크기·색·굵기 등)만 복사해요 · Esc로 취소" data-i18n-title="app.선택한_글의_서식_글꼴_크기_색_굵기_등_만">
         서식 복사
       </button>
       <button type="button" role="menuitem" data-context-action="toggle-dict-highlight" id="dictHighlightMenuItem" data-ctx-full-only aria-checked="false" title="본문에 등록한 고유어를 색으로 보여 줘요" data-i18n-title="index.고유어_표시_힌트">
@@ -7262,11 +7262,12 @@
           <button type="button" class="modal-close" data-close-admin title="닫기" data-i18n-title="app.닫기">×</button>
         </div>
         <p class="hint modal-hint" data-i18n="app.관리자_모드_부제">
-          정보 · 설정 옵션 · 사용자 관리 · 작품 관리 · 휴지통을 한곳에서 관리합니다.
+          정보 · 단축키 · 설정 옵션 · 사용자 관리 · 작품 관리 · 휴지통을 한곳에서 관리합니다.
         </p>
 
         <div class="admin-tabs" role="tablist" aria-label="관리자 구역" data-i18n-aria-label="index.관리자_구역">
           <button type="button" class="admin-tab is-active" role="tab" data-admin-tab="info" aria-selected="true" data-i18n="index.정보">정보</button>
+          <button type="button" class="admin-tab" role="tab" data-admin-tab="shortcuts" aria-selected="false" data-i18n="index.단축키">단축키</button>
           <button type="button" class="admin-tab" role="tab" data-admin-tab="settings" aria-selected="false" data-i18n="index.설정_옵션">설정 옵션</button>
           <button type="button" class="admin-tab" role="tab" data-admin-tab="account" aria-selected="false" data-i18n="index.사용자_관리">사용자 관리</button>
           <button type="button" class="admin-tab" role="tab" data-admin-tab="projects" aria-selected="false" data-i18n="index.작품_관리">작품 관리</button>
@@ -7330,6 +7331,12 @@
               <button type="button" id="adminOpenHelpButton" class="secondary compact-btn" data-i18n="index.도움말_열기">도움말 열기</button>
             </div>
 
+            <div class="admin-help-block">
+              <h4 class="admin-subsection-title" data-i18n="index.단축키">단축키</h4>
+              <p class="hint" data-i18n="index.단축키_안내">키보드로 쓸 수 있는 기능을 모아 두었어요.</p>
+              <button type="button" id="adminOpenShortcutsButton" class="secondary compact-btn" data-i18n="index.단축키_보기">단축키 보기</button>
+            </div>
+
             <div class="admin-help-block admin-contact-block">
               <h4 class="admin-subsection-title" data-i18n="index.개발자에게_문의하기">개발자에게 문의하기</h4>
               <p class="hint" data-i18n="index.오류_제보_개선_제안_사용_문의가_있으면_메">오류 제보·개선 제안·사용 문의가 있으면 메일 앱이 열립니다. 연락처는 화면에 표시되지 않습니다.</p>
@@ -7341,6 +7348,18 @@
               <p class="hint" data-i18n="index.놓치기_쉬운_숨겨진_기능을_화살표로_짚어_줍">놓치기 쉬운 숨겨진 기능을 화살표로 짚어 줍니다.</p>
               <button type="button" id="adminReplayTutorialButton" class="secondary compact-btn" data-i18n="index.튜토리얼_다시_보기">튜토리얼 다시 보기</button>
             </div>
+          </div>
+        </section>
+
+        <section class="admin-panel" data-admin-panel="shortcuts" aria-label="단축키" data-i18n-aria-label="index.단축키" hidden>
+          <div class="admin-section-box admin-shortcut-box">
+            <div class="admin-trash-heading">
+              <div>
+                <h3 class="admin-section-title" data-i18n="index.단축키">단축키</h3>
+                <p class="hint" data-i18n="help.shortcut.intro">코드에 걸려 있는 단축키입니다. Mac에서는 Ctrl이 Cmd로도 동작합니다.</p>
+              </div>
+            </div>
+            <div id="adminShortcutList" class="admin-shortcut-list" aria-live="polite"></div>
           </div>
         </section>
 
@@ -7921,7 +7940,7 @@
               type="button"
               class="secondary compact-btn viewer-icon-btn"
               id="focusWriteZoomButton"
-              title="화면 배율 · Ctrl+휠로 조절" data-i18n-title="index.화면_배율_Ctrl_휠로_조절"
+              title="화면 배율 · Ctrl+휠 · Ctrl++ / − / 0" data-i18n-title="index.화면_배율_Ctrl_휠로_조절"
               aria-label="화면 배율" data-i18n-aria-label="index.화면_배율"
               aria-haspopup="menu"
               aria-expanded="false"
@@ -8024,8 +8043,8 @@
               class="secondary compact-btn viewer-icon-btn"
               id="focusWriteCloseButton"
               data-close-focus-write
-              title="닫기" data-i18n-title="app.닫기"
-              aria-label="닫기" data-i18n-aria-label="app.닫기"
+              title="닫기 (Esc)" data-i18n-title="app.닫기_Esc"
+              aria-label="닫기 (Esc)" data-i18n-aria-label="app.닫기_Esc"
             >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                 <path d="M18 6 6 18"/>
@@ -8113,8 +8132,8 @@
               class="secondary compact-btn viewer-icon-btn"
               id="pageWriteCloseButton"
               data-close-page-write
-              title="닫기" data-i18n-title="app.닫기"
-              aria-label="닫기" data-i18n-aria-label="app.닫기"
+              title="닫기 (Esc)" data-i18n-title="app.닫기_Esc"
+              aria-label="닫기 (Esc)" data-i18n-aria-label="app.닫기_Esc"
             >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                 <path d="M18 6 6 18"/>
@@ -8417,8 +8436,8 @@
               type="button"
               class="secondary compact-btn viewer-icon-btn"
               data-close-viewer
-              title="닫기" data-i18n-title="app.닫기"
-              aria-label="닫기" data-i18n-aria-label="app.닫기"
+              title="닫기 (Esc)" data-i18n-title="app.닫기_Esc"
+              aria-label="닫기 (Esc)" data-i18n-aria-label="app.닫기_Esc"
             >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                 <path d="M18 6 6 18"/>
@@ -9788,6 +9807,6 @@
     <script src="/typeset_metrics.js?v=1.4.45"></script>
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
-    <script src="/app.js?v=1.4.228"></script>
+    <script src="/app.js?v=1.4.233"></script>
   </body>
 </html>

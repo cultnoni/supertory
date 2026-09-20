@@ -1830,6 +1830,14 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('data-help-tab="qa"', self.html)
         self.assertNotIn('id="titlebarHelpButton"', self.html)
         self.assertIn('id="adminOpenHelpButton"', self.html)
+        self.assertIn('id="adminOpenShortcutsButton"', self.html)
+        self.assertIn('data-admin-tab="shortcuts"', self.html)
+        self.assertIn('data-admin-panel="shortcuts"', self.html)
+        self.assertIn('id="adminShortcutList"', self.html)
+        self.assertIn("function shortcutCatalog(", self.js)
+        self.assertIn("function renderAdminShortcutList(", self.js)
+        self.assertIn("function formatShortcutKeys(", self.js)
+        self.assertIn('setAdminTab("shortcuts")', self.js)
         self.assertIn("help.qa.privacy.learn.q", self.js)
         self.assertIn('featured: true', self.js.split("function helpFaqCatalog(", 1)[1][:900])
         self.assertIn("is-featured", self.js)
@@ -1846,6 +1854,10 @@ class PanelDockContractTests(unittest.TestCase):
             self.assertIn("help.cat.immersion", locale)
             self.assertIn("help.tab.manual", locale)
             self.assertIn("help.tab.qa", locale)
+            self.assertIn("index.단축키", locale)
+            self.assertIn("help.shortcut.intro", locale)
+            self.assertIn("help.shortcut.group.editor", locale)
+            self.assertIn("help.shortcut.esc_stack", locale)
             self.assertIn("help.qa.import.proof.q", locale)
             self.assertIn("help.qa.privacy.learn.q", locale)
             self.assertIn("help.qa.privacy.learn.a", locale)
@@ -1856,7 +1868,71 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertEqual(self.locales["ko"]["index.도움말"], "도움말")
         self.assertEqual(self.locales["ko"]["help.tab.manual"], "기능 안내")
         self.assertEqual(self.locales["ko"]["help.tab.qa"], "QnA")
+        self.assertEqual(self.locales["ko"]["index.단축키"], "단축키")
+        self.assertIn("Ctrl이 Cmd", self.locales["ko"]["help.shortcut.intro"])
+        self.assertIn("Shortcuts", self.locales["en"]["index.단축키"])
+        self.assertIn("Atajos", self.locales["es"]["index.단축키"])
         self.assertEqual(self.locales["ko"]["help.qa.import.proof.q"], "교정고 불러오기")
+        overlay_hide = self.css.split(
+            "body.focus-write-open header.app-chrome,",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("body.viewer-open header.app-chrome", self.css)
+        self.assertIn("body.page-write-open header.app-chrome", self.css)
+        self.assertIn("z-index: 1", overlay_hide)
+        self.assertIn("pointer-events: none", overlay_hide)
+        overlay_z = self.css.split(
+            "body.focus-write-open .modal.focus-write-modal,",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("z-index: 52", overlay_z)
+        popup_z = self.css.split(".split-viewer.popup-mode {", 1)[1].split("}", 1)[0]
+        self.assertIn("z-index: 55", popup_z)
+
+    def test_existing_shortcut_tooltips(self) -> None:
+        html_bindings = {
+            "id=\"findPrevButton\"": "index.찾기_이전_Shift_Enter",
+            "id=\"findNextButton\"": "index.찾기_다음_Enter",
+            "id=\"findCloseButton\"": "index.찾기_닫기_Esc",
+            "id=\"bookmarkListClose\"": "app.닫기_Esc",
+            "id=\"similarWordClose\"": "app.닫기_Esc",
+            "id=\"closeSplitButton\"": "index.분할_닫기",
+            "id=\"selectAllMenuItem\"": "index.본문만_모두_선택해요",
+            "id=\"copyFormatMenuItem\"": "app.선택한_글의_서식_글꼴_크기_색_굵기_등_만",
+            "id=\"focusWriteCloseButton\"": "app.닫기_Esc",
+            "id=\"pageWriteCloseButton\"": "app.닫기_Esc",
+            "id=\"relationFullscreenExitButton\"": "app.전체화면_닫기_Esc",
+            "id=\"editorViewZoomButton\"": "index.화면_배율_Ctrl_휠로_조절",
+            "id=\"focusWriteZoomButton\"": "index.화면_배율_Ctrl_휠로_조절",
+        }
+        for marker, key in html_bindings.items():
+            snippet = self.html.split(marker, 1)[1].split("</button>", 1)[0]
+            self.assertIn(f'data-i18n-title="{key}"', snippet)
+        viewer_close = self.html.split('id="viewerMaximizeButton"', 1)[1].split("data-close-viewer", 1)[1].split("</button>", 1)[0]
+        self.assertIn('data-i18n-title="app.닫기_Esc"', viewer_close)
+        self.assertIn('data-i18n-title="index.취소선_Ctrl_Shift_X"', self.html)
+        self.assertEqual(self.html.count('title="다시 실행 (Ctrl+Y · Ctrl+Shift+Z)"'), 2)
+        locale_needles = {
+            "app.닫기_Esc": ("Esc", "Esc", "Esc"),
+            "app.전체화면_닫기_Esc": ("Esc", "Esc", "Esc"),
+            "index.찾기_이전_Shift_Enter": ("Shift+Enter", "Shift+Enter", "Shift+Enter"),
+            "index.찾기_다음_Enter": ("Enter", "Enter", "Enter"),
+            "index.찾기_닫기_Esc": ("Esc", "Esc", "Esc"),
+            "index.다시_실행_Ctrl_Y": ("Ctrl+Shift+Z", "Ctrl+Shift+Z", "Ctrl+Shift+Z"),
+            "index.화면_배율_Ctrl_휠로_조절": ("Ctrl++", "Ctrl++", "Ctrl++"),
+            "index.분할_닫기": ("Esc", "Esc", "Esc"),
+            "index.본문만_모두_선택해요": ("Ctrl+A", "Ctrl+A", "Ctrl+A"),
+            "app.선택한_글의_서식_글꼴_크기_색_굵기_등_만": ("Esc", "Esc", "Esc"),
+            "index.화면_나누기_팝업_선택_닫기": ("Ctrl+Alt+S", "Ctrl+Alt+S", "Ctrl+Alt+S"),
+            "index.분할_기본_화면_나누기": ("Ctrl+Alt+S", "Ctrl+Alt+S", "Ctrl+Alt+S"),
+            "index.분할_기본_팝업으로_보기": ("Ctrl+Alt+P", "Ctrl+Alt+P", "Ctrl+Alt+P"),
+        }
+        for key, (ko_part, en_part, es_part) in locale_needles.items():
+            self.assertIn(ko_part, self.locales["ko"][key])
+            self.assertIn(en_part, self.locales["en"][key])
+            self.assertIn(es_part, self.locales["es"][key])
+        self.assertIn("index.화면_배율_Ctrl_휠로_조절", self.js)
+        self.assertIn("app.선택한_글의_서식_글꼴_크기_색_굵기_등_만", self.js)
 
 
 if __name__ == "__main__":

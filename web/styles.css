@@ -1148,6 +1148,22 @@ html.is-electron .episode-tab-close {
 html.is-electron-mac .app-titlebar {
   padding-left: 78px;
 }
+/*
+  큰 창·뷰어·쪽쓰기는 헤더(z-index 50)보다 낮은 오버레이(45)라
+  타이틀바 띠가 닫기·옵션 핫존을 가린다. 헤더는 뒤로 보내고 오버레이를 올린다.
+  Electron OS 캡션(최소화·닫기)은 네이티브 오버레이라 그대로 남는다.
+*/
+body.focus-write-open header.app-chrome,
+body.viewer-open header.app-chrome,
+body.page-write-open header.app-chrome {
+  z-index: 1;
+  pointer-events: none;
+}
+body.focus-write-open .modal.focus-write-modal,
+body.viewer-open .modal.viewer-modal,
+body.page-write-open .modal.page-write-modal {
+  z-index: 52;
+}
 .app-toolbar {
   display: flex;
   align-items: center;
@@ -2600,6 +2616,43 @@ html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-pro
 }
 .help-panel[hidden] {
   display: none;
+}
+.admin-shortcut-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+.admin-shortcut-table-wrap {
+  overflow: auto;
+  margin-top: 8px;
+}
+.admin-shortcut-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.admin-shortcut-table th,
+.admin-shortcut-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.admin-shortcut-table th {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.admin-shortcut-table .shortcut-kbd {
+  margin: 0 4px 4px 0;
+}
+.admin-shortcut-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.admin-shortcut-keys {
+  white-space: nowrap;
 }
 .help-manual-list,
 .help-qa-list {
@@ -23689,6 +23742,13 @@ body.page-write-open #sceneContent {
   background: var(--selection, var(--surface-2));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, currentColor) 55%, transparent);
 }
+#focusWriteSpreadButton:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  color: var(--muted, inherit);
+  background: transparent;
+  box-shadow: none;
+}
 /* 전체보기: 화면 가장자리까지 채움 */
 .focus-write-modal.is-fullscreen {
   padding: 0;
@@ -23787,6 +23847,16 @@ html.is-electron .focus-write-modal.is-fullscreen .focus-write-actions,
 html.is-electron .focus-write-modal.is-fullscreen .focus-write-actions button,
 body.is-electron .focus-write-modal.is-fullscreen .focus-write-actions,
 body.is-electron .focus-write-modal.is-fullscreen .focus-write-actions button {
+  -webkit-app-region: no-drag;
+}
+html.is-electron .focus-write-modal.is-fullscreen,
+body.is-electron .focus-write-modal.is-fullscreen {
+  -webkit-app-region: drag;
+}
+html.is-electron .focus-write-modal.is-fullscreen .focus-write-card,
+html.is-electron .focus-write-modal.is-fullscreen .modal-backdrop,
+body.is-electron .focus-write-modal.is-fullscreen .focus-write-card,
+body.is-electron .focus-write-modal.is-fullscreen .modal-backdrop {
   -webkit-app-region: no-drag;
 }
 html.is-electron-mac .focus-write-modal.is-fullscreen .focus-write-head,
@@ -28426,7 +28496,7 @@ body[data-ui-scheme="dark"] .shortcut-kbd {
   min-height: 220px;
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
-  z-index: 28;
+  z-index: 55;
   box-shadow: 0 18px 48px #00000033;
   overflow: hidden; /* content scrolls inside; box is resized via handle */
   resize: both; /* native corner resize where supported */

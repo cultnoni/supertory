@@ -88,6 +88,44 @@ class SplitCompareViewTests(unittest.TestCase):
                 self.assertIn(key, locale)
                 self.assertTrue(str(locale[key]).strip())
 
+    def test_focus_write_spread_defaults_off_and_blocks_during_split(self) -> None:
+        btn = self.html.split('id="focusWriteSpreadButton"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('aria-pressed="false"', btn)
+        load_fn = self.js.split("function loadFocusWriteA4Spread(", 1)[1].split(
+            "function setFocusWriteA4SpreadPref(", 1
+        )[0]
+        self.assertIn('=== "1"', load_fn)
+        self.assertIn("return false", load_fn)
+        self.assertIn("function isFocusWriteSpreadBlocked", self.js)
+        self.assertIn("function syncFocusWriteSpreadAvailability", self.js)
+        self.assertIn("state.splitEnabled", self.js.split("function isFocusWriteSpreadBlocked(", 1)[1].split("}", 1)[0])
+        avail = self.js.split("function syncFocusWriteSpreadAvailability(", 1)[1].split(
+            "function focusWriteSpreadStyleSnapshot(", 1
+        )[0]
+        self.assertIn("applyFocusWriteA4Spread(false, { persist: false })", avail)
+        apply_fn = self.js.split("function applyFocusWriteA4Spread(", 1)[1].split(
+            "function setupFocusWriteA4Spread(", 1
+        )[0]
+        self.assertIn("isFocusWriteSpreadBlocked()", apply_fn)
+        click_fn = self.js.split("function setupFocusWriteA4Spread(", 1)[1].split(
+            "function openFocusWrite(", 1
+        )[0]
+        self.assertIn("isFocusWriteSpreadBlocked()", click_fn)
+        layout = self.js.split("function applySplitLayout(", 1)[1].split(
+            "function ensureSplitLeftWidth(", 1
+        )[0]
+        self.assertIn("syncFocusWriteSpreadAvailability()", layout)
+        open_fw = self.js.split("function openFocusWrite(", 1)[1].split(
+            "function closeFocusWrite(", 1
+        )[0]
+        self.assertIn("loadFocusWriteA4Spread() && !state.splitEnabled", open_fw)
+        self.assertIn("#focusWriteSpreadButton:disabled", self.css)
+        for locale in (self.ko, self.en, self.es):
+            self.assertIn("index.두_페이지_보기는_비교_분할에서_쓸_수_없어요", locale)
+            self.assertTrue(str(locale["index.두_페이지_보기는_비교_분할에서_쓸_수_없어요"]).strip())
+        self.assertIn("비교", self.ko["index.두_페이지_보기는_비교_분할에서_쓸_수_없어요"])
+        self.assertIn("분할", self.ko["index.두_페이지_보기는_비교_분할에서_쓸_수_없어요"])
+
 
 if __name__ == "__main__":
     unittest.main()
