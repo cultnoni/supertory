@@ -843,6 +843,35 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("justify-content: flex-start", split_icons)
         self.assertIn("gap: 0", split_icons)
 
+    def test_format_field_selects_do_not_use_svg_background_for_caret(self) -> None:
+        """Chromium native title hover tiles SVG data-URI backgrounds on <select>."""
+        chip_css = self.css.split(
+            "/* 드롭다운: 텍스트 + chevron 만 (박스 없음) */",
+            1,
+        )[1].split("/* 아이콘 그룹: 완전 플랫 */", 1)[0]
+        self.assertIn(".format-field-chip::after", chip_css)
+        self.assertIn("pointer-events: none", chip_css)
+        self.assertIn("background-image: none", chip_css)
+        self.assertNotIn("data:image/svg+xml", chip_css)
+        self.assertIn(
+            '.writing-block.manuscript-frame[data-page-contrast="dark"] > .ms-tools-card .format-field-chip::after',
+            self.css,
+        )
+        self.assertNotIn(
+            '.writing-block.manuscript-frame[data-page-contrast="dark"] > .ms-tools-card .format-field-chip select',
+            self.css,
+        )
+        status_css = self.css.split(
+            "/* Writing status tab — compact height; size set on .status-clip-select only */",
+            1,
+        )[1]
+        status_select = status_css.split(".status-clip-select {", 1)[1].split("}", 1)[0]
+        self.assertIn("background-image: none", status_select)
+        status_caret = status_css.split(".status-clip::after {", 1)[1].split("}", 1)[0]
+        self.assertIn("pointer-events: none", status_caret)
+        self.assertIn("border-top:", status_caret)
+        self.assertNotIn("d='M1 1l4 4 4-4'", self.css)
+
     def test_view_tool_icons_include_page_write_placeholder(self) -> None:
         row = self.html.split('data-toolbar-row="format-icons"', 1)[1].split('id="findBar"', 1)[0]
         keys = []

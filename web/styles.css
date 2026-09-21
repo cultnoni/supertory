@@ -21259,6 +21259,7 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   border: 0;
 }
 .format-field-chip {
+  position: relative;
   display: inline-flex !important;
   align-items: center;
   margin: 0 !important;
@@ -21275,6 +21276,27 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   background: color-mix(in srgb, var(--selection, #efe4d4) 55%, transparent) !important;
   border: 0 !important;
 }
+/* caret는 select background-image가 아니라 라벨 ::after.
+   Chromium/Windows는 <select title> 호버에 SVG data-URI를 타일로 그린다. */
+.format-field-chip::after {
+  content: "";
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 4.5px solid currentColor;
+  transform: translateY(-40%);
+  pointer-events: none;
+  color: var(--toolbar-icon, var(--ink));
+  opacity: 0.78;
+}
+.format-field-chip:hover::after {
+  color: var(--primary, var(--accent));
+  opacity: 1;
+}
 .format-field-chip select,
 .format-field-chip .format-font-select {
   appearance: none;
@@ -21282,6 +21304,7 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   border: 0 !important;
   border-radius: 6px !important;
   background-color: transparent !important;
+  background-image: none !important;
   box-shadow: none !important;
   min-height: 28px !important;
   height: 28px !important;
@@ -21294,10 +21317,6 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   max-width: 7.5em;
   min-width: 3.4em;
   cursor: pointer;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%234A3E38' d='M1 1l4 4 4-4'/%3E%3C/svg%3E") !important;
-  background-repeat: no-repeat !important;
-  background-position: right 4px center !important;
-  background-size: 10px 6px !important;
 }
 .format-field-chip select:hover,
 .format-field-chip .format-font-select:hover {
@@ -21437,13 +21456,14 @@ html[data-ui-scheme="dark"] .writing-block.manuscript-frame > .ms-tools-card .fo
   background: color-mix(in srgb, var(--format-on-page-ink, var(--page-ink)) 18%, transparent) !important;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--format-on-page-ink, var(--page-ink)) 40%, transparent) !important;
 }
-.writing-block.manuscript-frame[data-page-contrast="dark"] > .ms-tools-card .format-field-chip select,
-.writing-block.manuscript-frame[data-page-contrast="dark"] > .ms-tools-card .format-field-chip .format-font-select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23F4F0E8' d='M1 1l4 4 4-4'/%3E%3C/svg%3E") !important;
+.writing-block.manuscript-frame > .ms-tools-card .format-field-chip::after {
+  color: var(--format-on-page-ink, var(--page-ink, var(--toolbar-icon, var(--ink))));
 }
-.writing-block.manuscript-frame[data-page-contrast="light"] > .ms-tools-card .format-field-chip select,
-.writing-block.manuscript-frame[data-page-contrast="light"] > .ms-tools-card .format-field-chip .format-font-select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%2324211d' d='M1 1l4 4 4-4'/%3E%3C/svg%3E") !important;
+.writing-block.manuscript-frame[data-page-contrast="dark"] > .ms-tools-card .format-field-chip::after {
+  color: #F4F0E8;
+}
+.writing-block.manuscript-frame[data-page-contrast="light"] > .ms-tools-card .format-field-chip::after {
+  color: #24211d;
 }
 .format-toolbar-row-format .format-seg.format-seg-icon > .format-btn-wide {
   min-width: 28px;
@@ -23025,10 +23045,7 @@ body[data-ui-scheme="dark"] .format-palette-action {
   border-radius: 3px;
   /* 닫힌 상태: 본문 테마. 목록 option 은 아래 별도 색 */
   background-color: var(--page-bg, var(--paper, #fffdf8));
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23746d64' d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 4px center;
-  background-size: 8px 5px;
+  background-image: none;
   color: var(--page-ink, var(--ink));
   /* 칸 높이(15px)는 유지하고 글씨만 키움 */
   font-size: 12px;
@@ -23060,7 +23077,23 @@ body[data-ui-scheme="dark"] .format-palette-action {
   outline-offset: 1px;
 }
 .status-clip::after {
-  display: none;
+  content: "";
+  display: block;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 4px solid currentColor;
+  transform: translateY(-40%);
+  pointer-events: none;
+  color: var(--page-ink, var(--ink));
+  opacity: 0.72;
+}
+.status-clip:hover::after {
+  opacity: 1;
 }
 .feature-chip {
   position: relative;
@@ -34941,6 +34974,10 @@ html[data-ui-theme="eink"] .format-field-chip {
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
+}
+html[data-theme="eink"] .format-field-chip::after,
+html[data-ui-theme="eink"] .format-field-chip::after {
+  color: #000;
 }
 html[data-theme="eink"] .format-toolbar-row-format .format-seg.format-seg-icon,
 html[data-ui-theme="eink"] .format-toolbar-row-format .format-seg.format-seg-icon {
