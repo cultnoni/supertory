@@ -64,6 +64,7 @@ import proof_clean
 import proof_diff
 import proof_extract
 import proof_pipeline
+import feedback_api
 import scene_cast_detect
 import custom_dictionary
 import scene_character_mentions
@@ -245,6 +246,9 @@ MIGRATION_090_PATH = ROOT / "db" / "090_translation_proper_nouns_dictionary_type
 MIGRATION_091_PATH = ROOT / "db" / "091_project_reader_favorites.sql"
 MIGRATION_092_PATH = ROOT / "db" / "092_migrate_urban_main_to_fantasy_male.py"
 MIGRATION_093_PATH = ROOT / "db" / "093_project_romance_axes.sql"
+MIGRATION_094_PATH = ROOT / "db" / "094_feedback_run.sql"
+MIGRATION_095_PATH = ROOT / "db" / "095_feedback_card_title.sql"
+MIGRATION_096_PATH = ROOT / "db" / "096_feedback_card_comment.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1999,6 +2003,12 @@ def initialise_database() -> None:
             apply_migration_092(connection)
         if 93 not in applied:
             connection.executescript(MIGRATION_093_PATH.read_text(encoding="utf-8"))
+        if 94 not in applied:
+            connection.executescript(MIGRATION_094_PATH.read_text(encoding="utf-8"))
+        if 95 not in applied:
+            connection.executescript(MIGRATION_095_PATH.read_text(encoding="utf-8"))
+        if 96 not in applied:
+            connection.executescript(MIGRATION_096_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -10553,6 +10563,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/") or "/"
         _note_scene_api("GET", path)
         try:
+            if feedback_api.try_handle_get(self):
+                return
             if path in {"/api/index/rebuild", "/api/index-rebuild"}:
                 self.send_json(self.get_index_rebuild_overview())
                 return
@@ -11217,6 +11229,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(upload_custom_ambient_track_from_request(self), HTTPStatus.CREATED)
                 return
             body = self.read_json()
+            if feedback_api.try_handle_post(self, path, body):
+                return
             if path == "/api/auth/signup":
                 result = sign_up(
                     str(body.get("email") or ""),
@@ -12634,6 +12648,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         _note_scene_api("PUT", path)
         try:
             body = self.read_json()
+            if feedback_api.try_handle_put(self, path, body):
+                return
             if path == "/api/user-settings":
                 user = get_current_user()
                 if not user or not str(user.get("id") or "").strip():
@@ -12861,6 +12877,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/")
         _note_scene_api("DELETE", path)
         try:
+            if feedback_api.try_handle_delete(self, path):
+                return
             match = re.fullmatch(r"/api/reading-invites/([^/]+)", path)
             if match:
                 if not self._require_reading_invite_user():
@@ -25787,6 +25805,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         if scene is None:
             raise ValueError("휴지통에서 해당 원고를 찾을 수 없습니다.")
         project_id = int(scene["project_id"])
+        import feedback_store
+
+        feedback_store.delete_scene_feedback(connection, scene_id)
 
         illust_rows = connection.execute(
             "SELECT id, file_name FROM scene_illustration WHERE scene_id = ?",
@@ -29117,6 +29138,8 @@ def main(argv: list[str] | None = None) -> None:
     package_path = parse_launch_args(argv)
 
     initialise_database()
+    with database() as connection:
+        feedback_api.interrupt_stale_runs(connection)
     _init_desktop_sync()
     Timer(1.5, _run_due_project_snapshots).start()
     # Electron owns shell integration; skip for frozen/Electron launches.
