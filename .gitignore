@@ -26,3 +26,8 @@ build/
 # Generated at installer build time (commit hash + built_at)
 web/build_info.json
 data/snapshots/
+
+# Prompt lab: unpublished manuscripts and run dumps
+tools/prompt_lab/manuscripts/
+tools/prompt_lab/results/*
+!tools/prompt_lab/results/.gitkeep

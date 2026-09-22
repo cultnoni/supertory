@@ -1,0 +1,13 @@
+{
+  "target_id": "W1",
+  "kind": "style",
+  "start_para": 12,
+  "end_para": 13,
+  "start_quote": "원문 그대로 12~20자",
+  "end_quote": "원문 그대로 12~20자",
+  "reason": "2~3문장",
+  "suggestion": "수정안 또는 null",
+  "added_facts": [],
+  "removed_facts": [],
+  "confidence": "high"
+}

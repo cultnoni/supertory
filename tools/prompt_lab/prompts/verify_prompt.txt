@@ -1,0 +1,24 @@
+[현재 작업]
+원문 구간과 수정안을 비교해 아래 항목만 JSON 하나로 판정하세요. 새 수정안을 쓰지 마세요.
+
+[원문]
+{{original_text}}
+
+[수정안]
+{{suggestion}}
+
+[이유]
+{{reason}}
+
+[신고된 변경]
+추가: {{added_facts}}
+삭제: {{removed_facts}}
+
+[판정 항목]
+1. undeclared_additions: 수정안에는 있는데 원문에 없고 '추가'에도 신고되지 않은 정보 (사건, 인물, 설정, 수치, 감정 설명)
+2. undeclared_removals: 원문에는 있는데 수정안에서 사라졌고 '삭제'에도 신고되지 않은 정보
+3. logic_reversed: 원문과 인과, 대립, 행위 주체, 시간 순서가 뒤바뀐 곳 (true/false와 한 줄 설명)
+4. repeats_flagged_pattern: 이유에서 지적한 문제를 수정안이 다시 범하는지 (true/false)
+
+[출력 JSON]
+{ "undeclared_additions": [], "undeclared_removals": [], "logic_reversed": false, "logic_note": "", "repeats_flagged_pattern": false }

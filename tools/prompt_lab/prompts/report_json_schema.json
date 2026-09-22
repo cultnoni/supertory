@@ -1,0 +1,259 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "rules",
+    "scores",
+    "strengths",
+    "weaknesses",
+    "consistency"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "scores": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "score", "comment"],
+        "properties": {
+          "item": {
+            "type": "string"
+          },
+          "score": {
+            "type": "integer",
+            "enum": [1, 2, 3, 4, 5]
+          },
+          "comment": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "strengths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "body", "perspectives", "range"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "perspectives": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["editor", "reader", "critic"]
+            }
+          },
+          "range": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "start_para",
+                  "end_para",
+                  "start_quote",
+                  "end_quote"
+                ],
+                "properties": {
+                  "start_para": {
+                    "type": "integer"
+                  },
+                  "end_para": {
+                    "type": "integer"
+                  },
+                  "start_quote": {
+                    "type": "string"
+                  },
+                  "end_quote": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "weaknesses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "body",
+          "perspectives",
+          "range",
+          "type",
+          "impact",
+          "fixable"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "perspectives": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["editor", "reader", "critic"]
+            }
+          },
+          "range": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "start_para",
+                  "end_para",
+                  "start_quote",
+                  "end_quote"
+                ],
+                "properties": {
+                  "start_para": {
+                    "type": "integer"
+                  },
+                  "end_para": {
+                    "type": "integer"
+                  },
+                  "start_quote": {
+                    "type": "string"
+                  },
+                  "end_quote": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "explain_less",
+              "info_placement",
+              "action_clarity",
+              "redundancy",
+              "reader_question",
+              "abstract_expression",
+              "other"
+            ]
+          },
+          "impact": {
+            "type": "integer",
+            "enum": [1, 2, 3, 4, 5]
+          },
+          "fixable": {
+            "type": "string",
+            "enum": ["sentence", "structure", "none"]
+          }
+        }
+      }
+    },
+    "consistency": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "body",
+          "perspectives",
+          "range",
+          "impact",
+          "certainty"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "perspectives": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["editor", "reader", "critic"]
+            }
+          },
+          "range": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "start_para",
+                  "end_para",
+                  "start_quote",
+                  "end_quote"
+                ],
+                "properties": {
+                  "start_para": {
+                    "type": "integer"
+                  },
+                  "end_para": {
+                    "type": "integer"
+                  },
+                  "start_quote": {
+                    "type": "string"
+                  },
+                  "end_quote": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "impact": {
+            "type": "integer",
+            "enum": [1, 2, 3, 4, 5]
+          },
+          "certainty": {
+            "type": "string",
+            "enum": ["sure", "maybe"]
+          }
+        }
+      }
+    }
+  }
+}

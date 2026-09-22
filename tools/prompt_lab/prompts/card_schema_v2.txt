@@ -1,0 +1,10 @@
+{
+  "target_id": "W1",
+  "kind": "style",
+  "edit_plan": "지울 문장 / 유지할 문장 / 바꿀 방식 (한두 문장)",
+  "reason": "2~3문장",
+  "suggestion": "수정안 또는 null",
+  "added_facts": [],
+  "removed_facts": [],
+  "confidence": "high"
+}

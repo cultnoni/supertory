@@ -1,0 +1,25 @@
+[현재 작업]
+원문 구간과 수정안을 비교합니다. 새 수정안을 쓰지 마세요. JSON 하나만 출력하세요.
+
+[원문]
+{{original_text}}
+
+[수정안]
+{{suggestion}}
+
+[이유]
+{{reason}}
+
+[신고된 변경]
+추가: {{added_facts}}
+삭제: {{removed_facts}}
+
+[절차]
+1. 원문에 담긴 정보 단위를 빠짐없이 짧은 항목으로 나열합니다(source_units). 사건, 사실, 인물, 수치, 화자의 감정·판단 표현, 그리고 '오늘도', '10년', '처음으로'처럼 시점·빈도·순서를 나타내는 표지도 각각 하나의 항목입니다.
+2. 각 항목이 수정안에 남아 있는지 status로 표시합니다. kept(그대로 또는 같은 뜻으로 남음), changed(뜻이 달라짐), removed(사라짐). changed나 removed인 항목은 [신고된 변경]의 '삭제'에 해당하는 내용이 있으면 declared를 true, 없으면 false로 합니다. kept이면 declared는 false로 둡니다.
+3. 수정안에만 있고 원문에는 없는 정보(사건, 사실, 인물, 행동, 감정 설명)를 모두 나열합니다(new_units). 각 항목이 [신고된 변경]의 '추가'에 해당하면 declared를 true, 아니면 false로 합니다.
+4. 원문에서 대립, 인과, 행위 주체, 시간 순서가 수정안에서 뒤바뀌거나 모순되는 곳이 있으면 한 줄로 적습니다(reversals). 없으면 빈 배열입니다.
+5. [이유]에서 지적한 표현 방식(직접 감정 규정, 해석 설명, 결론 선언 등)이 수정안에 다시 나오면 한 줄로 적습니다(repeats). 없으면 빈 배열입니다.
+
+[출력 JSON]
+{ "source_units": [ { "unit": "", "status": "kept", "declared": false } ], "new_units": [ { "unit": "", "declared": false } ], "reversals": [], "repeats": [] }
