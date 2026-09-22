@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>첨삭 패널 보기 팝오버 확인</title>
+  <link rel="stylesheet" href="/styles.css?v=1.4.256">
+  <style>
+    body { font-family: "Malgun Gothic", sans-serif; margin: 16px; background: #f6f1e8; color: #2b2116; }
+    h1 { font-size: 18px; }
+    .frame {
+      background: #fff;
+      border: 1px solid #eadfce;
+      margin: 12px 0 24px;
+      overflow: hidden;
+      position: relative;
+      height: 360px;
+    }
+    .frame h2 { font-size: 13px; margin: 0; padding: 8px 10px; background: #f4efe8; }
+    .frame .feedback-panel { height: auto !important; min-height: 0 !important; overflow: visible; }
+    .w420 { width: 420px; }
+    .w560 { width: 560px; }
+    .measure { font-size: 12px; color: #666; padding: 0 10px 8px; }
+    .ok { color: #0a6; }
+    .fail { color: #b42318; }
+    .checklist { font-size: 13px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <h1>첨삭 피드백 · 필터/표시 팝오버 420 / 560</h1>
+  <p class="checklist">
+    사람이 확인할 체크리스트: 팝오버가 버튼 아래·오른쪽 끝에 붙는지, 안에서 세로 스크롤이 없는지,
+    브라우저 기본 체크박스·라디오가 없는지, 칩·토글·세그먼트가 같은 높이인지.
+  </p>
+  <div id="results"></div>
+  <div class="frame w420" id="box420"><h2>420px</h2><div class="host"></div><p class="measure" data-measure></p></div>
+  <div class="frame w560" id="box560"><h2>560px</h2><div class="host"></div><p class="measure" data-measure></p></div>
+  <template id="fbPops">
+    <section class="feedback-panel">
+      <div class="fb-tab-panels" style="overflow:visible;position:relative">
+        <div class="fb-tab-panel">
+          <div class="fb-cards-toolbar">
+            <p class="fb-cards-summary"><strong>7개</strong><span class="fb-dot is-high">중요 3</span><span class="fb-dot is-medium">보통 1</span><span class="fb-dot is-low">낮음 3</span></p>
+            <div class="fb-toolbar-ctrls">
+              <div class="fb-seg" role="radiogroup" aria-label="정렬">
+                <button type="button" class="fb-seg-btn is-on">중요도순</button>
+                <button type="button" class="fb-seg-btn">원고순</button>
+              </div>
+              <div class="fb-pop-anchor" data-filter-anchor>
+                <button type="button" class="fb-ctrl fb-filter-btn is-on" data-role="fb-filter-menu">필터 2<span class="fb-opt-dot"></span></button>
+                <div class="fb-pop fb-filter-pop" data-role="fb-filter-pop" role="dialog">
+                  <div class="fb-kind-chips">
+                    <button type="button" class="fb-chip is-on">구조 2</button>
+                    <button type="button" class="fb-chip">설정·인물 일관성 2</button>
+                    <button type="button" class="fb-chip is-on">정보 배치 1</button>
+                    <button type="button" class="fb-chip">해설 줄이기 2</button>
+                  </div>
+                    <div class="fb-filter-foot">
+                      <button type="button" class="fb-text-btn">초기화 ✕</button>
+                      <span class="fb-filter-hint">2개 유형 선택됨</span>
+                    </div>
+                </div>
+              </div>
+              <div class="fb-pop-anchor" data-display-anchor>
+                <button type="button" class="fb-icon-btn fb-display-btn" title="원고 표시 설정">⚙<span class="fb-opt-dot"></span></button>
+                <div class="fb-pop fb-display-pop" data-role="fb-display-pop" hidden role="dialog">
+                  <div class="fb-set-row">
+                    <span class="fb-set-label">원고에 밑줄 표시</span>
+                    <button type="button" class="fb-toggle" role="switch" aria-checked="true"></button>
+                  </div>
+                  <div class="fb-set-row">
+                    <span class="fb-set-label">표시 수준</span>
+                    <div class="fb-seg fb-seg-sm">
+                      <button type="button" class="fb-seg-btn">중요만</button>
+                      <button type="button" class="fb-seg-btn is-on">중요+보통</button>
+                      <button type="button" class="fb-seg-btn">전체</button>
+                    </div>
+                  </div>
+                  <div class="fb-set-row is-stack">
+                    <div class="fb-set-copy">
+                      <span class="fb-set-label">사전 표시 숨김</span>
+                      <p class="fb-set-hint">검토하는 동안 이름·용어 표시를 잠시 숨겨요.</p>
+                    </div>
+                    <button type="button" class="fb-toggle" role="switch" aria-checked="true"></button>
+                  </div>
+                  <div class="fb-set-row">
+                    <span class="fb-set-label">적용 후 다음 카드로 자동 이동</span>
+                    <button type="button" class="fb-toggle" role="switch" aria-checked="true"></button>
+                  </div>
+                  <hr class="fb-set-hr">
+                  <div class="fb-legend">
+                    <div class="fb-legend-row is-ul">
+                      <span class="fb-legend-k">밑줄</span>
+                      <span class="fb-legend-item"><span class="fb-legend-sample is-high">가나다</span>중요</span>
+                      <span class="fb-legend-item"><span class="fb-legend-sample is-medium">가나다</span>보통</span>
+                      <span class="fb-legend-item"><span class="fb-legend-sample is-low">가나다</span>낮음</span>
+                    </div>
+                    <div class="fb-legend-row is-card">
+                      <span class="fb-legend-k">선택한 카드</span>
+                      <span class="fb-legend-grid">
+                        <span class="fb-legend-item"><span class="fb-legend-sample is-del"><del>가나다</del></span>이 글이 바뀌어요(수정안 있음)</span>
+                        <span class="fb-legend-item"><span class="fb-legend-sample is-note">가나다</span>확인할 위치예요</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </template>
+  <script>
+    function checkPop(pop, panel, label) {
+      const notes = [];
+      const pr = panel.getBoundingClientRect();
+      const r = pop.getBoundingClientRect();
+      const overflowX = r.left < pr.left - 1 || r.right > pr.right + 1;
+      const noScroll = pop.scrollHeight <= pop.clientHeight + 1;
+      notes.push((overflowX ? "FAIL " : "ok ") + label + " 가로 " + Math.round(r.width) + " 좌우넘침=" + overflowX);
+      notes.push((noScroll ? "ok " : "FAIL ") + label + " 세로스크롤없음 h=" + Math.round(r.height) + " scroll=" + pop.scrollHeight);
+      return { notes: notes, height: r.height, overflowX: overflowX, noScroll: noScroll };
+    }
+    function checkBox(box, which) {
+      const host = box.querySelector(".host");
+      host.appendChild(document.getElementById("fbPops").content.cloneNode(true));
+      const panel = host.querySelector(".feedback-panel");
+      const filterPop = host.querySelector("[data-role='fb-filter-pop']");
+      const displayPop = host.querySelector("[data-role='fb-display-pop']");
+      const notes = [];
+      function push(ok, label) { notes.push((ok ? "ok " : "FAIL ") + label); }
+      const native = host.querySelectorAll("input[type='checkbox'], input[type='radio']");
+      push(native.length === 0, "네이티브 체크/라디오 없음");
+      const filter = checkPop(filterPop, panel, "필터");
+      notes.push.apply(notes, filter.notes);
+      filterPop.hidden = true;
+      displayPop.hidden = false;
+      const display = checkPop(displayPop, panel, "표시");
+      notes.push.apply(notes, display.notes);
+      push(display.height <= 280, "표시 높이≤280 " + Math.round(display.height));
+      const el = box.querySelector("[data-measure]");
+      const fail = notes.some(function (n) { return n.indexOf("FAIL") === 0; });
+      el.className = "measure " + (fail ? "fail" : "ok");
+      el.textContent = notes.join(" · ");
+      el.setAttribute("data-filter-h", String(Math.round(filter.height)));
+      el.setAttribute("data-display-h", String(Math.round(display.height)));
+      if (which === "filter") {
+        displayPop.hidden = true;
+        filterPop.hidden = false;
+      }
+      return { ok: !fail, filterH: filter.height, displayH: display.height };
+    }
+    const r420 = checkBox(document.getElementById("box420"), "filter");
+    const r560 = checkBox(document.getElementById("box560"), "display");
+    const ok = r420.ok && r560.ok;
+    document.getElementById("results").innerHTML = ok
+      ? "<p class=\"ok\"><strong>420 필터 " + Math.round(r420.filterH) + "px · 표시 " + Math.round(r420.displayH) + "px / 560 필터 " + Math.round(r560.filterH) + "px · 표시 " + Math.round(r560.displayH) + "px</strong></p>"
+      : "<p class=\"fail\"><strong>팝오버가 넘치거나 안에서 스크롤이 생깁니다.</strong></p>";
+  </script>
+</body>
+</html>

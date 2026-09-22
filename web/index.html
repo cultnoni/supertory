@@ -260,7 +260,7 @@
     </style>
 
     <link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
-    <link rel="stylesheet" href="/styles.css?v=1.4.244">
+    <link rel="stylesheet" href="/styles.css?v=1.4.261">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -3984,7 +3984,7 @@
           </div>
           <div id="toryFocusBanner" class="tory-focus-banner hidden" role="status">
             <div class="tory-focus-banner-main">
-              <strong data-i18n="app.피드백_요청">피드백 요청</strong>
+              <strong data-i18n="app.피드백_요청">일반 피드백</strong>
               <span id="toryFocusSceneLabel" class="tory-focus-scene-label" data-i18n="index.원고_선택됨">원고 선택됨</span>
             </div>
             <p class="hint tory-focus-hint" data-i18n="index.원고를_집중_분석하여_편집자와_독자_관점의">원고를 집중 분석하여 편집자와 독자 관점의 피드백을 드려요.</p>
@@ -4101,7 +4101,8 @@
                     <optgroup label="토리와 구상해요" data-i18n-label="index.토리와_구상해요">
                       <option value="ideas" data-i18n="app.다음_아이디어_제안">다음 아이디어 제안</option>
                       <option value="brainstorm" data-i18n="app.브레인스토밍">브레인스토밍</option>
-                      <option value="analyze" data-i18n="app.피드백_요청">피드백 요청</option>
+                      <option value="analyze" data-i18n="app.피드백_요청">일반 피드백</option>
+                      <option value="markupfeedback" data-i18n="index.첨삭_피드백">첨삭 피드백</option>
                       <option value="successfeedback" class="ai-mode-success-opt" data-i18n="app.흥행_공식_피드백">흥행 공식 피드백</option>
                     </optgroup>
                     <!-- successfeedback: 연결 프로파일 기반 회차 비교 피드백 -->
@@ -4641,6 +4642,7 @@
             <button type="button" class="secondary" id="toryNotifyPopupDockButton" data-i18n="index.큰_창_닫고_여기로">큰 창 닫고 여기로</button>
           </div>
         </div><!-- /.ai-panel-inner -->
+        <div id="feedbackReviewHost" class="fb-review-host" hidden></div>
         <nav id="aiDockRail" class="panel-dock-rail ai-dock-rail" data-dock-side="right" aria-label="SuperTORY 도크" data-i18n-aria-label="index.SuperTORY_도크">
           <button
             id="expandAiPanelButton"
@@ -4979,6 +4981,151 @@
     </div>
 
     <div id="ideaFloatHost" class="idea-float-host" aria-live="off"></div>
+    <div id="feedbackPanelHome" class="dock-adopt-home" hidden>
+      <section id="feedbackPanel" class="feedback-panel" aria-label="첨삭 피드백">
+        <header class="fb-chrome">
+          <div class="fb-chrome-row fb-chrome-title">
+            <div class="fb-chrome-heading">
+              <h2 class="fb-app-title">첨삭 피드백</h2>
+              <strong class="fb-title-scene" data-role="fb-scene">회차를 열어 주세요</strong>
+            </div>
+            <div class="fb-chrome-icons">
+              <button type="button" class="fb-icon-btn" data-role="fb-debug-locate" hidden title="위치 진단 복사" aria-label="위치 진단 복사">진단</button>
+              <button type="button" class="fb-icon-btn" data-role="fb-switch-chrome" title="작은 창으로 보기" aria-label="작은 창으로 보기">⧉</button>
+              <button type="button" class="fb-icon-btn fb-chrome-close" data-role="fb-close-chrome" title="닫기" aria-label="닫기">×</button>
+            </div>
+          </div>
+          <div class="fb-chrome-row fb-chrome-run">
+            <div class="fb-run-select">
+              <select data-role="fb-runs" aria-label="첨삭 실행 선택" title="이전 분석 기록을 골라요"></select>
+              <span class="fb-run-caret" aria-hidden="true">▾</span>
+              <span class="fb-run-tags" data-role="fb-run-tags"></span>
+            </div>
+            <div class="fb-start-wrap">
+              <button type="button" class="primary compact-btn fb-ctrl-primary" data-role="fb-start" title="새 분석을 시작하기 전에 강도를 고를 수 있어요" aria-label="새로 분석" aria-haspopup="dialog" aria-expanded="false">새로 분석</button>
+              <div class="fb-pop fb-start-pop" data-role="fb-start-pop" hidden role="dialog" aria-label="새 분석">
+                <p class="fb-pop-title">새 분석</p>
+                <div class="fb-lens-cards" role="radiogroup" aria-label="분석 강도">
+                  <button type="button" class="fb-lens-card" data-role="fb-lens" data-lens="normal" role="radio" aria-checked="false">
+                    <strong>보통 <span class="fb-lens-rec" data-rec="normal" hidden>이 작품 장르 기준 추천</span></strong>
+                    <span>확실한 문제 위주로 지적해요. 웹소설의 관습적인 서술은 문제로 세지 않아요.</span>
+                  </button>
+                  <button type="button" class="fb-lens-card" data-role="fb-lens" data-lens="strong" role="radio" aria-checked="false">
+                    <strong>자세히 <span class="fb-lens-rec" data-rec="strong" hidden>이 작품 장르 기준 추천</span></strong>
+                    <span>감정을 직접 설명하는 문장, 비유 풀이, 해설 과잉까지 적극 지적해요. 카드가 많아지고 비용이 조금 더 들 수 있어요.</span>
+                  </button>
+                </div>
+                <p class="fb-next-mode" data-role="fb-next-fake" hidden>시험 모드로 실행돼요</p>
+                <div class="fb-pop-actions">
+                  <button type="button" class="primary compact-btn" data-role="fb-start-go">분석 시작</button>
+                  <button type="button" class="secondary compact-btn" data-role="fb-start-cancel">취소</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+        <div class="fb-tabs" role="tablist" aria-label="첨삭 피드백 탭">
+          <button type="button" class="fb-tab is-active" role="tab" data-role="fb-tab" data-tab="report" aria-selected="true">리포트</button>
+          <button type="button" class="fb-tab" role="tab" data-role="fb-tab" data-tab="cards" aria-selected="false">첨삭 제안 <span data-role="fb-card-count">0</span></button>
+          <button type="button" class="fb-tab" role="tab" data-role="fb-tab" data-tab="history" aria-selected="false" data-i18n="index.히스토리">히스토리</button>
+        </div>
+        <div class="fb-tab-panels">
+          <div class="fb-tab-panel" data-role="fb-tab-report">
+            <div class="fb-report-tools">
+              <button type="button" class="secondary compact-btn fb-collect-btn" data-role="fb-collect-report" hidden data-i18n="index.수집에_저장">수집에 저장</button>
+            </div>
+            <p class="fb-banner" data-role="fb-key" hidden></p>
+            <p class="fb-para-info" data-role="fb-para-info" hidden></p>
+            <p class="fb-banner is-warn" data-role="fb-para-warn" hidden></p>
+            <div class="fb-progress" data-role="fb-progress" hidden></div>
+            <div class="fb-result-status" data-role="fb-result-status"></div>
+            <div class="fb-report" data-role="fb-report" hidden></div>
+          </div>
+          <div class="fb-tab-panel" data-role="fb-tab-cards" hidden>
+            <div class="fb-cards-toolbar">
+              <p class="fb-cards-summary" data-role="fb-cards-summary"></p>
+              <div class="fb-toolbar-ctrls">
+                <div class="fb-seg" role="radiogroup" aria-label="정렬" title="중요도순: 중요 → 보통 → 낮음 그룹으로 묶어서 / 원고순: 원고 위쪽부터 차례로">
+                  <button type="button" class="fb-seg-btn" data-role="fb-sort" data-sort="priority" role="radio" aria-checked="true" aria-label="중요도순">중요도순</button>
+                  <button type="button" class="fb-seg-btn" data-role="fb-sort" data-sort="manuscript" role="radio" aria-checked="false" aria-label="원고순">원고순</button>
+                </div>
+                <div class="fb-pop-anchor">
+                  <button type="button" class="fb-ctrl fb-filter-btn" data-role="fb-filter-menu" title="유형으로 걸러 보기" aria-label="필터" aria-haspopup="dialog" aria-expanded="false">
+                    <span data-role="fb-filter-label">필터</span>
+                    <span class="fb-opt-dot" data-role="fb-filter-dot" hidden></span>
+                  </button>
+                  <div class="fb-pop fb-filter-pop" data-role="fb-filter-pop" hidden role="dialog" aria-label="유형 필터">
+                    <div class="fb-kind-chips" data-role="fb-kind-list" role="group" aria-label="유형 필터"></div>
+                    <div class="fb-filter-foot">
+                      <button type="button" class="fb-text-btn" data-role="fb-kind-reset" title="유형 필터 해제" aria-label="초기화" disabled>초기화</button>
+                      <span class="fb-filter-hint" data-role="fb-filter-hint">필터 없음</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="fb-pop-anchor">
+                  <button type="button" class="fb-icon-btn fb-display-btn" data-role="fb-display-menu" title="원고 표시 설정" aria-label="원고 표시 설정" aria-haspopup="dialog" aria-expanded="false">
+                    <span aria-hidden="true">⚙</span>
+                    <span class="fb-opt-dot" data-role="fb-display-dot" hidden></span>
+                  </button>
+                  <div class="fb-pop fb-display-pop" data-role="fb-display-pop" hidden role="dialog" aria-label="원고 표시 설정">
+                    <div class="fb-set-row">
+                      <span class="fb-set-label">원고에 밑줄 표시</span>
+                      <button type="button" class="fb-toggle" data-role="fb-underline" role="switch" aria-checked="true" aria-label="원고에 밑줄 표시"></button>
+                    </div>
+                    <div class="fb-set-row">
+                      <span class="fb-set-label">표시 수준</span>
+                      <div class="fb-seg fb-seg-sm" role="radiogroup" aria-label="표시 수준">
+                        <button type="button" class="fb-seg-btn" data-role="fb-ul-level" data-level="high" role="radio" aria-checked="false" aria-label="중요만">중요만</button>
+                        <button type="button" class="fb-seg-btn" data-role="fb-ul-level" data-level="high-medium" role="radio" aria-checked="true" aria-label="중요+보통">중요+보통</button>
+                        <button type="button" class="fb-seg-btn" data-role="fb-ul-level" data-level="all" role="radio" aria-checked="false" aria-label="전체">전체</button>
+                      </div>
+                    </div>
+                    <div class="fb-set-row is-stack">
+                      <div class="fb-set-copy">
+                        <span class="fb-set-label">사전 표시 숨김</span>
+                        <p class="fb-set-hint">검토하는 동안 이름·용어 표시를 잠시 숨겨요.</p>
+                      </div>
+                      <button type="button" class="fb-toggle" data-role="fb-hide-dict" role="switch" aria-checked="true" aria-label="사전 표시 숨김"></button>
+                    </div>
+                    <div class="fb-set-row">
+                      <span class="fb-set-label">적용 후 다음 카드로 자동 이동</span>
+                      <button type="button" class="fb-toggle" data-role="fb-auto-advance" role="switch" aria-checked="true" aria-label="적용 후 다음 카드로 자동 이동"></button>
+                    </div>
+                    <hr class="fb-set-hr">
+                    <div class="fb-legend" aria-label="표시 범례">
+                      <div class="fb-legend-row is-ul">
+                        <span class="fb-legend-k">밑줄</span>
+                        <span class="fb-legend-item"><span class="fb-legend-sample is-high">가나다</span>중요</span>
+                        <span class="fb-legend-item"><span class="fb-legend-sample is-medium">가나다</span>보통</span>
+                        <span class="fb-legend-item"><span class="fb-legend-sample is-low">가나다</span>낮음</span>
+                      </div>
+                      <div class="fb-legend-row is-card">
+                        <span class="fb-legend-k">선택한 카드</span>
+                        <span class="fb-legend-grid">
+                          <span class="fb-legend-item"><span class="fb-legend-sample is-del"><del>가나다</del></span>이 글이 바뀌어요(수정안 있음)</span>
+                          <span class="fb-legend-item"><span class="fb-legend-sample is-note">가나다</span>확인할 위치예요</span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="fb-filter-banner" data-role="fb-filter-banner" hidden></p>
+            <p class="fb-banner is-warn" data-role="fb-locate-msg" hidden></p>
+            <p class="fb-banner is-warn" data-role="fb-mismatch" hidden></p>
+            <div class="fb-cards" data-role="fb-cards"></div>
+          </div>
+          <div class="fb-tab-panel" data-role="fb-tab-history" hidden>
+            <p class="hint" data-role="fb-history-empty" data-i18n="index.아직_히스토리가_없어요">아직 히스토리가 없어요</p>
+            <div class="fb-hist-list" data-role="fb-history-list"></div>
+            <div class="fb-hist-import">
+              <button type="button" class="secondary compact-btn" data-role="fb-import-legacy" disabled aria-disabled="true" data-i18n="index.가져올_예전_기록이_없어요" data-i18n-title="index.가져올_예전_기록이_없어요" title="가져올 예전 기록이 없어요">가져올 예전 기록이 없어요</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
     <div id="analyzeMenuHome" class="dock-adopt-home" hidden>
       <div id="analyzeMenuDropdown" class="view-mode-dropdown hidden" role="menu" aria-label="분석 방식" data-i18n-aria-label="index.분석_방식">
         <div class="analyze-menu-section-label" aria-hidden="true">
@@ -4986,8 +5133,12 @@
           <span data-i18n="app.누르면_바로_실행돼요">누르면 바로 실행돼요</span>
         </div>
         <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="focus">
-          <strong data-i18n="app.피드백_요청">피드백 요청</strong>
+          <strong data-i18n="app.피드백_요청">일반 피드백</strong>
           <span data-i18n="index.원고를_집중_분석하여_편집자와_독자_관점의">원고를 집중 분석하여 편집자와 독자 관점의 피드백을 드려요.</span>
+        </button>
+        <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="feedback">
+          <strong data-i18n="index.첨삭_피드백">첨삭 피드백</strong>
+          <span data-i18n="index.문단을_나눠_리포트와_첨삭_카드를_만들어요">문단을 나눠 리포트와 첨삭 카드를 만들어요</span>
         </button>
         <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="worldscan">
           <strong data-i18n="app.설정_붕괴_감지기">설정 붕괴 감지기</strong>
@@ -8894,7 +9045,7 @@
       <div class="modal-backdrop" data-close-analyze-target></div>
       <div class="modal-card tory-helper-card">
         <div class="modal-heading">
-          <h2 id="analyzeTargetModalTitle" class="tory-helper-title" data-i18n="app.피드백_요청">피드백 요청</h2>
+          <h2 id="analyzeTargetModalTitle" class="tory-helper-title" data-i18n="app.피드백_요청">일반 피드백</h2>
           <button type="button" class="modal-close" data-close-analyze-target title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
         </div>
         <p class="tory-helper-lead" id="analyzeTargetLead">
@@ -9818,6 +9969,7 @@
     <script src="/typeset_metrics.js?v=1.4.45"></script>
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
-    <script src="/app.js?v=1.4.237"></script>
+    <script src="/app.js?v=1.4.240"></script>
+    <script src="/feedback_panel.js?v=24"></script>
   </body>
 </html>

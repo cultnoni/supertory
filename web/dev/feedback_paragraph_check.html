@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>첨삭 문단 파서 확인</title>
+  <style>
+    body { font-family: sans-serif; max-width: 860px; margin: 24px auto; padding: 0 16px; }
+    pre { background: #f6f3ee; padding: 10px; overflow: auto; }
+    .ok { color: #0a6; }
+    .fail { color: #c30; }
+    .sample { border: 1px solid #ddd; padding: 8px; margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <h1>첨삭 문단 파서 확인</h1>
+  <p>서버 <code>paragraphs_from_html</code>과 화면 <code>FeedbackPanel.paragraphsFromEditor</code>를 <code>tests/fixtures/feedback_paragraphs.json</code> 규칙으로 대조합니다.</p>
+  <p>실행: 앱을 켠 뒤 <code>http://127.0.0.1:8766/dev/feedback_paragraph_check.html</code> 을 엽니다. (개발 서버 기본 포트 8766, 패키지 실행은 8765)</p>
+  <div id="results"></div>
+    <script src="/feedback_panel.js?v=4"></script>
+  <script>
+    const CASES = [
+      {
+        id: "html-paragraphs",
+        input: "<p>첫 문단입니다.</p><p>둘째 문단입니다.</p>",
+        expected: [
+          { i: 1, text: "첫 문단입니다.", type: "text" },
+          { i: 2, text: "둘째 문단입니다.", type: "text" }
+        ]
+      },
+      {
+        id: "html-br-and-nbsp",
+        input: "<p>윗줄&nbsp;한칸<br>아랫줄</p>",
+        expected: [
+          { i: 1, text: "윗줄 한칸", type: "text" },
+          { i: 2, text: "아랫줄", type: "text" }
+        ]
+      },
+      {
+        id: "html-scene-break-and-note",
+        input: "<p>본문 앞</p><div class=\"manuscript-scene-break\">* * *</div><p data-author-note=\"1\">작가 메모</p><p>본문 뒤</p>",
+        expected: [
+          { i: 1, text: "본문 앞", type: "text" },
+          { i: 2, text: "* * *", type: "divider" },
+          { i: 3, text: "본문 뒤", type: "text" }
+        ]
+      },
+      {
+        id: "html-heading-image",
+        input: "<h2>소제목</h2><p>본문</p><img src=\"x.jpg\" alt=\"삽화\">",
+        expected: [
+          { i: 1, text: "소제목", type: "other" },
+          { i: 2, text: "본문", type: "text" },
+          { i: 3, text: "삽화", type: "other" }
+        ]
+      }
+      {
+        id: "html-nested-div",
+        input: "<div><div>안쪽 문단입니다.</div><p>바깥 문단입니다.</p></div>",
+        expected: [
+          { i: 1, text: "안쪽 문단입니다.", type: "text" },
+          { i: 2, text: "바깥 문단입니다.", type: "text" }
+        ]
+      },
+      {
+        id: "html-text-newlines",
+        input: "<p>윗줄입니다.\n아랫줄입니다.</p>",
+        expected: [
+          { i: 1, text: "윗줄입니다.", type: "text" },
+          { i: 2, text: "아랫줄입니다.", type: "text" }
+        ]
+      },
+      {
+        id: "html-plain-lines",
+        input: "한 줄입니다.\n두 줄입니다.",
+        expected: [
+          { i: 1, text: "한 줄입니다.", type: "text" },
+          { i: 2, text: "두 줄입니다.", type: "text" }
+        ]
+      },
+      {
+        id: "html-br-only-webnovel",
+        input: "첫 문장은 옷을 고쳐 입는 장면입니다.<br>다음 문장은 사람들이 모이는 장면입니다.<br><br>“명령을 받들라.”<br><br>주인공이 어깨를 움츠렸습니다. 그 이유가 이례적인 발령 때문이라고 적혀 있습니다.<br><br>전령이 말을 이어 갔습니다.<br>아주 긴 해설이 한 문단에 남아 있습니다. 독자가 이미 아는 내용입니다.<br><br>***<br>티 테이블 앞에 앉았습니다.<br>창밖의 비가 그쳤습니다.<br><br>“차를 마시지요.”<br><br>두 사람이 마주 앉았습니다.",
+        expected: [
+          { i: 1, text: "첫 문장은 옷을 고쳐 입는 장면입니다.", type: "text" },
+          { i: 2, text: "다음 문장은 사람들이 모이는 장면입니다.", type: "text" },
+          { i: 3, text: "“명령을 받들라.”", type: "text" },
+          { i: 4, text: "주인공이 어깨를 움츠렸습니다. 그 이유가 이례적인 발령 때문이라고 적혀 있습니다.", type: "text" },
+          { i: 5, text: "전령이 말을 이어 갔습니다.", type: "text" },
+          { i: 6, text: "아주 긴 해설이 한 문단에 남아 있습니다. 독자가 이미 아는 내용입니다.", type: "text" },
+          { i: 7, text: "***", type: "divider" },
+          { i: 8, text: "티 테이블 앞에 앉았습니다.", type: "text" },
+          { i: 9, text: "창밖의 비가 그쳤습니다.", type: "text" },
+          { i: 10, text: "“차를 마시지요.”", type: "text" },
+          { i: 11, text: "두 사람이 마주 앉았습니다.", type: "text" }
+        ]
+      }
+    ];
+    const host = document.getElementById("results");
+    CASES.forEach((item) => {
+      const wrap = document.createElement("div");
+      wrap.className = "sample";
+      wrap.innerHTML = item.input;
+      const got = window.FeedbackPanel.paragraphsFromEditor(wrap);
+      const ok = JSON.stringify(got) === JSON.stringify(item.expected);
+      const block = document.createElement("section");
+      block.innerHTML = "<h2 class=\"" + (ok ? "ok" : "fail") + "\">"
+        + item.id + " — " + (ok ? "같음" : "다름") + "</h2>"
+        + "<pre>got: " + JSON.stringify(got, null, 2)
+        + "\nexpected: " + JSON.stringify(item.expected, null, 2) + "</pre>";
+      host.appendChild(block);
+    });
+  </script>
+</body>
+</html>

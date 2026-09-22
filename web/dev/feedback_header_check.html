@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>첨삭 패널 상단 폭 확인</title>
+  <link rel="stylesheet" href="/styles.css?v=1.4.253">
+  <style>
+    body { font-family: "Malgun Gothic", sans-serif; margin: 16px; background: #f6f1e8; color: #2b2116; }
+    h1 { font-size: 18px; }
+    .frame {
+      background: #fff;
+      border: 1px solid #eadfce;
+      margin: 12px 0 24px;
+      overflow: hidden;
+      position: static !important;
+      height: auto !important;
+    }
+    .frame h2 { font-size: 13px; margin: 0; padding: 8px 10px; background: #f4efe8; }
+    .frame .feedback-panel { height: auto !important; min-height: 0 !important; }
+    .fake-card {
+      margin: 8px 12px 12px;
+      padding: 10px 12px;
+      border: 1px solid #eadfce;
+      border-radius: 10px;
+      font-size: 13px;
+    }
+    .measure { font-size: 12px; color: #666; padding: 0 10px 8px; }
+    .ok { color: #0a6; }
+    .fail { color: #b42318; }
+    .w420 { width: 420px; }
+    .w560 { width: 560px; }
+    .wfloat { width: 360px; }
+  </style>
+</head>
+<body>
+  <h1>첨삭 피드백 상단 · 420 / 560 / 작은 창</h1>
+  <p>체크: 제목·실행·탭·목록 툴바가 한 줄인지, 가로 스크롤이 없는지, 첫 카드가 약 200px 안에 시작하는지.</p>
+  <div id="results"></div>
+  <div class="frame w420" id="box420"><h2>420px</h2><div class="host"></div><p class="measure" data-measure></p></div>
+  <div class="frame w560" id="box560"><h2>560px</h2><div class="host"></div><p class="measure" data-measure></p></div>
+  <div class="frame wfloat" id="boxFloat"><h2>작은 창 360px</h2><div class="host"></div><p class="measure" data-measure></p></div>
+  <template id="fbChrome">
+    <section class="feedback-panel">
+      <header class="fb-chrome">
+        <div class="fb-chrome-row fb-chrome-title">
+          <div class="fb-chrome-heading">
+            <h2 class="fb-app-title">첨삭 피드백</h2>
+            <strong class="fb-title-scene">2화 이름을 숨긴 밤</strong>
+          </div>
+          <div class="fb-chrome-icons">
+            <button type="button" class="fb-icon-btn" title="작은 창으로 보기" aria-label="작은 창으로 보기">⧉</button>
+            <button type="button" class="fb-icon-btn fb-chrome-close" title="닫기" aria-label="닫기">×</button>
+          </div>
+        </div>
+        <div class="fb-chrome-row fb-chrome-run">
+          <div class="fb-run-select">
+            <select aria-label="첨삭 실행 선택">
+              <option>9/21 22:00 · 카드 7</option>
+            </select>
+            <span class="fb-run-caret" aria-hidden="true">▾</span>
+            <span class="fb-run-tags"><span class="fb-run-tag">자세히</span></span>
+          </div>
+          <div class="fb-start-wrap">
+            <button type="button" class="primary compact-btn fb-ctrl-primary">새로 분석</button>
+          </div>
+        </div>
+      </header>
+      <div class="fb-tabs" role="tablist">
+        <button type="button" class="fb-tab">리포트</button>
+        <button type="button" class="fb-tab is-active">첨삭 제안 7</button>
+      </div>
+      <div class="fb-tab-panels" style="overflow:visible">
+        <div class="fb-tab-panel" data-role="fb-tab-cards">
+          <div class="fb-cards-toolbar">
+            <p class="fb-cards-summary"><strong>7개</strong><span class="fb-dot is-high">중요 3</span><span class="fb-dot is-medium">보통 1</span><span class="fb-dot is-low">낮음 3</span></p>
+            <div class="fb-toolbar-ctrls">
+              <div class="fb-seg" role="radiogroup" aria-label="정렬">
+                <button type="button" class="fb-seg-btn is-on" role="radio" aria-checked="true">중요도순</button>
+                <button type="button" class="fb-seg-btn" role="radio" aria-checked="false">원고순</button>
+              </div>
+              <button type="button" class="fb-ctrl fb-filter-btn">필터</button>
+              <button type="button" class="fb-icon-btn fb-display-btn" title="원고 표시 설정" aria-label="원고 표시 설정">⚙</button>
+            </div>
+          </div>
+          <h4 class="fb-group-h">중요 3</h4>
+          <div class="fake-card" data-first-card>01 카드 시작</div>
+        </div>
+      </div>
+    </section>
+  </template>
+  <script>
+    function checkBox(box) {
+      const host = box.querySelector(".host");
+      host.appendChild(document.getElementById("fbChrome").content.cloneNode(true));
+      const panel = host.querySelector(".feedback-panel");
+      const titleRow = host.querySelector(".fb-chrome-title");
+      const runRow = host.querySelector(".fb-chrome-run");
+      const tabs = host.querySelector(".fb-tabs");
+      const toolbar = host.querySelector(".fb-cards-toolbar");
+      const first = host.querySelector("[data-first-card]");
+      const notes = [];
+      function push(ok, label) { notes.push((ok ? "ok " : "FAIL ") + label); }
+      push(titleRow.getBoundingClientRect().height <= 42, "1행 " + titleRow.getBoundingClientRect().height.toFixed(0));
+      push(runRow.getBoundingClientRect().height <= 40, "2행 " + runRow.getBoundingClientRect().height.toFixed(0));
+      push(tabs.getBoundingClientRect().height <= 40, "탭 " + tabs.getBoundingClientRect().height.toFixed(0));
+      push(toolbar.getBoundingClientRect().height <= 40, "툴바 " + toolbar.getBoundingClientRect().height.toFixed(0));
+      push(panel.scrollWidth <= panel.clientWidth + 1, "가로 스크롤 없음");
+      const cardTop = first.getBoundingClientRect().top - panel.getBoundingClientRect().top;
+      push(cardTop <= 200, "첫 카드 " + cardTop.toFixed(0) + "px");
+      const el = box.querySelector("[data-measure]");
+      const fail = notes.some(function (n) { return n.indexOf("FAIL") === 0; });
+      el.className = "measure " + (fail ? "fail" : "ok");
+      el.textContent = notes.join(" · ");
+      el.setAttribute("data-card-top", String(Math.round(cardTop)));
+      return { ok: !fail, cardTop: cardTop };
+    }
+    const rows = ["box420", "box560", "boxFloat"].map(function (id) {
+      return checkBox(document.getElementById(id));
+    });
+    const ok = rows.every(function (row) { return row.ok; });
+    document.getElementById("results").innerHTML = ok
+      ? "<p class=\"ok\"><strong>상단 한 줄 유지 · 420px 첫 카드 " + Math.round(rows[0].cardTop) + "px</strong></p>"
+      : "<p class=\"fail\"><strong>레이아웃이 넘치거나 첫 카드가 200px를 넘습니다.</strong></p>";
+  </script>
+</body>
+</html>

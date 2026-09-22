@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>첨삭 적용 · execCommand 확인</title>
+  <link rel="stylesheet" href="/styles.css?v=1.4.257">
+  <style>
+    body { font-family: "Malgun Gothic", sans-serif; margin: 16px; background: #f6f1e8; color: #2b2116; }
+    h1 { font-size: 18px; }
+    .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+    .manuscript-page {
+      position: relative;
+      height: 280px;
+      overflow: auto;
+      background: #fffdf8;
+      border: 1px solid #eadfce;
+      padding: 12px 16px;
+    }
+    #sceneContent.rich-editor {
+      min-height: 200px;
+      outline: none;
+      font-size: 16px;
+      line-height: 1.7;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
+    th, td { border: 1px solid #eadfce; padding: 6px 8px; text-align: left; vertical-align: top; }
+    .ok { color: #0a6; }
+    .fail { color: #b42318; }
+    .meta { font-size: 12px; color: #666; white-space: pre-wrap; }
+    button { margin: 0 6px 8px 0; }
+  </style>
+</head>
+<body>
+  <h1>첨삭 적용 계획 · execCommand · 되돌리기</h1>
+  <p>메인 원고와 같은 <code>#sceneContent.rich-editor</code> / <code>#manuscriptPage</code>에서 적용 로직을 돌립니다. 실제 Claude 호출 없음.</p>
+  <p id="summary"></p>
+  <div class="wrap">
+    <div>
+      <div class="manuscript-page" id="manuscriptPage">
+        <div id="sceneContent" class="rich-editor" contenteditable="true" spellcheck="false"></div>
+      </div>
+      <p class="meta" id="structNote"></p>
+    </div>
+    <div>
+      <button type="button" id="runAll">시나리오 모두 실행</button>
+      <table>
+        <thead><tr><th>시나리오</th><th>결과</th><th>이유</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+  <script src="/feedback_panel.js?v=19"></script>
+  <script>
+    const FP = window.FeedbackPanel;
+    const editor = document.getElementById("sceneContent");
+    const page = document.getElementById("manuscriptPage");
+    const rowsEl = document.getElementById("rows");
+    const SAMPLE =
+      "첫 줄입니다.<br>둘째 줄은 <b>굵게</b> 끼어 있어요.<br>셋째 줄입니다."
+      + "<div>디브 줄입니다.</div>"
+      + "<div><br></div>"
+      + "<div>빈 줄 다음입니다.</div>";
+
+    function getEditorContent() {
+      return editor.innerHTML || "";
+    }
+
+    function setSample(html) {
+      editor.innerHTML = html == null ? SAMPLE : html;
+      editor.focus({ preventScroll: true });
+    }
+
+    function mapping() { return FP.mapEditorParagraphs(editor); }
+
+    function applyCard(card, opts) {
+      opts = opts || {};
+      const map = mapping();
+      const found = FP.locateCard(card, map);
+      const plan = FP.planCardApply(card, map, found, opts.editedText);
+      if (!plan.ok) return { plan: plan, ran: null, verified: false, html: editor.innerHTML };
+      const ran = FP.runApplyPlan(plan, { editor: editor, confirm: true });
+      const verified = ran.ok && FP.applyVerifyOk(mapping(), plan);
+      return { plan: plan, ran: ran, verified: verified, html: editor.innerHTML, found: found };
+    }
+
+    function undoUntilOriginal(plan) {
+      let n = 0;
+      const original = plan.originalText;
+      n = FP.undoApplyEdits(5, function () {
+        const live = FP.joinedTextAt(mapping(), plan.joinStart, String(original || "").length);
+        return FP.normalizeApplyText(live) === FP.normalizeApplyText(original);
+      });
+      return n;
+    }
+
+    function row(name, ok, reason) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = "<td>" + name + "</td><td class=\"" + (ok ? "ok" : "fail") + "\">"
+        + (ok ? "통과" : "실패") + "</td><td>" + String(reason || "") + "</td>";
+      rowsEl.appendChild(tr);
+      return { name: name, ok: ok, reason: reason || "" };
+    }
+
+    function parasText() {
+      return mapping().map(function (p) { return p.i + ":" + p.text; }).join(" | ");
+    }
+
+    const results = [];
+    const notes = [];
+
+    function runScenarios() {
+      rowsEl.innerHTML = "";
+      results.length = 0;
+      notes.length = 0;
+
+      setSample();
+      const beforeContent = getEditorContent();
+      const box = document.createElement("div");
+      box.id = "fbInlineBox";
+      box.className = "fb-inline-box";
+      box.textContent = "미리보기(오버레이)";
+      page.appendChild(box);
+      const bar = document.createElement("div");
+      bar.id = "fbActionBar";
+      bar.className = "fb-action-bar";
+      bar.textContent = "작업바";
+      page.appendChild(bar);
+      const afterOverlay = getEditorContent();
+      results.push(row(
+        "오버레이가 getEditorContent를 바꾸지 않음",
+        beforeContent === afterOverlay,
+        beforeContent === afterOverlay ? "sceneContent.innerHTML 동일" : "본문이 바뀜"
+      ));
+      box.remove();
+      bar.remove();
+
+      setSample("알파 줄입니다.<br>베타 줄입니다.<br>감마 줄입니다.");
+      const one = applyCard({
+        original_text: "베타 줄입니다.",
+        suggestion: "베타를 고쳤어요.",
+        start_para: 2,
+        end_para: 2,
+      });
+      results.push(row(
+        "한 줄 교체",
+        one.verified && mapping()[1] && mapping()[1].text === "베타를 고쳤어요.",
+        (one.verified ? "검증 통과" : "검증 실패") + " · " + parasText() + " · undo계획 " + ((one.ran && one.ran.undoCount) || 0)
+      ));
+      const htmlAfterOne = editor.innerHTML;
+      const oneUndo = one.plan && one.plan.ok ? undoUntilOriginal(one.plan) : 0;
+      notes.push("한 줄 교체 후 HTML: " + htmlAfterOne + "\n되돌리기 execCommand 횟수: " + oneUndo);
+      results.push(row(
+        "한 줄 교체 후 되돌리기",
+        FP.normalizeApplyText(FP.joinedTextAt(mapping(), one.plan.joinStart, one.plan.originalText.length)) === FP.normalizeApplyText(one.plan.originalText),
+        "undo " + oneUndo + "회 · " + parasText()
+      ));
+
+      setSample("가나다 첫째<br>라마바 둘째<br>사아자 셋째");
+      const sameN = applyCard({
+        original_text: "가나다 첫째\n라마바 둘째\n사아자 셋째",
+        suggestion: "가나다 고침\n라마바 둘째\n사아자 고침",
+        start_para: 1,
+        end_para: 3,
+      });
+      const tSame = mapping().map(function (p) { return p.text; });
+      results.push(row(
+        "여러 줄 교체(줄 수 같음)",
+        sameN.verified && tSame[0] === "가나다 고침" && tSame[1] === "라마바 둘째" && tSame[2] === "사아자 고침",
+        (sameN.plan && sameN.plan.mode) + " · " + parasText() + " · undoCount " + ((sameN.ran && sameN.ran.undoCount) || 0)
+      ));
+      notes.push("줄 수 같음 후 HTML: " + editor.innerHTML);
+
+      setSample("하나 줄<br>둘 줄<br>셋 줄");
+      const diffN = applyCard({
+        original_text: "하나 줄\n둘 줄\n셋 줄",
+        suggestion: "합친 한 줄\n그리고 두 줄",
+        start_para: 1,
+        end_para: 3,
+      });
+      results.push(row(
+        "줄 수 다름(insertHTML)",
+        diffN.plan && diffN.plan.mode === "all" && diffN.plan.needsConfirm && diffN.verified,
+        (diffN.plan && diffN.plan.steps[0] && diffN.plan.steps[0].kind) + " · " + parasText() + " · HTML " + editor.innerHTML
+      ));
+      notes.push("줄 수 다름 후 HTML: " + editor.innerHTML);
+
+      setSample("AAAA BBBB CCCC");
+      const part = applyCard({
+        original_text: "BBBB",
+        suggestion: "XXXX",
+        start_para: 1,
+        end_para: 1,
+      });
+      results.push(row(
+        "부분 조각(문단 중간)",
+        part.verified && mapping()[0] && mapping()[0].text.indexOf("XXXX") >= 0 && mapping()[0].text.indexOf("AAAA") >= 0,
+        parasText()
+      ));
+
+      setSample("둘째 줄은 <b>굵게</b> 끼어 있어요.");
+      const spanCard = applyCard({
+        original_text: "둘째 줄은 굵게 끼어 있어요.",
+        suggestion: "둘째 줄은 가볍게 끼어 있어요.",
+        start_para: 1,
+        end_para: 1,
+      });
+      const stillHasB = /<b>|<strong>/i.test(editor.innerHTML) || editor.querySelector("b, strong");
+      results.push(row(
+        "서식 span이 낀 범위",
+        spanCard.verified,
+        parasText() + (stillHasB ? " · 서식 태그 남음" : " · 서식 태그 없음") + " · HTML " + editor.innerHTML
+      ));
+      notes.push("서식 교체 후 HTML: " + editor.innerHTML);
+
+      setSample("가나다<br>라마바<br>사아자");
+      const delCard = applyCard({
+        original_text: "가나다\n라마바\n사아자",
+        suggestion: "가나다\n\n사아자",
+        start_para: 1,
+        end_para: 3,
+      });
+      const delTexts = mapping().map(function (p) { return p.text; });
+      results.push(row(
+        "수정안 줄이 빈 경우(삭제)",
+        delCard.verified && delCard.plan.steps.some(function (s) { return s.kind === "delete"; }),
+        parasText() + " · steps " + (delCard.plan.steps || []).map(function (s) { return s.kind; }).join(",")
+      ));
+      notes.push("삭제 후 HTML: " + editor.innerHTML + " · texts=" + delTexts.join("|"));
+
+      setSample("되돌릴 원문입니다.");
+      const toastCard = applyCard({
+        original_text: "되돌릴 원문입니다.",
+        suggestion: "적용된 문장입니다.",
+        start_para: 1,
+        end_para: 1,
+      });
+      const afterApply = mapping()[0] && mapping()[0].text;
+      const undoN = toastCard.plan && toastCard.plan.ok ? undoUntilOriginal(toastCard.plan) : 0;
+      const restored = mapping()[0] && mapping()[0].text === "되돌릴 원문입니다.";
+      results.push(row(
+        "적용 후 되돌리기 토스트 경로(undo)",
+        toastCard.verified && restored,
+        "적용문='" + afterApply + "' undo=" + undoN + " 복원=" + restored
+      ));
+      notes.push("토스트 되돌리기 undo 횟수: " + undoN);
+
+      setSample("원문 알파");
+      const histCard = {
+        original_text: "원문 알파",
+        suggestion: "수정 베타",
+        start_para: 1,
+        end_para: 1,
+      };
+      const hist = applyCard(histCard);
+      const mem = {
+        expectedText: hist.plan.expectedText,
+        originalText: hist.plan.originalText,
+        status: "applied",
+        appliedStatus: "applied",
+      };
+      editor.focus();
+      document.execCommand("undo");
+      const afterUndo = {
+        expected: FP.joinedTextAt(mapping(), hist.plan.joinStart, String(hist.plan.expectedText || "").length),
+        original: FP.joinedTextAt(mapping(), hist.plan.joinStart, String(hist.plan.originalText || "").length),
+      };
+      const undoDec = FP.historySyncDecision(mem, afterUndo, "historyUndo");
+      results.push(row(
+        "Ctrl+Z 후 상태 동기화 판단",
+        undoDec.action === "reopen",
+        "action=" + undoDec.action + " liveE='" + afterUndo.expected + "' liveO='" + afterUndo.original + "'"
+      ));
+      mem.status = "open";
+      document.execCommand("redo");
+      const afterRedo = {
+        expected: FP.joinedTextAt(mapping(), hist.plan.joinStart, String(hist.plan.expectedText || "").length),
+        original: FP.joinedTextAt(mapping(), hist.plan.joinStart, String(hist.plan.originalText || "").length),
+      };
+      const redoDec = FP.historySyncDecision(mem, afterRedo, "historyRedo");
+      results.push(row(
+        "Ctrl+Y 후 재적용 판단",
+        redoDec.action === "reapply",
+        "action=" + redoDec.action + " liveE='" + afterRedo.expected + "'"
+      ));
+
+      setSample("살아 있는 원고");
+      const reject = applyCard({
+        original_text: "분석 때 원문",
+        suggestion: "새 수정안",
+        start_para: 1,
+        end_para: 1,
+      });
+      results.push(row(
+        "원고가 바뀐 뒤 적용 거부",
+        !reject.plan.ok && (reject.plan.reason === "mismatch" || reject.plan.reason === "locate"),
+        (reject.plan.message || reject.plan.reason)
+      ));
+
+      setSample("알파 줄입니다.<br>베타 줄입니다.<br>감마 줄입니다.");
+      const structBefore = editor.innerHTML;
+      const structApply = applyCard({
+        original_text: "베타 줄입니다.",
+        suggestion: "베타 교체",
+        start_para: 2,
+        end_para: 2,
+      });
+      const structAfter = editor.innerHTML;
+      const keptBr = /<br/i.test(structAfter);
+      const undoStruct = structApply.plan && structApply.plan.ok ? undoUntilOriginal(structApply.plan) : 0;
+      notes.push("insertText 줄 구조 전: " + structBefore);
+      notes.push("insertText 줄 구조 후: " + structAfter);
+      notes.push("br 유지=" + keptBr + " · undo 횟수=" + undoStruct + " · 한 번에 복원=" + (undoStruct === 1));
+      results.push(row(
+        "insertText가 br 줄 구조를 유지",
+        keptBr && structApply.verified,
+        "before has br=" + /<br/i.test(structBefore) + " after has br=" + keptBr
+      ));
+
+      const padLines = [];
+      for (let i = 1; i <= 24; i += 1) padLines.push(i + "번째 줄입니다.");
+      setSample(padLines.join("<br>"));
+      void page.offsetHeight;
+      page.scrollTop = 90;
+      const scrollBefore = page.scrollTop;
+      const midApply = applyCard({
+        original_text: "12번째 줄입니다.",
+        suggestion: "12번째 줄을 고쳤어요.",
+        start_para: 12,
+        end_para: 12,
+      });
+      const scrollAfterApply = page.scrollTop;
+      page.scrollTop = scrollBefore;
+      results.push(row(
+        "적용 후 스크롤 위치 유지",
+        midApply.verified && scrollBefore > 0 && page.scrollTop === scrollBefore,
+        "before=" + scrollBefore + " afterApply=" + scrollAfterApply + " restored=" + page.scrollTop
+      ));
+
+      setSample("첫 줄입니다.<br>고친 결과입니다.<br>셋째 줄입니다.");
+      const appliedFound = FP.locateCard({
+        status: "applied",
+        original_text: "둘째 줄입니다.",
+        suggestion: "고친 결과입니다.",
+        start_para: 2,
+        end_para: 2,
+      }, mapping());
+      results.push(row(
+        "적용된 카드는 결과 텍스트로 찾음",
+        appliedFound.ok && appliedFound.startPara === 2,
+        "ok=" + appliedFound.ok + " para=" + appliedFound.startPara + " method=" + appliedFound.method
+      ));
+      const openOnResult = FP.locateCard({
+        status: "open",
+        original_text: "둘째 줄입니다.",
+        suggestion: "고친 결과입니다.",
+        start_para: 2,
+        end_para: 2,
+      }, mapping());
+      results.push(row(
+        "미적용 카드는 원문으로 찾아 실패",
+        !openOnResult.ok,
+        openOnResult.reason || ""
+      ));
+      const appliedMiss = FP.locateCard({
+        status: "applied",
+        original_text: "둘째 줄입니다.",
+        suggestion: "없는 결과",
+        start_para: 2,
+        end_para: 2,
+      }, mapping());
+      const missMsg = FP.locateFailMessage({ status: "applied" }, appliedMiss);
+      results.push(row(
+        "적용된 위치를 못 찾으면 안내",
+        !appliedMiss.ok && missMsg === "적용된 위치를 찾을 수 없어요. 원고가 그 뒤에 바뀐 것 같아요",
+        missMsg
+      ));
+
+      const passed = results.filter(function (r) { return r.ok; }).length;
+      document.getElementById("summary").innerHTML = "<strong>"
+        + (passed === results.length ? "전체 통과" : "일부 실패")
+        + "</strong> " + passed + "/" + results.length;
+      document.getElementById("structNote").textContent = notes.join("\n\n");
+      window.__fbApplyCheck = { results: results, notes: notes, passed: passed, total: results.length };
+    }
+
+    document.getElementById("runAll").addEventListener("click", runScenarios);
+    window.addEventListener("load", runScenarios);
+  </script>
+</body>
+</html>
