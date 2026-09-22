@@ -15821,8 +15821,25 @@ let dictHighlightOn = false;
 let dictHighlightTimer = 0;
 let dictHighlightComposing = false;
 let dictHighlightMute = false;
+let dictHighlightReviewMute = false;
+let dictHighlightReviewPrevOn = null;
 let dictHighlightHits = [];
 let dictHighlightHoverEditor = null;
+
+function setFeedbackDictHighlightMute(mute) {
+  dictHighlightReviewMute = Boolean(mute);
+  paintDictHighlights();
+}
+
+function rememberDictHighlightForReview() {
+  if (dictHighlightReviewPrevOn == null) dictHighlightReviewPrevOn = dictHighlightOn;
+}
+
+function restoreDictHighlightAfterReview() {
+  dictHighlightReviewMute = false;
+  if (dictHighlightReviewPrevOn != null) dictHighlightReviewPrevOn = null;
+  paintDictHighlights();
+}
 
 function dictHighlightStorageKey(projectId) {
   const id = Number(projectId || state.projectId) || 0;
@@ -16026,6 +16043,7 @@ function applyDictHighlightMarks(hits) {
 function paintDictHighlights() {
   clearDictHighlightPaint();
   if (!dictHighlightOn) return;
+  if (dictHighlightReviewMute) return;
   const needles = dictionaryHighlightNeedles();
   if (!needles.length) return;
   const editors = dictHighlightEditors();
@@ -18126,6 +18144,13 @@ const DOCK_ANALYZE_DEFAULT_W = 340;
 const DOCK_ANALYZE_DEFAULT_H = 480;
 const DOCK_ANALYZE_MIN_W = 280;
 const DOCK_ANALYZE_MIN_H = 280;
+const DOCK_FEEDBACK_KEY = "dock:feedback";
+const DOCK_FEEDBACK_DEFAULT_W = 440;
+const DOCK_FEEDBACK_DEFAULT_H = 640;
+const DOCK_FEEDBACK_MIN_W = 320;
+const DOCK_FEEDBACK_MIN_H = 360;
+let feedbackLayoutSnapshot = null;
+let feedbackChromeSwitching = false;
 const DOCK_TORY_CHAT_KEY = "dock:toryChat";
 const DOCK_CHARACTER_CHAT_KEY = "dock:characterChat";
 const DOCK_READER_CHAT_KEY = "dock:readerChat";
@@ -18181,6 +18206,7 @@ const DOCK_RAIL_FLOAT_KEYS = {
   toryCheck: DOCK_TORY_CHECK_KEY,
   spellcheck: DOCK_SPELLCHECK_KEY,
   analyze: DOCK_ANALYZE_KEY,
+  feedback: DOCK_FEEDBACK_KEY,
   toryChat: DOCK_TORY_CHAT_KEY,
   characterChat: DOCK_CHARACTER_CHAT_KEY,
   readerChat: DOCK_READER_CHAT_KEY,
@@ -18746,6 +18772,21 @@ const DOCK_FLOAT_SPECS = {
     onOpen() {
       renderCustomAnalyzeMenuItems();
       ensureAnalyzeMenuSectionMascots();
+    },
+  },
+  feedback: {
+    title: "첨삭 피드백",
+    windowClass: "dock-float-feedback",
+    side: "right",
+    defaultWidth: DOCK_FEEDBACK_DEFAULT_W,
+    defaultHeight: DOCK_FEEDBACK_DEFAULT_H,
+    resize: { minWidth: DOCK_FEEDBACK_MIN_W, minHeight: DOCK_FEEDBACK_MIN_H },
+    render(body) { renderDockFeedbackBody(body); },
+    onOpen() {
+      if (typeof FeedbackPanel !== "undefined") FeedbackPanel.onOpen();
+    },
+    onFocus() {
+      if (typeof FeedbackPanel !== "undefined") FeedbackPanel.onOpen();
     },
   },
   toryChat: {
@@ -21133,6 +21174,13 @@ function restoreDockAiHosts(key) {
 
 function restoreDockToolHosts(key) {
   if (key === DOCK_SPELLCHECK_KEY) restoreDockNode("spellcheckPanel");
+  if (key === DOCK_FEEDBACK_KEY) {
+    restoreDockNode("feedbackPanel");
+    if (!feedbackChromeSwitching && typeof FeedbackPanel !== "undefined") {
+      FeedbackPanel.onClose();
+      if (typeof FeedbackPanel.setChromeMode === "function") FeedbackPanel.setChromeMode("");
+    }
+  }
   if (key === DOCK_ANALYZE_KEY) {
     restoreDockNode("analyzeMenuDropdown");
     const menu = $("analyzeMenuDropdown");
@@ -21166,6 +21214,220 @@ function renderDockAnalyzeBody(body) {
   $("analyzeMenuButton")?.setAttribute("aria-expanded", "true");
   renderCustomAnalyzeMenuItems();
   ensureAnalyzeMenuSectionMascots();
+}
+
+function renderDockFeedbackBody(body) {
+  if (!body) return;
+  const panel = $("feedbackPanel");
+  if (!panel) return;
+  adoptDockNode(panel, body);
+  if (typeof FeedbackPanel !== "undefined") FeedbackPanel.mount(panel);
+}
+
+function isFeedbackReviewOpen() {
+  return Boolean(document.body?.classList.contains("fb-review-open"));
+}
+
+function isFeedbackFloatOpen() {
+  return ideaFloatWindows.has(DOCK_FEEDBACK_KEY);
+}
+
+function feedbackViewportWidth() {
+  if (typeof layoutMainWidth === "function") return layoutMainWidth();
+  return Number(window.innerWidth) || 0;
+}
+
+function feedbackConflictReason() {
+  if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
+    return "집중쓰기 화면에서는 작은 창으로만 볼 수 있어요";
+  }
+  if (state.splitEnabled) {
+    return "분할 에디터에서는 작은 창으로만 볼 수 있어요";
+  }
+  if (document.body.classList.contains("typewriter-mode-on")
+    || (typeof typewriterModeOn !== "undefined" && typewriterModeOn)) {
+    return "타자기 모드에서는 작은 창으로만 볼 수 있어요";
+  }
+  return "";
+}
+
+function captureFeedbackLayoutSnapshot() {
+  const FP = typeof FeedbackPanel !== "undefined" ? FeedbackPanel : null;
+  const raw = {
+    outlineWidth: typeof layoutVarWidth === "function" ? layoutVarWidth("--outline-width", 300) : 300,
+    binderCollapsed: typeof isBinderPanelOpen === "function" ? !isBinderPanelOpen() : false,
+    aiPanelWidth: typeof layoutVarWidth === "function" ? layoutVarWidth("--ai-panel-width", 300) : 300,
+    aiCollapsed: typeof isAiPanelOpen === "function" ? !isAiPanelOpen() : false,
+  };
+  return FP && typeof FP.snapshotMainLayout === "function" ? FP.snapshotMainLayout(raw) : raw;
+}
+
+function applyFeedbackLayoutRestore(snap) {
+  if (!snap) return;
+  if (typeof setBinderPanelOpen === "function") {
+    setBinderPanelOpen(!snap.binderCollapsed, { persist: false });
+  }
+  if (typeof setAiPanelOpen === "function") {
+    setAiPanelOpen(!snap.aiCollapsed, { persist: false });
+  }
+  if (typeof applyOutlineWidth === "function") applyOutlineWidth(snap.outlineWidth);
+  if (typeof applyAiPanelWidth === "function") applyAiPanelWidth(snap.aiPanelWidth);
+}
+
+function rememberFeedbackChrome(mode) {
+  if (typeof FeedbackPanel !== "undefined" && typeof FeedbackPanel.writeChromePref === "function") {
+    FeedbackPanel.writeChromePref(mode);
+    return;
+  }
+  try { localStorage.setItem("supertory.feedbackChrome", mode); } catch (_) { /* ignore */ }
+}
+
+function preferredFeedbackChrome() {
+  if (typeof FeedbackPanel !== "undefined" && typeof FeedbackPanel.readChromePref === "function") {
+    return FeedbackPanel.readChromePref();
+  }
+  try {
+    const value = localStorage.getItem("supertory.feedbackChrome");
+    if (value === "float" || value === "review") return value;
+  } catch (_) { /* ignore */ }
+  return "review";
+}
+
+function bindFeedbackReviewResize() {
+  if (bindFeedbackReviewResize._bound) return;
+  bindFeedbackReviewResize._bound = true;
+  window.addEventListener("resize", () => {
+    if (!isFeedbackReviewOpen()) return;
+    if (typeof FeedbackPanel === "undefined" || typeof FeedbackPanel.shouldFallbackToFloat !== "function") return;
+    const vw = feedbackViewportWidth();
+    const rail = typeof layoutRailWidth === "function" ? layoutRailWidth() : 48;
+    if (FeedbackPanel.shouldFallbackToFloat(vw, { manuscriptMinWidth: 360, binderRailWidth: rail })) {
+      toast("화면이 좁아 작은 창으로 열었어요");
+      openFeedbackFloat();
+    }
+  });
+}
+
+function openFeedbackFloat(sourceEl) {
+  if (isFeedbackReviewOpen()) closeFeedbackReview({ keepPanel: true });
+  rememberFeedbackChrome("float");
+  const win = openDockFloat("feedback", sourceEl || $("analyzeMenuButton"));
+  const spec = DOCK_FLOAT_SPECS.feedback;
+  if (win && typeof spec?.onFocus === "function") spec.onFocus(win);
+  if (typeof FeedbackPanel !== "undefined") {
+    FeedbackPanel.mount($("feedbackPanel"));
+    FeedbackPanel.setChromeMode("float");
+  }
+  return win;
+}
+
+function closeFeedbackFloat() {
+  if (isFeedbackFloatOpen()) closeIdeaFloat(DOCK_FEEDBACK_KEY);
+}
+
+function openFeedbackReview() {
+  if (isFeedbackFloatOpen()) {
+    feedbackChromeSwitching = true;
+    try { closeFeedbackFloat(); }
+    finally { feedbackChromeSwitching = false; }
+  }
+  if (!feedbackLayoutSnapshot) {
+    feedbackLayoutSnapshot = captureFeedbackLayoutSnapshot();
+  }
+  rememberFeedbackChrome("review");
+  if (typeof setBinderPanelOpen === "function") setBinderPanelOpen(false, { persist: false });
+  if (typeof setAiPanelOpen === "function") setAiPanelOpen(true, { persist: false });
+  document.documentElement.classList.add("fb-review-open");
+  document.body.classList.add("fb-review-open");
+  const host = $("feedbackReviewHost");
+  const panel = $("feedbackPanel");
+  if (host) host.hidden = false;
+  if (host && panel) adoptDockNode(panel, host);
+  bindFeedbackReviewResize();
+  if (typeof FeedbackPanel !== "undefined") {
+    FeedbackPanel.mount(panel);
+    FeedbackPanel.setChromeMode("review");
+    FeedbackPanel.onOpen();
+  }
+}
+
+function closeFeedbackReview({ keepPanel = false } = {}) {
+  const host = $("feedbackReviewHost");
+  if (host) host.hidden = true;
+  document.documentElement.classList.remove("fb-review-open");
+  document.body.classList.remove("fb-review-open");
+  restoreDockNode("feedbackPanel");
+  const snap = feedbackLayoutSnapshot;
+  feedbackLayoutSnapshot = null;
+  applyFeedbackLayoutRestore(snap);
+  if (!keepPanel && typeof FeedbackPanel !== "undefined" && !isFeedbackFloatOpen()) {
+    FeedbackPanel.onClose();
+    FeedbackPanel.setChromeMode("");
+  }
+}
+
+function closeFeedbackChrome() {
+  if (isFeedbackReviewOpen()) closeFeedbackReview();
+  else if (isFeedbackFloatOpen()) closeFeedbackFloat();
+}
+
+function switchFeedbackChrome() {
+  if (isFeedbackReviewOpen()) {
+    rememberFeedbackChrome("float");
+    openFeedbackFloat($("analyzeMenuButton"));
+    return;
+  }
+  if (isFeedbackFloatOpen()) {
+    const conflict = feedbackConflictReason();
+    const vw = feedbackViewportWidth();
+    const rail = typeof layoutRailWidth === "function" ? layoutRailWidth() : 48;
+    const tooNarrow = typeof FeedbackPanel !== "undefined"
+      && FeedbackPanel.shouldFallbackToFloat(vw, {
+        manuscriptMinWidth: 360,
+        binderRailWidth: rail,
+        conflict: Boolean(conflict),
+      });
+    if (conflict || tooNarrow) {
+      toast(conflict || "화면이 좁아 작은 창으로만 볼 수 있어요");
+      return;
+    }
+    rememberFeedbackChrome("review");
+    openFeedbackReview();
+  }
+}
+
+function openFeedbackChrome(sourceEl) {
+  if (!state.sceneId) {
+    toast("먼저 목차에서 회차 하나를 열어 주세요.");
+    return;
+  }
+  if (isFeedbackReviewOpen()) {
+    if (typeof FeedbackPanel !== "undefined") FeedbackPanel.onOpen();
+    return;
+  }
+  if (isFeedbackFloatOpen()) {
+    const win = ideaFloatWindows.get(DOCK_FEEDBACK_KEY);
+    if (win) raiseIdeaFloat(win);
+    if (typeof FeedbackPanel !== "undefined") FeedbackPanel.onOpen();
+    return;
+  }
+  const conflict = feedbackConflictReason();
+  const vw = feedbackViewportWidth();
+  const rail = typeof layoutRailWidth === "function" ? layoutRailWidth() : 48;
+  const preferred = preferredFeedbackChrome();
+  const tooNarrow = typeof FeedbackPanel !== "undefined"
+    && FeedbackPanel.shouldFallbackToFloat(vw, {
+      manuscriptMinWidth: 360,
+      binderRailWidth: rail,
+      conflict: Boolean(conflict),
+    });
+  if (preferred === "float" || tooNarrow || conflict) {
+    if (preferred !== "float" && conflict) toast(conflict);
+    else if (preferred !== "float" && tooNarrow) toast("화면이 좁아 작은 창으로 열었어요");
+    openFeedbackFloat(sourceEl);
+    return;
+  }
+  openFeedbackReview();
 }
 
 function syncAiChatViewHubAttr() {
@@ -25588,6 +25850,10 @@ function setupAnalyzeMenu() {
       runDuplicateCheck().catch(handleError);
       return;
     }
+    if (action === "feedback") {
+      openFeedbackChrome($("analyzeMenuButton"));
+      return;
+    }
     // Default: focus analyze
     if (!state.sceneId) {
       toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
@@ -27723,6 +27989,16 @@ function openAiModePicker() {
   syncAiSelectViewUi();
 }
 
+function isMarkupFeedbackMode(value) {
+  return String(value || "") === "markupfeedback";
+}
+
+function openMarkupFeedbackChrome(sourceEl) {
+  if (typeof openFeedbackChrome === "function") {
+    openFeedbackChrome(sourceEl || $("aiModePicker") || $("analyzeMenuButton"));
+  }
+}
+
 function setAiModeValue(value, { silent = false } = {}) {
   const sel = $("aiMode");
   if (!sel) return;
@@ -27731,6 +28007,10 @@ function setAiModeValue(value, { silent = false } = {}) {
     if (!silent) {
       toast(i18n.t("app.먼저_설정집에서_흥행작_프로파일을_연결해_주세요"));
     }
+    return false;
+  }
+  if (isMarkupFeedbackMode(next)) {
+    if (!silent) openMarkupFeedbackChrome($("aiModePicker"));
     return false;
   }
   const featureId = AI_MODE_CLUSTER_FEATURE[next];
@@ -27794,6 +28074,10 @@ function setupAiModePicker() {
     event.preventDefault();
     event.stopPropagation();
     const value = optBtn.getAttribute("data-ai-mode-value") || "free";
+    if (isMarkupFeedbackMode(value)) {
+      openMarkupFeedbackChrome($("aiModePicker"));
+      return;
+    }
     if (isComingSoonAiMode(value)) {
       toast(i18n.t('app.아직_준비_중인_기능이에요'));
       return;
@@ -28868,9 +29152,84 @@ function setupAiPromptModal() {
 const AI_RESULT_HISTORY_PREFIX = "supertory.aiResultHistory.";
 const AI_RESULT_HISTORY_MAX = 40;
 let aiResultHistoryViewId = null;
+let markupHistoryCache = { projectId: 0, rows: [] };
 
 function aiResultHistoryKey(projectId = state.projectId) {
   return `${AI_RESULT_HISTORY_PREFIX}${projectId || "0"}`;
+}
+
+function markupHistoryMergeFns() {
+  const panel = typeof FeedbackPanel !== "undefined" ? FeedbackPanel : null;
+  if (!panel) return null;
+  if (typeof panel.mergeToryHistoryItems !== "function") return null;
+  return panel;
+}
+
+function cachedMarkupHistoryRuns() {
+  if (!state.projectId) return [];
+  if (Number(markupHistoryCache.projectId) !== Number(state.projectId)) return [];
+  return Array.isArray(markupHistoryCache.rows) ? markupHistoryCache.rows : [];
+}
+
+function combinedAiResultHistoryItems() {
+  const local = loadAiResultHistory();
+  const fns = markupHistoryMergeFns();
+  if (!fns) return local.slice(0, AI_RESULT_HISTORY_MAX);
+  return fns.mergeToryHistoryItems(local, cachedMarkupHistoryRuns(), AI_RESULT_HISTORY_MAX);
+}
+
+function refreshMarkupHistoryThen(onDone) {
+  const pid = Number(state.projectId) || 0;
+  const finish = () => {
+    if (typeof onDone === "function") onDone();
+  };
+  if (!pid) {
+    markupHistoryCache = { projectId: 0, rows: [] };
+    finish();
+    return;
+  }
+  api(`/api/projects/${pid}/feedback/runs`).then((rows) => {
+    if (Number(state.projectId) === pid) {
+      markupHistoryCache = { projectId: pid, rows: Array.isArray(rows) ? rows : [] };
+    }
+    finish();
+  }).catch(() => {
+    if (Number(state.projectId) === pid) {
+      markupHistoryCache = { projectId: pid, rows: [] };
+    }
+    finish();
+  });
+}
+
+function isMarkupHistoryEntry(item) {
+  const fns = markupHistoryMergeFns();
+  if (fns && typeof fns.isMarkupHistoryItem === "function") return fns.isMarkupHistoryItem(item);
+  return Boolean(item && (item.kind === "markupfeedback" || item.mode === "markupfeedback"));
+}
+
+async function openMarkupFeedbackFromHistory(item) {
+  const runId = Number(item && (item.runId || item.id));
+  const sceneId = Number(item && item.sceneId) || 0;
+  if (!runId) {
+    toast(i18n.t("app.결과를_찾지_못했어요"));
+    return;
+  }
+  if (typeof FeedbackPanel !== "undefined" && typeof FeedbackPanel.openHistoryRun === "function") {
+    FeedbackPanel.openHistoryRun(runId);
+  }
+  if (sceneId && Number(state.sceneId) !== sceneId) {
+    try {
+      await openScene(sceneId);
+    } catch (error) {
+      handleError(error);
+      return;
+    }
+  }
+  if (!state.sceneId) {
+    toast("먼저 목차에서 회차 하나를 열어 주세요.");
+    return;
+  }
+  openFeedbackChrome($("aiResultHistoryButton") || $("analyzeMenuButton"));
 }
 
 function loadAiResultHistory(projectId = state.projectId) {
@@ -28993,7 +29352,7 @@ function renderAiPanelHistoryList() {
     );
     return;
   }
-  const items = loadAiResultHistory();
+  const items = combinedAiResultHistoryItems();
   if (!items.length) {
     list.innerHTML = String(i18n.t("app.p_class_tory_chat_histo_2")).replaceAll(
       "tory-chat-history-empty",
@@ -29001,33 +29360,52 @@ function renderAiPanelHistoryList() {
     );
     return;
   }
+  const fns = markupHistoryMergeFns();
   list.innerHTML = items.map((item) => {
     const when = formatAiResultHistoryWhen(item.createdAt);
-    const scene = item.sceneTitle ? escapeHtml(item.sceneTitle) : i18n.t("app.원고");
+    const markup = isMarkupHistoryEntry(item);
     const label = escapeHtml(item.modeLabel || aiModeLabel(item.mode) || i18n.t("app.결과"));
-    const preview = escapeHtml(String(item.text || "").replace(/\s+/g, " ").trim().slice(0, 80));
+    const previewRaw = markup && fns && typeof fns.formatMarkupHistoryPreview === "function"
+      ? fns.formatMarkupHistoryPreview(item)
+      : `${item.sceneTitle || i18n.t("app.원고")}${item.text ? ` · ${String(item.text).replace(/\s+/g, " ").trim().slice(0, 80)}` : ""}`;
+    const preview = escapeHtml(String(previewRaw || "").replace(/\s+/g, " ").trim());
+    const id = escapeHtml(item.id);
+    const aria = escapeHtml(
+      markup && fns && typeof fns.formatMarkupHistoryLine === "function"
+        ? fns.formatMarkupHistoryLine(item, when)
+        : `${item.modeLabel || ""} ${when}`.trim()
+    );
     const popupTitle = escapeHtml(i18n.t("index.결과를_팝업으로_크게_보기"));
     const popupLabel = escapeHtml(i18n.t("index.팝업"));
-    const id = escapeHtml(item.id);
-    return `
-      <div class="ai-panel-history-row-wrap">
-        <button type="button" class="ai-panel-history-row" data-ai-panel-history="${id}">
-          <span class="ai-panel-history-when">${escapeHtml(when || "")}</span>
-          <span class="ai-panel-history-title">${label}</span>
-          <span class="ai-panel-history-preview">${scene}${preview ? ` · ${preview}${String(item.text || "").length > 80 ? "…" : ""}` : ""}</span>
-        </button>
+    const popup = markup ? "" : `
         <button type="button" class="ai-history-popup-btn" data-ai-panel-history-popup="${id}" title="${popupTitle}" aria-label="${popupLabel}">
           ${aiResultPopupIconSvg(16)}
+        </button>`;
+    return `
+      <div class="ai-panel-history-row-wrap${markup ? " is-markupfeedback" : ""}">
+        <button type="button" class="ai-panel-history-row${markup ? " is-markupfeedback" : ""}" data-ai-panel-history="${id}"${markup ? ` data-history-kind="markupfeedback"` : ""} aria-label="${aria}">
+          <span class="ai-panel-history-when">${escapeHtml(when || "")}</span>
+          <span class="ai-panel-history-title">${label}</span>
+          <span class="ai-panel-history-preview">${preview}</span>
         </button>
+        ${popup}
       </div>`;
   }).join("");
 }
 
+function findCombinedHistoryItem(entryId) {
+  return combinedAiResultHistoryItems().find((entry) => String(entry.id) === String(entryId));
+}
+
 function openAiPanelHistoryDetail(entryId) {
-  const item = loadAiResultHistory().find((entry) => entry.id === entryId);
+  const item = findCombinedHistoryItem(entryId);
   if (!item) {
     toast(i18n.t("app.결과를_찾지_못했어요"));
     showAiPanelHistoryListView();
+    return;
+  }
+  if (isMarkupHistoryEntry(item)) {
+    openMarkupFeedbackFromHistory(item).catch(handleError);
     return;
   }
   aiPanelHistoryViewId = item.id;
@@ -29056,6 +29434,9 @@ function setAiPanelHistoryOpen(open) {
     $("aiResultWrap")?.classList.remove("hidden");
     syncAiPanelHistoryChrome(true);
     showAiPanelHistoryListView();
+    refreshMarkupHistoryThen(() => {
+      if (isAiPanelHistoryOpen()) renderAiPanelHistoryList();
+    });
   } else {
     syncAiPanelHistoryChrome(false);
     aiPanelHistoryViewId = null;
@@ -29093,6 +29474,7 @@ function showAiResultHistoryListView() {
   $("aiResultHistoryListActions")?.classList.remove("hidden");
   $("aiResultHistoryDetail")?.classList.add("hidden");
   renderAiResultHistoryList();
+  refreshMarkupHistoryThen(() => renderAiResultHistoryList());
 }
 
 function renderAiResultHistoryList() {
@@ -29102,38 +29484,53 @@ function renderAiResultHistoryList() {
     list.innerHTML = i18n.t('app.p_class_tory_chat_histo');
     return;
   }
-  const items = loadAiResultHistory();
+  const items = combinedAiResultHistoryItems();
   if (!items.length) {
     list.innerHTML = i18n.t('app.p_class_tory_chat_histo_2');
     return;
   }
+  const fns = markupHistoryMergeFns();
   list.innerHTML = items.map((item) => {
     const when = formatAiResultHistoryWhen(item.createdAt);
-    const scene = item.sceneTitle ? escapeHtml(item.sceneTitle) : i18n.t('app.원고');
+    const markup = isMarkupHistoryEntry(item);
     const label = escapeHtml(item.modeLabel || aiModeLabel(item.mode) || i18n.t('app.결과'));
-    const preview = escapeHtml(String(item.text || "").replace(/\s+/g, " ").trim().slice(0, 72));
+    const previewRaw = markup && fns && typeof fns.formatMarkupHistoryPreview === "function"
+      ? fns.formatMarkupHistoryPreview(item)
+      : `${item.sceneTitle || i18n.t("app.원고")}${item.text ? ` · ${String(item.text).replace(/\s+/g, " ").trim().slice(0, 72)}` : ""}`;
+    const preview = escapeHtml(String(previewRaw || "").replace(/\s+/g, " ").trim());
+    const id = escapeHtml(item.id);
+    const aria = escapeHtml(
+      markup && fns && typeof fns.formatMarkupHistoryLine === "function"
+        ? fns.formatMarkupHistoryLine(item, when)
+        : `${item.modeLabel || ""} ${when}`.trim()
+    );
     const popupTitle = escapeHtml(i18n.t("index.결과를_팝업으로_크게_보기"));
     const popupLabel = escapeHtml(i18n.t("index.팝업"));
-    const id = escapeHtml(item.id);
-    return `
-      <div class="tory-chat-history-item-wrap">
-        <button type="button" class="tory-chat-history-item" data-ai-result-history="${id}">
-          <strong>${label}</strong>
-          <span class="count">${when || ""}</span>
-          <span class="meta">${scene}${preview ? ` · ${preview}${String(item.text || "").length > 72 ? "…" : ""}` : ""}</span>
-        </button>
+    const popup = markup ? "" : `
         <button type="button" class="ai-history-popup-btn" data-ai-result-history-popup="${id}" title="${popupTitle}" aria-label="${popupLabel}">
           ${aiResultPopupIconSvg(16)}
+        </button>`;
+    return `
+      <div class="tory-chat-history-item-wrap${markup ? " is-markupfeedback" : ""}">
+        <button type="button" class="tory-chat-history-item${markup ? " is-markupfeedback" : ""}" data-ai-result-history="${id}"${markup ? ` data-history-kind="markupfeedback"` : ""} aria-label="${aria}">
+          <strong>${label}</strong>
+          <span class="count">${when || ""}</span>
+          <span class="meta">${preview}</span>
         </button>
+        ${popup}
       </div>`;
   }).join("");
 }
 
 function openAiResultHistoryDetail(entryId) {
-  const item = loadAiResultHistory().find((entry) => entry.id === entryId);
+  const item = findCombinedHistoryItem(entryId);
   if (!item) {
     toast(i18n.t('app.결과를_찾지_못했어요'));
     showAiResultHistoryListView();
+    return;
+  }
+  if (isMarkupHistoryEntry(item)) {
+    openMarkupFeedbackFromHistory(item).catch(handleError);
     return;
   }
   aiResultHistoryViewId = item.id;
@@ -29165,6 +29562,11 @@ function closeAiResultHistoryModal() {
 }
 
 function popupAiResultHistoryEntry(entryId) {
+  const combined = findCombinedHistoryItem(entryId);
+  if (combined && isMarkupHistoryEntry(combined)) {
+    openMarkupFeedbackFromHistory(combined).catch(handleError);
+    return;
+  }
   const item = loadAiResultHistory().find((entry) => entry.id === entryId);
   if (!item) {
     toast(i18n.t("app.결과를_찾지_못했어요"));
@@ -29180,6 +29582,11 @@ function popupAiResultHistoryEntry(entryId) {
 }
 
 function restoreAiResultHistoryEntry(entryId, options = {}) {
+  const combined = findCombinedHistoryItem(entryId);
+  if (combined && isMarkupHistoryEntry(combined)) {
+    openMarkupFeedbackFromHistory(combined).catch(handleError);
+    return;
+  }
   const item = loadAiResultHistory().find((entry) => entry.id === entryId);
   if (!item) {
     toast(i18n.t('app.결과를_찾지_못했어요'));
@@ -29201,6 +29608,11 @@ function restoreAiResultHistoryEntry(entryId, options = {}) {
 }
 
 function deleteAiResultHistoryEntry(entryId) {
+  const combined = findCombinedHistoryItem(entryId);
+  if (combined && isMarkupHistoryEntry(combined)) {
+    toast("첨삭 피드백 기록은 첨삭 패널의 히스토리 탭에서 지울 수 있어요.");
+    return;
+  }
   const list = loadAiResultHistory().filter((entry) => entry.id !== entryId);
   saveAiResultHistory(list);
   toast(i18n.t('app.기록을_삭제했어요'));
@@ -37078,6 +37490,7 @@ function aiModeLabel(mode) {
     brainstorm_next_exists: i18n.t('app.브레인스토밍'),
     analyze: i18n.t('app.피드백_요청'),
     analyze_multi: i18n.t('app.피드백_요청'),
+    markupfeedback: i18n.t('index.첨삭_피드백'),
     brainstorm: i18n.t('app.브레인스토밍'),
     foreshadow: i18n.t('app.떡밥_복선_탐색기'),
     plottwist: i18n.t('app.반전_개연성_검사기'),
@@ -45600,7 +46013,7 @@ function collectToToryVault(options = {}) {
   saveToryVault(list);
   renderToryVaultList();
   renderSettingsCodex();
-  toast(i18n.t('app.토리_수집창고에_넣었어요'));
+  if (!options.quiet) toast(i18n.t('app.토리_수집창고에_넣었어요'));
   return item;
 }
 
@@ -53415,6 +53828,7 @@ function isAiPanelOpen() {
 }
 
 function setAiPanelOpen(open, options = {}) {
+  if (!open && document.body.classList.contains("fb-review-open")) return;
   const persist = options.persist !== false;
   document.body.classList.toggle("ai-panel-collapsed", !open);
   if (persist) {
@@ -53448,6 +53862,7 @@ function isBinderPanelOpen() {
 }
 
 function setBinderPanelOpen(open, options = {}) {
+  if (open && document.body.classList.contains("fb-review-open")) return;
   const persist = options.persist !== false;
   document.body.classList.toggle("binder-panel-collapsed", !open);
   if (persist) {
@@ -62363,6 +62778,7 @@ function setupOutlineResizer() {
   if (!setupOutlineResizer._resizeBound) {
     setupOutlineResizer._resizeBound = true;
     window.addEventListener("resize", () => {
+      if (document.body.classList.contains("fb-review-open")) return;
       let outline = layoutVarWidth("--outline-width", 300);
       let ai = layoutVarWidth("--ai-panel-width", 300);
       try {
@@ -62470,6 +62886,7 @@ function setupAiPanelResizer() {
     if (event.button !== 0) return;
     if (typeof isAiPanelOpen === "function" && !isAiPanelOpen()) return;
     if (document.body.classList.contains("ai-panel-collapsed")) return;
+    if (document.body.classList.contains("fb-review-open")) return;
     const panel = $("aiPanel");
     const startWidth = panel ? panel.getBoundingClientRect().width : 300;
     drag = {
@@ -73475,6 +73892,7 @@ async function openScene(sceneId, options = {}) {
   if (state.splitEnabled) {
     renderSplitViewer().catch(handleError);
   }
+  if (typeof FeedbackPanel !== "undefined") FeedbackPanel.onSceneChange();
 }
 
 const CHARACTER_ROLE_LABELS = {
