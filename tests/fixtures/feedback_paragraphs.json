@@ -1,0 +1,96 @@
+[
+  {
+    "id": "html-paragraphs",
+    "fn": "html",
+    "input": "<p>첫 문단입니다.</p><p>둘째 문단입니다.</p>",
+    "expected": [
+      {"i": 1, "text": "첫 문단입니다.", "type": "text"},
+      {"i": 2, "text": "둘째 문단입니다.", "type": "text"}
+    ]
+  },
+  {
+    "id": "html-br-and-nbsp",
+    "fn": "html",
+    "input": "<p>윗줄&nbsp;한칸<br>아랫줄</p>",
+    "expected": [
+      {"i": 1, "text": "윗줄 한칸", "type": "text"},
+      {"i": 2, "text": "아랫줄", "type": "text"}
+    ]
+  },
+  {
+    "id": "html-scene-break-and-note",
+    "fn": "html",
+    "input": "<p>본문 앞</p><div class=\"manuscript-scene-break\">* * *</div><p data-author-note=\"1\">작가 메모</p><p>본문 뒤</p>",
+    "expected": [
+      {"i": 1, "text": "본문 앞", "type": "text"},
+      {"i": 2, "text": "* * *", "type": "divider"},
+      {"i": 3, "text": "본문 뒤", "type": "text"}
+    ]
+  },
+  {
+    "id": "html-heading-image",
+    "fn": "html",
+    "input": "<h2>소제목</h2><p>본문</p><img src=\"x.jpg\" alt=\"삽화\">",
+    "expected": [
+      {"i": 1, "text": "소제목", "type": "other"},
+      {"i": 2, "text": "본문", "type": "text"},
+      {"i": 3, "text": "삽화", "type": "other"}
+    ]
+  },
+  {
+    "id": "text-blank-title-divider",
+    "fn": "text",
+    "input": "# 제목\n\n첫 문단.\n\n***\n\n다음 문단.",
+    "expected": [
+      {"i": 1, "text": "# 제목", "type": "other"},
+      {"i": 2, "text": "첫 문단.", "type": "text"},
+      {"i": 3, "text": "***", "type": "divider"},
+      {"i": 4, "text": "다음 문단.", "type": "text"}
+    ]
+  },
+  {
+    "id": "html-nested-div",
+    "fn": "html",
+    "input": "<div><div>안쪽 문단입니다.</div><p>바깥 문단입니다.</p></div>",
+    "expected": [
+      {"i": 1, "text": "안쪽 문단입니다.", "type": "text"},
+      {"i": 2, "text": "바깥 문단입니다.", "type": "text"}
+    ]
+  },
+  {
+    "id": "html-text-newlines",
+    "fn": "html",
+    "input": "<p>윗줄입니다.\n아랫줄입니다.</p>",
+    "expected": [
+      {"i": 1, "text": "윗줄입니다.", "type": "text"},
+      {"i": 2, "text": "아랫줄입니다.", "type": "text"}
+    ]
+  },
+  {
+    "id": "html-plain-lines",
+    "fn": "html",
+    "input": "한 줄입니다.\n두 줄입니다.",
+    "expected": [
+      {"i": 1, "text": "한 줄입니다.", "type": "text"},
+      {"i": 2, "text": "두 줄입니다.", "type": "text"}
+    ]
+  },
+  {
+    "id": "html-br-only-webnovel",
+    "fn": "html",
+    "input": "첫 문장은 옷을 고쳐 입는 장면입니다.<br>다음 문장은 사람들이 모이는 장면입니다.<br><br>“명령을 받들라.”<br><br>주인공이 어깨를 움츠렸습니다. 그 이유가 이례적인 발령 때문이라고 적혀 있습니다.<br><br>전령이 말을 이어 갔습니다.<br>아주 긴 해설이 한 문단에 남아 있습니다. 독자가 이미 아는 내용입니다.<br><br>***<br>티 테이블 앞에 앉았습니다.<br>창밖의 비가 그쳤습니다.<br><br>“차를 마시지요.”<br><br>두 사람이 마주 앉았습니다.",
+    "expected": [
+      {"i": 1, "text": "첫 문장은 옷을 고쳐 입는 장면입니다.", "type": "text"},
+      {"i": 2, "text": "다음 문장은 사람들이 모이는 장면입니다.", "type": "text"},
+      {"i": 3, "text": "“명령을 받들라.”", "type": "text"},
+      {"i": 4, "text": "주인공이 어깨를 움츠렸습니다. 그 이유가 이례적인 발령 때문이라고 적혀 있습니다.", "type": "text"},
+      {"i": 5, "text": "전령이 말을 이어 갔습니다.", "type": "text"},
+      {"i": 6, "text": "아주 긴 해설이 한 문단에 남아 있습니다. 독자가 이미 아는 내용입니다.", "type": "text"},
+      {"i": 7, "text": "***", "type": "divider"},
+      {"i": 8, "text": "티 테이블 앞에 앉았습니다.", "type": "text"},
+      {"i": 9, "text": "창밖의 비가 그쳤습니다.", "type": "text"},
+      {"i": 10, "text": "“차를 마시지요.”", "type": "text"},
+      {"i": 11, "text": "두 사람이 마주 앉았습니다.", "type": "text"}
+    ]
+  }
+]

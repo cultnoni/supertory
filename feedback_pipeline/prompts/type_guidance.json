@@ -1,0 +1,42 @@
+{
+  "explain_less": {
+    "meaning": "감정·의미를 직접 규정하거나 비유를 풀어 쓴 부분",
+    "guidance": "지우기보다 이미 장면에 있는 행동·감각·사물의 변화로 옮기거나 한 문장으로 줄입니다. 독자가 해석할 여지를 남깁니다. 새 사건은 만들지 않습니다.",
+    "suggestion_default": true
+  },
+  "info_placement": {
+    "meaning": "설정·배경 설명이 한꺼번에 나와 장면이 멈추는 부분",
+    "guidance": "독자가 지금 알아야 할 정보만 남기고, 나머지는 대사·행동 속으로 나누거나 뒤로 미룹니다. 핵심 설정은 지우지 않습니다.",
+    "suggestion_default": true
+  },
+  "action_clarity": {
+    "meaning": "누가 누구에게 무엇을 했는지 순서가 흐린 부분",
+    "guidance": "행동 주체를 분명히 하고 사건을 일어난 순서대로 한 문장에 하나씩 정리합니다. 잔혹함이나 분량을 낮추지 않습니다.",
+    "suggestion_default": false
+  },
+  "redundancy": {
+    "meaning": "같은 정보가 반복되는 부분",
+    "guidance": "더 구체적이거나 감각적인 쪽을 남기고 나머지는 삭제하거나 합칩니다. 남길 정보를 지우지 않습니다.",
+    "suggestion_default": false
+  },
+  "reader_question": {
+    "meaning": "독자의 의문을 서술자가 미리 변명하는 부분",
+    "guidance": "변명 대신 그 정보가 자연스럽게 알려지는 경로(누가 어떻게 알려줬는지)를 보입니다.",
+    "suggestion_default": false
+  },
+  "abstract_expression": {
+    "meaning": "추상적이거나 진부한 표현",
+    "guidance": "구체적인 말·반응·장면으로 바꿉니다. 지시 대상(누구의 무엇인지)을 바꾸지 않습니다.",
+    "suggestion_default": false
+  },
+  "other": {
+    "meaning": "위에 없는 것",
+    "guidance": "유형별 지침 없음",
+    "suggestion_default": false
+  },
+  "none": {
+    "meaning": "correction, consistency 카드",
+    "guidance": "(해당 없음)",
+    "suggestion_default": true
+  }
+}
