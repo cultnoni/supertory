@@ -1532,3 +1532,94 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(version, "project_reader_favorites")
 
+    def test_feedback_run_tables_and_immutable_card(self) -> None:
+        migration = Path(__file__).resolve().parents[1] / "db" / "094_feedback_run.sql"
+        sql = migration.read_text(encoding="utf-8")
+        self.db.executescript(sql)
+        self.db.executescript(sql)
+        versions = self.db.execute(
+            "SELECT COUNT(*) FROM schema_migration WHERE version = 94"
+        ).fetchone()[0]
+        self.assertEqual(versions, 1)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 94"
+        ).fetchone()[0]
+        self.assertEqual(version, "feedback_run")
+
+        title_sql = Path(__file__).resolve().parents[1] / "db" / "095_feedback_card_title.sql"
+        self.db.executescript(title_sql.read_text(encoding="utf-8"))
+        self.db.executescript(
+            "INSERT INTO schema_migration(version, name) "
+            "SELECT 95, 'feedback_card_title' "
+            "WHERE NOT EXISTS (SELECT 1 FROM schema_migration WHERE version = 95)"
+        )
+        title_versions = self.db.execute(
+            "SELECT COUNT(*) FROM schema_migration WHERE version = 95"
+        ).fetchone()[0]
+        self.assertEqual(title_versions, 1)
+        comment_sql = Path(__file__).resolve().parents[1] / "db" / "096_feedback_card_comment.sql"
+        self.db.executescript(comment_sql.read_text(encoding="utf-8"))
+        self.db.executescript(comment_sql.read_text(encoding="utf-8"))
+        comment_versions = self.db.execute(
+            "SELECT COUNT(*) FROM schema_migration WHERE version = 96"
+        ).fetchone()[0]
+        self.assertEqual(comment_versions, 1)
+        cols = {
+            row[1]
+            for row in self.db.execute("PRAGMA table_info(feedback_card)").fetchall()
+        }
+        self.assertIn("title", cols)
+
+        self.create_story()
+        self.db.execute(
+            "INSERT INTO feedback_run(id, project_id, run_kind, model, prompt_version) "
+            "VALUES (1, 1, 'analyze', 'gemini', 'v1')"
+        )
+        self.db.execute(
+            "INSERT INTO feedback_run_scene"
+            "(run_id, project_id, scene_id, ord, scene_title, is_primary) "
+            "VALUES (1, 1, 30, 0, '1화', 1)"
+        )
+        self.db.execute(
+            "INSERT INTO feedback_card"
+            "(run_id, project_id, scene_id, ord, kind, original_text, reason) "
+            "VALUES (1, 1, 30, 0, 'style', '원문', '이유')"
+        )
+        self.assert_integrity_error(
+            "UPDATE feedback_card SET original_text = '바꿈' WHERE run_id = 1"
+        )
+        self.assert_integrity_error(
+            "UPDATE feedback_card SET title = '제목' WHERE run_id = 1"
+        )
+        self.assertEqual(
+            self.db.execute("SELECT title FROM feedback_card WHERE run_id = 1").fetchone()[0],
+            "",
+        )
+        self.db.execute("UPDATE feedback_card SET status = 'ignored' WHERE run_id = 1")
+        self.assertEqual(
+            self.db.execute("SELECT status FROM feedback_card WHERE run_id = 1").fetchone()[0],
+            "ignored",
+        )
+        self.db.execute(
+            "INSERT INTO feedback_run(id, project_id, run_kind) VALUES (2, 1, 'analyze')"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO feedback_run_scene"
+            "(run_id, project_id, scene_id, ord, is_primary) "
+            "VALUES (2, 1, 30, 0, 1)"
+        )
+        card_id = int(
+            self.db.execute("SELECT id FROM feedback_card WHERE run_id = 1").fetchone()[0]
+        )
+        self.db.execute(
+            "INSERT INTO feedback_card_comment(card_id, run_id, project_id, role, body) "
+            "VALUES (?, 1, 1, 'user', '질문')",
+            (card_id,),
+        )
+        self.db.execute("DELETE FROM feedback_run WHERE id = 1")
+        self.assertIsNone(
+            self.db.execute(
+                "SELECT 1 FROM feedback_card_comment WHERE card_id = ?", (card_id,)
+            ).fetchone()
+        )
+
