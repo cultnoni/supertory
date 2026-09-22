@@ -24,6 +24,9 @@ if _genre_playbooks.is_file():
 # Ship project .env into MEIPASS when present so frozen loaders find GEMINI_API_KEY.
 if (ROOT / ".env").is_file():
     datas.append((str(ROOT / ".env"), "."))
+_feedback_prompts = ROOT / "feedback_pipeline" / "prompts"
+if _feedback_prompts.is_dir():
+    datas.append((str(_feedback_prompts), "feedback_pipeline/prompts"))
 
 binaries: list = []
 hiddenimports = [
@@ -45,6 +48,21 @@ hiddenimports = [
     "proof_diff",
     "proof_extract",
     "proof_pipeline",
+    "feedback_store",
+    "feedback_api",
+    "feedback_pipeline",
+    "feedback_pipeline.cli",
+    "feedback_pipeline.claude_client",
+    "feedback_pipeline.config",
+    "feedback_pipeline.context",
+    "feedback_pipeline.checks",
+    "feedback_pipeline.dup_blocks",
+    "feedback_pipeline.paragraphs",
+    "feedback_pipeline.prompt_loader",
+    "feedback_pipeline.report_post",
+    "feedback_pipeline.runner",
+    "feedback_pipeline.card_reply",
+    "author_note_blocks",
     "sync",
     "sync.supabase_client",
     "sync.device",

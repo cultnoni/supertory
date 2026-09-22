@@ -30,6 +30,7 @@ BUNDLED_ENV_PY = ROOT / "bundled_env.py"
 BUNDLE_KEYS = (
     "GEMINI_API_KEY",
     "GEMINI_MODEL",
+    "ANTHROPIC_API_KEY",
     "SUPABASE_URL",
     "SUPABASE_ANON_KEY",
 )
@@ -79,7 +80,11 @@ def write_bundled_env() -> dict[str, str]:
     selected: dict[str, str] = {}
     for key in BUNDLE_KEYS:
         value = (parsed.get(key) or os.environ.get(key) or "").strip()
-        if value and value not in {"your_gemini_api_key_here", "changeme"}:
+        if value and value not in {
+            "your_gemini_api_key_here",
+            "your_anthropic_api_key_here",
+            "changeme",
+        }:
             selected[key] = value
 
     if "GEMINI_API_KEY" not in selected:
@@ -92,6 +97,18 @@ def write_bundled_env() -> dict[str, str]:
         print(
             f"Embedding GEMINI_API_KEY into bundled_env.py "
             f"(len={len(selected['GEMINI_API_KEY'])})."
+        )
+
+    if "ANTHROPIC_API_KEY" not in selected:
+        print(
+            "WARNING: ANTHROPIC_API_KEY not found in .env — frozen feedback "
+            "pipeline will need a user-supplied key.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "Embedding ANTHROPIC_API_KEY into bundled_env.py "
+            f"(len={len(selected['ANTHROPIC_API_KEY'])})."
         )
 
     missing_supabase = [key for key in SUPABASE_KEYS if key not in selected]
