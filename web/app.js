@@ -18149,8 +18149,20 @@ const DOCK_FEEDBACK_DEFAULT_W = 440;
 const DOCK_FEEDBACK_DEFAULT_H = 640;
 const DOCK_FEEDBACK_MIN_W = 320;
 const DOCK_FEEDBACK_MIN_H = 360;
-let feedbackLayoutSnapshot = null;
-let feedbackChromeSwitching = false;
+/** 넓은 패널 슬롯. 한 번에 내용 하나만. 클래스·호스트 id는 기존 스타일시트를 그대로 쓴다. */
+const widePanelSession = {
+  id: "",
+  title: "",
+  mode: "",
+  mount: null,
+  unmount: null,
+  rehome: null,
+  readChromePref: null,
+  writeChromePref: null,
+  sourceEl: null,
+};
+let widePanelSnapshot = null;
+let widePanelSwitching = false;
 const DOCK_TORY_CHAT_KEY = "dock:toryChat";
 const DOCK_CHARACTER_CHAT_KEY = "dock:characterChat";
 const DOCK_READER_CHAT_KEY = "dock:readerChat";
@@ -18781,12 +18793,11 @@ const DOCK_FLOAT_SPECS = {
     defaultWidth: DOCK_FEEDBACK_DEFAULT_W,
     defaultHeight: DOCK_FEEDBACK_DEFAULT_H,
     resize: { minWidth: DOCK_FEEDBACK_MIN_W, minHeight: DOCK_FEEDBACK_MIN_H },
-    render(body) { renderDockFeedbackBody(body); },
-    onOpen() {
-      if (typeof FeedbackPanel !== "undefined") FeedbackPanel.onOpen();
-    },
+    render(body) { mountWidePanelContent(body, "float"); },
     onFocus() {
-      if (typeof FeedbackPanel !== "undefined") FeedbackPanel.onOpen();
+      const win = ideaFloatWindows.get(DOCK_FEEDBACK_KEY);
+      mountWidePanelContent(win?.querySelector("[data-role='dock-float-body']"), "float");
+      syncWidePanelFloatTitle(win);
     },
   },
   toryChat: {
@@ -21175,11 +21186,8 @@ function restoreDockAiHosts(key) {
 function restoreDockToolHosts(key) {
   if (key === DOCK_SPELLCHECK_KEY) restoreDockNode("spellcheckPanel");
   if (key === DOCK_FEEDBACK_KEY) {
-    restoreDockNode("feedbackPanel");
-    if (!feedbackChromeSwitching && typeof FeedbackPanel !== "undefined") {
-      FeedbackPanel.onClose();
-      if (typeof FeedbackPanel.setChromeMode === "function") FeedbackPanel.setChromeMode("");
-    }
+    if (widePanelSwitching) widePanelRehome();
+    else widePanelReleaseContent();
   }
   if (key === DOCK_ANALYZE_KEY) {
     restoreDockNode("analyzeMenuDropdown");
@@ -21217,27 +21225,50 @@ function renderDockAnalyzeBody(body) {
 }
 
 function renderDockFeedbackBody(body) {
-  if (!body) return;
-  const panel = $("feedbackPanel");
-  if (!panel) return;
-  adoptDockNode(panel, body);
-  if (typeof FeedbackPanel !== "undefined") FeedbackPanel.mount(panel);
+  mountWidePanelContent(body, "float");
 }
 
-function isFeedbackReviewOpen() {
+function isWidePanelReviewOpen() {
   return Boolean(document.body?.classList.contains("fb-review-open"));
 }
 
-function isFeedbackFloatOpen() {
+function isWidePanelFloatOpen() {
   return ideaFloatWindows.has(DOCK_FEEDBACK_KEY);
 }
 
-function feedbackViewportWidth() {
+function isFeedbackReviewOpen() {
+  return isWidePanelReviewOpen();
+}
+
+function isFeedbackFloatOpen() {
+  return isWidePanelFloatOpen();
+}
+
+function widePanelViewportWidth() {
   if (typeof layoutMainWidth === "function") return layoutMainWidth();
   return Number(window.innerWidth) || 0;
 }
 
-function feedbackConflictReason() {
+function widePanelReviewWidthPx(viewportWidth) {
+  const vw = Number(viewportWidth);
+  if (!Number.isFinite(vw) || vw <= 0) return 420;
+  return Math.round(Math.max(420, Math.min(640, vw * 0.4)));
+}
+
+/** 원고 열이 360px 미만이 되면 넓은 패널 대신 작은 창. */
+function widePanelNeedsFloat(viewportWidth, opts) {
+  const options = opts || {};
+  if (options.conflict) return true;
+  const minRaw = Number(options.manuscriptMinWidth);
+  const manuscriptMin = Number.isFinite(minRaw) && minRaw > 0 ? minRaw : 360;
+  const railRaw = Number(options.binderRailWidth);
+  const rail = Number.isFinite(railRaw) && railRaw >= 0 ? railRaw : 48;
+  const vw = Number(viewportWidth);
+  if (!Number.isFinite(vw) || vw <= 0) return true;
+  return (vw - rail - widePanelReviewWidthPx(vw)) < manuscriptMin;
+}
+
+function widePanelConflictReason() {
   if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
     return "집중쓰기 화면에서는 작은 창으로만 볼 수 있어요";
   }
@@ -21251,18 +21282,16 @@ function feedbackConflictReason() {
   return "";
 }
 
-function captureFeedbackLayoutSnapshot() {
-  const FP = typeof FeedbackPanel !== "undefined" ? FeedbackPanel : null;
-  const raw = {
-    outlineWidth: typeof layoutVarWidth === "function" ? layoutVarWidth("--outline-width", 300) : 300,
+function captureWidePanelSnapshot() {
+  return {
+    outlineWidth: Number(typeof layoutVarWidth === "function" ? layoutVarWidth("--outline-width", 300) : 300) || 300,
     binderCollapsed: typeof isBinderPanelOpen === "function" ? !isBinderPanelOpen() : false,
-    aiPanelWidth: typeof layoutVarWidth === "function" ? layoutVarWidth("--ai-panel-width", 300) : 300,
+    aiPanelWidth: Number(typeof layoutVarWidth === "function" ? layoutVarWidth("--ai-panel-width", 300) : 300) || 300,
     aiCollapsed: typeof isAiPanelOpen === "function" ? !isAiPanelOpen() : false,
   };
-  return FP && typeof FP.snapshotMainLayout === "function" ? FP.snapshotMainLayout(raw) : raw;
 }
 
-function applyFeedbackLayoutRestore(snap) {
+function applyWidePanelLayoutRestore(snap) {
   if (!snap) return;
   if (typeof setBinderPanelOpen === "function") {
     setBinderPanelOpen(!snap.binderCollapsed, { persist: false });
@@ -21274,160 +21303,235 @@ function applyFeedbackLayoutRestore(snap) {
   if (typeof applyAiPanelWidth === "function") applyAiPanelWidth(snap.aiPanelWidth);
 }
 
-function rememberFeedbackChrome(mode) {
-  if (typeof FeedbackPanel !== "undefined" && typeof FeedbackPanel.writeChromePref === "function") {
-    FeedbackPanel.writeChromePref(mode);
-    return;
-  }
-  try { localStorage.setItem("supertory.feedbackChrome", mode); } catch (_) { /* ignore */ }
-}
-
-function preferredFeedbackChrome() {
-  if (typeof FeedbackPanel !== "undefined" && typeof FeedbackPanel.readChromePref === "function") {
-    return FeedbackPanel.readChromePref();
-  }
-  try {
-    const value = localStorage.getItem("supertory.feedbackChrome");
+function widePanelReadPref() {
+  if (typeof widePanelSession.readChromePref === "function") {
+    const value = widePanelSession.readChromePref();
     if (value === "float" || value === "review") return value;
-  } catch (_) { /* ignore */ }
+  }
   return "review";
 }
 
-function bindFeedbackReviewResize() {
-  if (bindFeedbackReviewResize._bound) return;
-  bindFeedbackReviewResize._bound = true;
+function widePanelWritePref(mode) {
+  if (mode !== "float" && mode !== "review") return;
+  if (typeof widePanelSession.writeChromePref === "function") {
+    widePanelSession.writeChromePref(mode);
+  }
+}
+
+function widePanelHost() {
+  return $("feedbackReviewHost");
+}
+
+function widePanelFloatBody() {
+  const win = ideaFloatWindows.get(DOCK_FEEDBACK_KEY);
+  return win?.querySelector("[data-role='dock-float-body']") || null;
+}
+
+function syncWidePanelFloatTitle(win) {
+  const heading = (win || ideaFloatWindows.get(DOCK_FEEDBACK_KEY))?.querySelector(".idea-float-title");
+  const title = String(widePanelSession.title || "").trim();
+  if (heading && title) heading.textContent = title;
+}
+
+function assignWidePanelSession(spec) {
+  widePanelSession.id = String(spec.id || "").trim();
+  widePanelSession.title = String(spec.title || "");
+  widePanelSession.mount = spec.mount;
+  widePanelSession.unmount = typeof spec.unmount === "function" ? spec.unmount : null;
+  widePanelSession.rehome = typeof spec.rehome === "function" ? spec.rehome : null;
+  widePanelSession.readChromePref = typeof spec.readChromePref === "function" ? spec.readChromePref : null;
+  widePanelSession.writeChromePref = typeof spec.writeChromePref === "function" ? spec.writeChromePref : null;
+  if (spec.sourceEl) widePanelSession.sourceEl = spec.sourceEl;
+}
+
+function widePanelRehome() {
+  if (typeof widePanelSession.rehome !== "function") return;
+  try { widePanelSession.rehome(); } catch (_) { /* ignore */ }
+}
+
+function widePanelReleaseContent() {
+  const unmount = widePanelSession.unmount;
+  widePanelSession.id = "";
+  widePanelSession.title = "";
+  widePanelSession.mode = "";
+  widePanelSession.mount = null;
+  widePanelSession.unmount = null;
+  widePanelSession.rehome = null;
+  widePanelSession.readChromePref = null;
+  widePanelSession.writeChromePref = null;
+  if (typeof unmount !== "function") return;
+  try { unmount(); } catch (_) { /* ignore */ }
+}
+
+function mountWidePanelContent(container, mode) {
+  if (!container || typeof widePanelSession.mount !== "function") return;
+  const next = mode === "float" ? "float" : "review";
+  widePanelSession.mode = next;
+  widePanelSession.mount(container, { mode: next });
+}
+
+function bindWidePanelResize() {
+  if (bindWidePanelResize._bound) return;
+  bindWidePanelResize._bound = true;
   window.addEventListener("resize", () => {
-    if (!isFeedbackReviewOpen()) return;
-    if (typeof FeedbackPanel === "undefined" || typeof FeedbackPanel.shouldFallbackToFloat !== "function") return;
-    const vw = feedbackViewportWidth();
+    if (!isWidePanelReviewOpen()) return;
+    const vw = widePanelViewportWidth();
     const rail = typeof layoutRailWidth === "function" ? layoutRailWidth() : 48;
-    if (FeedbackPanel.shouldFallbackToFloat(vw, { manuscriptMinWidth: 360, binderRailWidth: rail })) {
+    if (widePanelNeedsFloat(vw, { manuscriptMinWidth: 360, binderRailWidth: rail })) {
       toast("화면이 좁아 작은 창으로 열었어요");
-      openFeedbackFloat();
+      openWidePanelFloat();
     }
   });
 }
 
-function openFeedbackFloat(sourceEl) {
-  if (isFeedbackReviewOpen()) closeFeedbackReview({ keepPanel: true });
-  rememberFeedbackChrome("float");
-  const win = openDockFloat("feedback", sourceEl || $("analyzeMenuButton"));
+function openWidePanelFloat(sourceEl) {
+  if (isWidePanelReviewOpen()) closeWidePanelReview({ keepContent: true });
+  widePanelWritePref("float");
+  const el = sourceEl || widePanelSession.sourceEl || $("analyzeMenuButton");
+  const win = openDockFloat("feedback", el);
+  syncWidePanelFloatTitle(win);
   const spec = DOCK_FLOAT_SPECS.feedback;
   if (win && typeof spec?.onFocus === "function") spec.onFocus(win);
-  if (typeof FeedbackPanel !== "undefined") {
-    FeedbackPanel.mount($("feedbackPanel"));
-    FeedbackPanel.setChromeMode("float");
-  }
   return win;
 }
 
-function closeFeedbackFloat() {
-  if (isFeedbackFloatOpen()) closeIdeaFloat(DOCK_FEEDBACK_KEY);
-}
-
-function openFeedbackReview() {
-  if (isFeedbackFloatOpen()) {
-    feedbackChromeSwitching = true;
-    try { closeFeedbackFloat(); }
-    finally { feedbackChromeSwitching = false; }
+function openWidePanelReview() {
+  if (isWidePanelFloatOpen()) {
+    widePanelSwitching = true;
+    try { closeIdeaFloat(DOCK_FEEDBACK_KEY); }
+    finally { widePanelSwitching = false; }
   }
-  if (!feedbackLayoutSnapshot) {
-    feedbackLayoutSnapshot = captureFeedbackLayoutSnapshot();
-  }
-  rememberFeedbackChrome("review");
+  if (!widePanelSnapshot) widePanelSnapshot = captureWidePanelSnapshot();
+  widePanelWritePref("review");
   if (typeof setBinderPanelOpen === "function") setBinderPanelOpen(false, { persist: false });
   if (typeof setAiPanelOpen === "function") setAiPanelOpen(true, { persist: false });
   document.documentElement.classList.add("fb-review-open");
   document.body.classList.add("fb-review-open");
-  const host = $("feedbackReviewHost");
-  const panel = $("feedbackPanel");
+  const host = widePanelHost();
   if (host) host.hidden = false;
-  if (host && panel) adoptDockNode(panel, host);
-  bindFeedbackReviewResize();
-  if (typeof FeedbackPanel !== "undefined") {
-    FeedbackPanel.mount(panel);
-    FeedbackPanel.setChromeMode("review");
-    FeedbackPanel.onOpen();
-  }
+  bindWidePanelResize();
+  mountWidePanelContent(host, "review");
 }
 
-function closeFeedbackReview({ keepPanel = false } = {}) {
-  const host = $("feedbackReviewHost");
+function closeWidePanelReview({ keepContent = false } = {}) {
+  const host = widePanelHost();
   if (host) host.hidden = true;
   document.documentElement.classList.remove("fb-review-open");
   document.body.classList.remove("fb-review-open");
-  restoreDockNode("feedbackPanel");
-  const snap = feedbackLayoutSnapshot;
-  feedbackLayoutSnapshot = null;
-  applyFeedbackLayoutRestore(snap);
-  if (!keepPanel && typeof FeedbackPanel !== "undefined" && !isFeedbackFloatOpen()) {
-    FeedbackPanel.onClose();
-    FeedbackPanel.setChromeMode("");
-  }
+  if (keepContent) widePanelRehome();
+  else widePanelReleaseContent();
+  const snap = widePanelSnapshot;
+  widePanelSnapshot = null;
+  applyWidePanelLayoutRestore(snap);
 }
 
-function closeFeedbackChrome() {
-  if (isFeedbackReviewOpen()) closeFeedbackReview();
-  else if (isFeedbackFloatOpen()) closeFeedbackFloat();
+function closeWidePanel() {
+  if (isWidePanelReviewOpen()) closeWidePanelReview();
+  else if (isWidePanelFloatOpen()) closeIdeaFloat(DOCK_FEEDBACK_KEY);
 }
 
-function switchFeedbackChrome() {
-  if (isFeedbackReviewOpen()) {
-    rememberFeedbackChrome("float");
-    openFeedbackFloat($("analyzeMenuButton"));
+function switchWidePanelChrome() {
+  if (!widePanelSession.id) return;
+  if (isWidePanelReviewOpen()) {
+    widePanelWritePref("float");
+    openWidePanelFloat($("analyzeMenuButton"));
     return;
   }
-  if (isFeedbackFloatOpen()) {
-    const conflict = feedbackConflictReason();
-    const vw = feedbackViewportWidth();
+  if (isWidePanelFloatOpen()) {
+    const conflict = widePanelConflictReason();
+    const vw = widePanelViewportWidth();
     const rail = typeof layoutRailWidth === "function" ? layoutRailWidth() : 48;
-    const tooNarrow = typeof FeedbackPanel !== "undefined"
-      && FeedbackPanel.shouldFallbackToFloat(vw, {
-        manuscriptMinWidth: 360,
-        binderRailWidth: rail,
-        conflict: Boolean(conflict),
-      });
-    if (conflict || tooNarrow) {
-      toast(conflict || "화면이 좁아 작은 창으로만 볼 수 있어요");
-      return;
-    }
-    rememberFeedbackChrome("review");
-    openFeedbackReview();
-  }
-}
-
-function openFeedbackChrome(sourceEl) {
-  if (!state.sceneId) {
-    toast("먼저 목차에서 회차 하나를 열어 주세요.");
-    return;
-  }
-  if (isFeedbackReviewOpen()) {
-    if (typeof FeedbackPanel !== "undefined") FeedbackPanel.onOpen();
-    return;
-  }
-  if (isFeedbackFloatOpen()) {
-    const win = ideaFloatWindows.get(DOCK_FEEDBACK_KEY);
-    if (win) raiseIdeaFloat(win);
-    if (typeof FeedbackPanel !== "undefined") FeedbackPanel.onOpen();
-    return;
-  }
-  const conflict = feedbackConflictReason();
-  const vw = feedbackViewportWidth();
-  const rail = typeof layoutRailWidth === "function" ? layoutRailWidth() : 48;
-  const preferred = preferredFeedbackChrome();
-  const tooNarrow = typeof FeedbackPanel !== "undefined"
-    && FeedbackPanel.shouldFallbackToFloat(vw, {
+    const tooNarrow = widePanelNeedsFloat(vw, {
       manuscriptMinWidth: 360,
       binderRailWidth: rail,
       conflict: Boolean(conflict),
     });
+    if (conflict || tooNarrow) {
+      toast(conflict || "화면이 좁아 작은 창으로만 볼 수 있어요");
+      return;
+    }
+    widePanelWritePref("review");
+    openWidePanelReview();
+  }
+}
+
+/**
+ * 오른쪽을 넓히거나, 좁으면 작은 창으로 연다.
+ * mount(container, { mode })로 내용을 붙이고, 닫거나 다른 id를 열면 이전 unmount를 호출한다.
+ * 같은 id가 이미 열려 있으면 레이아웃은 유지하고 mount만 다시 호출한다.
+ */
+function openWidePanel(spec) {
+  const id = String(spec?.id || "").trim();
+  if (!id || typeof spec?.mount !== "function") return;
+  const replacing = Boolean(widePanelSession.id) && widePanelSession.id !== id;
+  if (replacing) widePanelReleaseContent();
+  assignWidePanelSession(spec);
+  const shellOpen = isWidePanelReviewOpen() || isWidePanelFloatOpen();
+  if (!replacing && isWidePanelReviewOpen()) {
+    mountWidePanelContent(widePanelHost(), "review");
+    return;
+  }
+  if (!replacing && isWidePanelFloatOpen()) {
+    const win = ideaFloatWindows.get(DOCK_FEEDBACK_KEY);
+    if (win) raiseIdeaFloat(win);
+    syncWidePanelFloatTitle(win);
+    mountWidePanelContent(widePanelFloatBody(), "float");
+    return;
+  }
+  if (replacing && shellOpen) {
+    if (isWidePanelFloatOpen()) {
+      const win = ideaFloatWindows.get(DOCK_FEEDBACK_KEY);
+      syncWidePanelFloatTitle(win);
+      mountWidePanelContent(widePanelFloatBody(), "float");
+    } else {
+      mountWidePanelContent(widePanelHost(), "review");
+    }
+    return;
+  }
+  const conflict = widePanelConflictReason();
+  const vw = widePanelViewportWidth();
+  const rail = typeof layoutRailWidth === "function" ? layoutRailWidth() : 48;
+  const preferred = widePanelReadPref();
+  const tooNarrow = widePanelNeedsFloat(vw, {
+    manuscriptMinWidth: 360,
+    binderRailWidth: rail,
+    conflict: Boolean(conflict),
+  });
   if (preferred === "float" || tooNarrow || conflict) {
     if (preferred !== "float" && conflict) toast(conflict);
     else if (preferred !== "float" && tooNarrow) toast("화면이 좁아 작은 창으로 열었어요");
-    openFeedbackFloat(sourceEl);
+    openWidePanelFloat(widePanelSession.sourceEl);
     return;
   }
-  openFeedbackReview();
+  openWidePanelReview();
+}
+
+function closeFeedbackFloat() {
+  if (isWidePanelFloatOpen()) closeIdeaFloat(DOCK_FEEDBACK_KEY);
+}
+
+function openFeedbackFloat(sourceEl) {
+  return openWidePanelFloat(sourceEl);
+}
+
+function openFeedbackReview() {
+  openWidePanelReview();
+}
+
+function closeFeedbackReview(options) {
+  closeWidePanelReview({ keepContent: Boolean(options && options.keepPanel) });
+}
+
+function closeFeedbackChrome() {
+  closeWidePanel();
+}
+
+function switchFeedbackChrome() {
+  switchWidePanelChrome();
+}
+
+function openFeedbackChrome(sourceEl) {
+  openMarkupFeedbackChrome(sourceEl);
 }
 
 function syncAiChatViewHubAttr() {
@@ -27993,10 +28097,56 @@ function isMarkupFeedbackMode(value) {
   return String(value || "") === "markupfeedback";
 }
 
+function markupWidePanelSpec(sourceEl) {
+  return {
+    id: "markupfeedback",
+    title: "첨삭 피드백",
+    sourceEl: sourceEl || null,
+    readChromePref() {
+      if (typeof FeedbackPanel !== "undefined" && typeof FeedbackPanel.readChromePref === "function") {
+        return FeedbackPanel.readChromePref();
+      }
+      try {
+        const value = localStorage.getItem("supertory.feedbackChrome");
+        if (value === "float" || value === "review") return value;
+      } catch (_) { /* ignore */ }
+      return "review";
+    },
+    writeChromePref(mode) {
+      if (typeof FeedbackPanel !== "undefined" && typeof FeedbackPanel.writeChromePref === "function") {
+        FeedbackPanel.writeChromePref(mode);
+        return;
+      }
+      try { localStorage.setItem("supertory.feedbackChrome", mode); } catch (_) { /* ignore */ }
+    },
+    rehome() {
+      restoreDockNode("feedbackPanel");
+    },
+    mount(container, info) {
+      const panel = $("feedbackPanel");
+      if (!panel || !container) return;
+      adoptDockNode(panel, container);
+      if (typeof FeedbackPanel === "undefined") return;
+      FeedbackPanel.mount(panel);
+      const mode = info && info.mode === "float" ? "float" : "review";
+      if (typeof FeedbackPanel.setChromeMode === "function") FeedbackPanel.setChromeMode(mode);
+      FeedbackPanel.onOpen();
+    },
+    unmount() {
+      restoreDockNode("feedbackPanel");
+      if (typeof FeedbackPanel === "undefined") return;
+      FeedbackPanel.onClose();
+      if (typeof FeedbackPanel.setChromeMode === "function") FeedbackPanel.setChromeMode("");
+    },
+  };
+}
+
 function openMarkupFeedbackChrome(sourceEl) {
-  if (typeof openFeedbackChrome === "function") {
-    openFeedbackChrome(sourceEl || $("aiModePicker") || $("analyzeMenuButton"));
+  if (!state.sceneId) {
+    toast("먼저 목차에서 회차 하나를 열어 주세요.");
+    return;
   }
+  openWidePanel(markupWidePanelSpec(sourceEl || $("aiModePicker") || $("analyzeMenuButton")));
 }
 
 function setAiModeValue(value, { silent = false } = {}) {
