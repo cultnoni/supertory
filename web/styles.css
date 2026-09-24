@@ -32647,10 +32647,23 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
 }
 #aiToolModalLead {
   margin: 0 0 8px;
-  font-size: 14px !important;
+  font-size: 13px !important;
   line-height: 1.45;
 }
 #aiToolModalLead:empty { display: none; }
+.guide-tip-box.tory-lead-tip {
+  margin: 6px 0 14px;
+}
+.guide-tip-box.tory-lead-tip[hidden] {
+  display: none !important;
+}
+.guide-tip-box.tory-lead-tip .tory-helper-lead,
+.guide-tip-box.tory-lead-tip #aiToolModalLead {
+  margin: 0;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 1.45 !important;
+}
 
 /* —— 흥행 공식 분석 wizard (단계 팝업) —— */
 .success-pattern-modal-card {
@@ -37602,6 +37615,11 @@ html[data-ui-scheme="dark"] .translation-pass-tab.is-active {
   min-height: 0;
 }
 .feedback-panel {
+  font-family: var(--font-ui);
+  --wp-title-size: 15px;
+  --wp-title-weight: 700;
+  --wp-body-size: 14px;
+  --wp-meta-size: 12px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -37609,7 +37627,7 @@ html[data-ui-scheme="dark"] .translation-pass-tab.is-active {
   height: 100%;
   overflow: hidden;
   padding: 0;
-  font-size: 13px;
+  font-size: var(--wp-body-size);
 }
 .feedback-panel button,
 .feedback-panel select,
@@ -37681,8 +37699,8 @@ html[data-ui-scheme="dark"] .translation-pass-tab.is-active {
 }
 .fb-app-title {
   margin: 0;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--wp-title-size, 15px);
+  font-weight: var(--wp-title-weight, 700);
   line-height: 1.3;
   flex: 0 0 auto;
 }
@@ -39097,7 +39115,7 @@ body.fb-review-open .ai-panel-resizer {
   flex-direction: column;
   overflow: hidden;
   margin: 0;
-  padding: 10px 8px 8px;
+  padding: 8px;
   border: 1px solid var(--border-color, var(--line));
   border-right: 0;
   border-radius: 14px 0 0 14px;
@@ -39114,6 +39132,10 @@ body.fb-review-open .fb-review-host .feedback-panel {
 }
 .fb-review-host > .modal-card.is-wide-panel-card,
 .idea-float-body > .modal-card.is-wide-panel-card {
+  --wp-title-size: 15px;
+  --wp-title-weight: 700;
+  --wp-body-size: 14px;
+  --wp-meta-size: 12px;
   width: 100%;
   max-width: none;
   max-height: none;
@@ -39125,6 +39147,282 @@ body.fb-review-open .fb-review-host .feedback-panel {
   border: 0;
   border-radius: 10px;
   overflow: auto;
+  font-size: var(--wp-body-size);
+  font-family: var(--font-ui);
+  height: auto;
+  flex: 0 1 auto;
+  max-height: 100%;
+}
+.is-wide-panel-card .modal-heading {
+  min-height: 40px;
+  margin-bottom: 8px;
+}
+.is-wide-panel-card .modal-close,
+.wide-panel-size-btn,
+.fb-chrome-icons .wide-panel-size-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  border: 1px solid var(--line, #eadfce);
+  border-radius: 8px;
+  background: var(--panel, #fff);
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.is-wide-panel-card .modal-close:hover,
+.wide-panel-size-btn:hover {
+  background: var(--surface-2, #f4efe8);
+}
+.is-wide-panel-card .modal-actions {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.is-wide-panel-card .modal-actions > .secondary {
+  display: none;
+}
+.is-wide-panel-card .modal-actions > #tempoHookRetryButton,
+.is-wide-panel-card .modal-actions > #outlineGateOpenSettings {
+  display: inline-flex;
+}
+.is-wide-panel-card .modal-actions > .primary,
+.is-wide-panel-card .modal-actions > #tempoHookRetryButton {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.is-wide-panel-card .tory-other-scene-wrap {
+  position: relative;
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.wide-panel-size-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line, #eadfce);
+  border-radius: 8px;
+  background: var(--panel, #fff);
+  color: var(--ink);
+  cursor: pointer;
+  line-height: 1;
+}
+.wide-panel-size-btn:hover {
+  background: var(--surface-2, #f4efe8);
+}
+.wide-panel-chrome-btn svg,
+.wide-panel-size-btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+.is-wide-panel-card .modal-heading h2,
+.is-wide-panel-card .tory-helper-title {
+  font-size: var(--wp-title-size) !important;
+  font-weight: var(--wp-title-weight) !important;
+  letter-spacing: 0 !important;
+}
+.is-wide-panel-card .wide-seg .continue-length-option,
+.is-wide-panel-card .wide-seg .continue-length-option span,
+.is-wide-panel-card .tory-helper-lead,
+.is-wide-panel-card .guide-tip-box.tory-lead-tip .tory-helper-lead,
+.is-wide-panel-card .guide-tip-box.tory-lead-tip #aiToolModalLead,
+.is-wide-panel-card #aiToolModalLead,
+.is-wide-panel-card .tory-helper-question,
+.is-wide-panel-card .tory-helper-section-label,
+.is-wide-panel-card .tory-helper-hint,
+.is-wide-panel-card .hint,
+.is-wide-panel-card .tory-helper-callout,
+.feedback-panel .fb-para-info,
+.feedback-panel .fb-info-hint,
+.feedback-panel .fb-set-label,
+.feedback-panel .fb-set-hint,
+.feedback-panel .fb-title-scene,
+.feedback-panel .fb-lens-card span,
+.feedback-panel .fb-peer,
+.feedback-panel .fb-loc,
+.feedback-panel .fb-compare-label,
+.feedback-panel .fb-diff-summary {
+  font-size: var(--wp-meta-size, 12px) !important;
+}
+.is-wide-panel-card .wide-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 0 0 12px;
+  padding: 3px;
+  border: 0;
+  border-radius: 10px;
+  background: #eeeae4;
+}
+.is-wide-panel-card .wide-seg .continue-length-option {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 400;
+}
+.is-wide-panel-card .wide-seg input[type="radio"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.is-wide-panel-card .wide-seg .continue-length-option:has(input:checked) {
+  background: #fff;
+  border-color: var(--line, #eadfce);
+  font-weight: 700;
+}
+.is-wide-panel-card .wide-pick-source {
+  position: absolute !important;
+  left: 0;
+  top: 0;
+  width: 1px !important;
+  height: 1px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
+}
+.is-wide-panel-card .modal-heading .wide-panel-size-btn {
+  margin-left: auto;
+}
+.wide-panel-stage {
+  flex: 1 1 auto;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  font-family: var(--font-ui);
+}
+.wide-panel-stage[hidden],
+.wide-panel-writing[hidden],
+.wide-panel-result[hidden],
+.wide-panel-error[hidden] { display: none !important; }
+.wide-panel-writing,
+.wide-panel-error {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 12px;
+  text-align: center;
+}
+.wide-panel-writing-mascot { width: 120px; height: auto; }
+.wide-panel-writing p,
+.wide-panel-error p { margin: 0; font-size: 14px; }
+.wide-panel-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.wide-panel-back,
+.wide-panel-retry {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line, #eadfce);
+  background: var(--panel, #fff);
+  font-size: 12px;
+  cursor: pointer;
+}
+.wide-panel-retry { height: 32px; }
+.wide-pick-current {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--wp-body-size, 14px);
+  font-weight: 700;
+  color: var(--ink, #1a1510);
+}
+.is-wide-panel-card .wide-pick,
+.is-wide-panel-card .wide-pick-row,
+.is-wide-panel-card .wide-pick-label,
+.is-wide-panel-card .wide-pick-now {
+  font-family: var(--font-ui);
+  font-weight: 400 !important;
+}
+.wide-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow: auto;
+}
+.wide-pick-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--wp-body-size, 14px);
+}
+.wide-pick-row.is-selected {
+  background: color-mix(in srgb, var(--accent, #a66b3a) 14%, #fff);
+}
+.wide-pick-box {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 1.5px solid #b7aea4;
+  border-radius: 4px;
+  background: #fff;
+}
+.wide-pick-row.is-selected .wide-pick-box {
+  background: var(--accent, #8a6a3a);
+  border-color: var(--accent, #8a6a3a);
+  box-shadow: inset 0 0 0 2px #fff;
+}
+.wide-pick-label { flex: 1 1 auto; min-width: 0; }
+.wide-pick-now {
+  flex: 0 0 auto;
+  font-size: var(--wp-meta-size, 12px);
+  color: var(--muted, #7a7268);
+}
+.wide-pick-count {
+  margin: 0 0 6px;
+  font-size: var(--wp-meta-size, 12px);
+  color: var(--muted, #7a7268);
+}
+.wide-pick-native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 .manuscript-page.fb-has-action-bar {
   padding-bottom: 64px;
@@ -39327,7 +39625,7 @@ body.fb-review-open .fb-review-host .feedback-panel {
 .fb-report-md {
   white-space: normal;
   line-height: 1.55;
-  font-size: 13px;
+  font-size: var(--wp-body-size, 14px);
 }
 
 

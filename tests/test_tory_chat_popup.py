@@ -49,7 +49,7 @@ class ToryChatPopupUiTests(unittest.TestCase):
         )
 
     def test_expand_and_history_icons_are_unified(self) -> None:
-        expand = 'rect x="3" y="5" width="14" height="11" rx="1.5"'
+        expand = 'M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4'
         footprints = "M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6"
         prompt = self.html.split('id="aiPromptExpandButton"', 1)[1].split("</button>", 1)[0]
         result_expand = self.html.split('id="aiResultExpandButton"', 1)[1].split("</button>", 1)[0]
@@ -99,7 +99,8 @@ class ToryChatPopupUiTests(unittest.TestCase):
             "modal.querySelectorAll", 1
         )[0]
         self.assertIn("isAiPanelHistoryOpen()", expand_click)
-        self.assertIn("popupAiResultHistoryEntry", expand_click)
+        self.assertIn("openAiResultHistoryListPopup()", expand_click)
+        self.assertNotIn("popupAiResultHistoryEntry", expand_click)
         hide = self.css.split(".ai-result-wrap.is-history-view #aiResultLivePane", 1)[1].split(
             ".ai-result-history-pane {", 1
         )[0]

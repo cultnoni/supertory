@@ -535,6 +535,10 @@ function toAiAssistError(error) {
 function handleAiAssistError(error) {
   console.error(error);
   const friendly = error?.aiAssist ? error : toAiAssistError(error);
+  if (widePanelRunStillHere()) {
+    showWidePanelError(friendly.message || AI_ASSIST_ERR_GENERIC);
+    return;
+  }
   toast(friendly.message || AI_ASSIST_ERR_GENERIC, 4200);
 }
 
@@ -21368,6 +21372,7 @@ function mountWidePanelContent(container, mode) {
   const next = mode === "float" ? "float" : "review";
   widePanelSession.mode = next;
   widePanelSession.mount(container, { mode: next });
+  syncWidePanelSizeToggle();
 }
 
 function bindWidePanelResize() {
@@ -21392,6 +21397,7 @@ function openWidePanelFloat(sourceEl) {
   syncWidePanelFloatTitle(win);
   const spec = DOCK_FLOAT_SPECS.feedback;
   if (win && typeof spec?.onFocus === "function") spec.onFocus(win);
+  syncWidePanelSizeToggle();
   return win;
 }
 
@@ -21411,6 +21417,7 @@ function openWidePanelReview() {
   if (host) host.hidden = false;
   bindWidePanelResize();
   mountWidePanelContent(host, "review");
+  syncWidePanelSizeToggle();
 }
 
 function closeWidePanelReview({ keepContent = false } = {}) {
@@ -21426,6 +21433,9 @@ function closeWidePanelReview({ keepContent = false } = {}) {
 }
 
 function closeWidePanel() {
+  restoreAiResultLivePane();
+  widePanelRun = null;
+  hideWidePanelStage();
   if (isWidePanelReviewOpen()) closeWidePanelReview();
   else if (isWidePanelFloatOpen()) closeIdeaFloat(DOCK_FEEDBACK_KEY);
 }
@@ -21464,7 +21474,12 @@ function openWidePanel(spec) {
   const id = String(spec?.id || "").trim();
   if (!id || typeof spec?.mount !== "function") return;
   const replacing = Boolean(widePanelSession.id) && widePanelSession.id !== id;
-  if (replacing) widePanelReleaseContent();
+  if (replacing) {
+    restoreAiResultLivePane();
+    widePanelRun = null;
+    hideWidePanelStage();
+    widePanelReleaseContent();
+  }
   assignWidePanelSession(spec);
   const shellOpen = isWidePanelReviewOpen() || isWidePanelFloatOpen();
   if (!replacing && isWidePanelReviewOpen()) {
@@ -21521,6 +21536,281 @@ function releaseWideHostedModal(modal) {
   finally { releaseWideHostedModal._busy = false; }
 }
 
+const WIDE_PANEL_ICON_BIG = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"/><rect width="10" height="7" x="12" y="13" rx="2"/></svg>';
+const WIDE_PANEL_ICON_SMALL = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 10h6V4"/><path d="m2 4 6 6"/><path d="M21 10V7a2 2 0 0 0-2-2h-7"/><path d="M3 14v2a2 2 0 0 0 2 2h3"/><rect x="12" y="14" width="10" height="7" rx="1"/></svg>';
+
+function widePanelCanUseReview() {
+  if (widePanelConflictReason()) return false;
+  const vw = widePanelViewportWidth();
+  const rail = typeof layoutRailWidth === "function" ? layoutRailWidth() : 48;
+  return !widePanelNeedsFloat(vw, {
+    manuscriptMinWidth: 360,
+    binderRailWidth: rail,
+    conflict: false,
+  });
+}
+
+function widePanelSizeButton(parent, className) {
+  let button = parent.querySelector("[data-role='wide-panel-size']");
+  if (button) return button;
+  button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.dataset.role = "wide-panel-size";
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    switchWidePanelChrome();
+  });
+  return button;
+}
+
+function widePanelHeadingSlot() {
+  const floatWin = ideaFloatWindows.get(DOCK_FEEDBACK_KEY);
+  if (isWidePanelFloatOpen() && widePanelSession.id === "markupfeedback") {
+    const close = document.querySelector("#feedbackPanel [data-role='fb-close-chrome']");
+    if (close && getComputedStyle(close).display === "none") {
+      const drag = floatWin?.querySelector(".idea-float-drag");
+      return { parent: drag, close: drag?.querySelector("[data-role='close-idea-float']") || null };
+    }
+  }
+  if (widePanelSession.id === "markupfeedback") {
+    const icons = document.querySelector("#feedbackPanel .fb-chrome-icons");
+    return { parent: icons, close: icons?.querySelector("[data-role='fb-close-chrome']") || null };
+  }
+  const heading = document.querySelector(".is-wide-panel-card .modal-heading");
+  return { parent: heading, close: heading?.querySelector(".modal-close") || null };
+}
+
+function syncWidePanelSizeToggle() {
+  document.querySelector("[data-role='wide-panel-chrome']")?.remove();
+  const canReview = widePanelCanUseReview();
+  const open = isWidePanelReviewOpen() || isWidePanelFloatOpen();
+  const slot = open ? widePanelHeadingSlot() : { parent: null, close: null };
+  const button = slot.parent ? widePanelSizeButton(slot.parent, "wide-panel-size-btn") : null;
+  document.querySelectorAll("[data-role='wide-panel-size']").forEach((el) => {
+    if (el !== button) el.remove();
+  });
+  if (button && slot.parent) {
+    if (slot.close && button.nextSibling !== slot.close) slot.parent.insertBefore(button, slot.close);
+    else if (!slot.close && button.parentNode !== slot.parent) slot.parent.appendChild(button);
+    button.hidden = !canReview;
+    const showBig = isWidePanelFloatOpen();
+    const label = showBig ? "넓게 보기" : "작은 창으로 보기";
+    button.innerHTML = showBig ? WIDE_PANEL_ICON_BIG : WIDE_PANEL_ICON_SMALL;
+    button.title = label;
+    button.setAttribute("aria-label", label);
+  }
+}
+
+let widePanelRun = null;
+
+function widePanelStageHost() {
+  if (isWidePanelReviewOpen()) return widePanelHost();
+  if (isWidePanelFloatOpen()) return widePanelFloatBody();
+  return null;
+}
+
+function widePanelRunStillHere() {
+  if (!widePanelRun) return false;
+  if (!(isWidePanelReviewOpen() || isWidePanelFloatOpen())) return false;
+  return widePanelSession.id === widePanelRun.sessionId;
+}
+
+function restoreAiResultLivePane() {
+  const live = $("aiResultLivePane");
+  const home = live?.__wideHome;
+  if (!live || !home?.parent || live.parentNode === home.parent) return;
+  if (home.next && home.next.parentNode === home.parent) home.parent.insertBefore(live, home.next);
+  else home.parent.appendChild(live);
+}
+
+function rememberAiResultLiveHome() {
+  const live = $("aiResultLivePane");
+  const wrap = $("aiResultWrap");
+  if (live && wrap && !live.__wideHome) {
+    live.__wideHome = { parent: wrap, next: live.nextSibling };
+  }
+}
+
+function widePanelFormNodes(host) {
+  return [...(host?.children || [])].filter((el) => el.dataset.role !== "wide-panel-stage");
+}
+
+function ensureWidePanelStage() {
+  const host = widePanelStageHost();
+  if (!host) return null;
+  let stage = host.querySelector("[data-role='wide-panel-stage']");
+  if (stage) return stage;
+  stage = document.createElement("section");
+  stage.className = "wide-panel-stage";
+  stage.dataset.role = "wide-panel-stage";
+  stage.hidden = true;
+  stage.innerHTML = `
+    <div class="wide-panel-writing" data-role="wide-panel-writing">
+      <img class="wide-panel-writing-mascot" src="/final_mascots/tory-writing.webp" alt="" width="120" height="120">
+      <p>작성 중</p>
+    </div>
+    <div class="wide-panel-result" data-role="wide-panel-result" hidden>
+      <button type="button" class="wide-panel-back" data-role="wide-panel-back">다시 설정하기</button>
+      <div data-role="wide-panel-result-slot"></div>
+    </div>
+    <div class="wide-panel-error" data-role="wide-panel-error" hidden>
+      <p data-role="wide-panel-error-text"></p>
+      <button type="button" class="primary wide-panel-retry" data-role="wide-panel-retry">다시 시도</button>
+    </div>`;
+  host.appendChild(stage);
+  stage.querySelector("[data-role='wide-panel-back']")?.addEventListener("click", () => widePanelShowForm());
+  stage.querySelector("[data-role='wide-panel-retry']")?.addEventListener("click", () => {
+    const card = host.querySelector(".is-wide-panel-card");
+    widePanelShowForm();
+    card?.querySelector(".modal-actions .primary, #aiToolModalSubmitButton, #tempoHookRetryButton")?.click();
+  });
+  return stage;
+}
+
+function hideWidePanelStage() {
+  const stage = document.querySelector("[data-role='wide-panel-stage']");
+  if (stage) stage.hidden = true;
+  widePanelFormNodes(stage?.parentElement).forEach((el) => { el.hidden = false; });
+}
+
+function showWidePanelWriting() {
+  const stage = ensureWidePanelStage();
+  if (!stage) return;
+  stage.hidden = false;
+  stage.querySelector("[data-role='wide-panel-writing']").hidden = false;
+  stage.querySelector("[data-role='wide-panel-result']").hidden = true;
+  stage.querySelector("[data-role='wide-panel-error']").hidden = true;
+  widePanelFormNodes(stage.parentElement).forEach((el) => {
+    if (el !== stage) el.hidden = true;
+  });
+}
+
+function beginWidePanelRun() {
+  if (!widePanelSession.id || !(isWidePanelReviewOpen() || isWidePanelFloatOpen())) return;
+  widePanelRun = { sessionId: widePanelSession.id };
+  showWidePanelWriting();
+}
+
+function showWidePanelResult() {
+  if (!widePanelRunStillHere()) return;
+  if (widePanelRun.sessionId === "tempoHookModal") {
+    hideWidePanelStage();
+    widePanelRun = null;
+    return;
+  }
+  rememberAiResultLiveHome();
+  const stage = ensureWidePanelStage();
+  const slot = stage?.querySelector("[data-role='wide-panel-result-slot']");
+  const live = $("aiResultLivePane");
+  if (!stage || !slot || !live) return;
+  if (live.parentNode !== slot) slot.appendChild(live);
+  stage.hidden = false;
+  stage.querySelector("[data-role='wide-panel-writing']").hidden = true;
+  stage.querySelector("[data-role='wide-panel-error']").hidden = true;
+  stage.querySelector("[data-role='wide-panel-result']").hidden = false;
+  widePanelFormNodes(stage.parentElement).forEach((el) => {
+    if (el !== stage) el.hidden = true;
+  });
+  widePanelRun = null;
+}
+
+function showWidePanelError(message) {
+  if (!widePanelRunStillHere()) return;
+  const stage = ensureWidePanelStage();
+  if (!stage) return;
+  const text = stage.querySelector("[data-role='wide-panel-error-text']");
+  if (text) text.textContent = String(message || "문제가 생겼습니다. 다시 시도해 주세요.");
+  stage.hidden = false;
+  stage.querySelector("[data-role='wide-panel-writing']").hidden = true;
+  stage.querySelector("[data-role='wide-panel-result']").hidden = true;
+  stage.querySelector("[data-role='wide-panel-error']").hidden = false;
+  widePanelRun = null;
+}
+
+function widePanelShowForm() {
+  restoreAiResultLivePane();
+  widePanelRun = null;
+  hideWidePanelStage();
+}
+
+function fitWidePanelToContent() {
+  const card = document.querySelector(".is-wide-panel-card");
+  if (!card || !isWidePanelFloatOpen()) return;
+  const win = ideaFloatWindows.get(DOCK_FEEDBACK_KEY);
+  if (!win) return;
+  const drag = win.querySelector(".idea-float-drag");
+  const need = card.scrollHeight + (drag?.offsetHeight || 0) + 16;
+  const max = Math.round(window.innerHeight * 0.86);
+  win.style.height = `${Math.max(220, Math.min(max, need))}px`;
+}
+
+const WIDE_PANEL_ACTION_LABELS = {
+  dupcheckTargetConfirm: "중복 체크하기",
+  analyzeTargetConfirm: "피드백 받기",
+  summarizeMultiTargetConfirm: "요약하기",
+  ideasTargetConfirm: "아이디어 받기",
+  brainstormTargetConfirm: "브레인스토밍 시작",
+  worldscanTargetConfirm: "설정 확인하기",
+  tempoHookTargetConfirm: "템포 분석하기",
+  tempoHookRetryButton: "다시 분석하기",
+  submissionLengthConfirm: "제한 적용하기",
+  outlineGateContinue: "그래도 실행",
+};
+
+function applyWidePanelAction(card) {
+  if (!card || card.closest("#glumpErModal")) return;
+  const primary = card.querySelector(".modal-actions .primary, .modal-actions button.primary");
+  if (primary && WIDE_PANEL_ACTION_LABELS[primary.id]) {
+    primary.textContent = WIDE_PANEL_ACTION_LABELS[primary.id];
+  }
+  requestAnimationFrame(() => fitWidePanelToContent());
+}
+
+function enhanceWidePanelSegments(root) {
+  root?.querySelectorAll("fieldset").forEach((fieldset) => {
+    if (fieldset.closest("#glumpErModal")) return;
+    if (!fieldset.querySelector('input[type="radio"]')) return;
+    fieldset.classList.add("wide-seg");
+  });
+}
+
+function syncEpisodePickList(select) {
+  if (!select?.id) return;
+  const wrap = select.parentElement;
+  if (!wrap) return;
+  let list = wrap.querySelector(`[data-pick-for="${select.id}"]`);
+  if (!list) {
+    list = document.createElement("div");
+    list.className = "wide-pick";
+    list.dataset.pickFor = select.id;
+    list.setAttribute("role", "listbox");
+    select.insertAdjacentElement("afterend", list);
+    select.classList.add("wide-pick-source");
+    list.addEventListener("click", (event) => {
+      const row = event.target.closest(".wide-pick-row");
+      if (!row || select.disabled) return;
+      select.dataset.userPicked = "1";
+      select.value = row.dataset.value || "";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      syncEpisodePickList(select);
+    });
+  }
+  const currentId = state.sceneId ? Number(state.sceneId) : 0;
+  const options = Array.from(select.options).filter((opt) => String(opt.value || ""));
+  list.innerHTML = options.map((opt) => {
+    const id = Number(opt.value);
+    const selected = String(select.value) === String(opt.value);
+    const now = currentId && id === currentId ? '<span class="wide-pick-now">지금 열림</span>' : "";
+    return `<button type="button" class="wide-pick-row${selected ? " is-selected" : ""}" role="option" data-value="${id}" aria-selected="${selected ? "true" : "false"}">`
+      + '<span class="wide-pick-box" aria-hidden="true"></span>'
+      + `<span class="wide-pick-label">${escapeHtml(opt.textContent || "")}</span>`
+      + now
+      + "</button>";
+  }).join("");
+}
+
 /** Move a popup's card into the wide panel. The modal shell and backdrop stay hidden. */
 function presentModalInWidePanel(modal, options = {}) {
   if (!modal) return;
@@ -21559,6 +21849,10 @@ function presentModalInWidePanel(modal, options = {}) {
       modal.dataset.wideHosted = "1";
       card.classList.add("is-wide-panel-card");
       if (card.parentNode !== container) container.appendChild(card);
+      enhanceWidePanelSegments(card);
+      applyWidePanelAction(card);
+      syncWidePanelSizeToggle();
+      requestAnimationFrame(() => fitWidePanelToContent());
     },
     rehome: restore,
     unmount: restore,
@@ -24667,13 +24961,23 @@ function getAnalyzeTargetMode() {
   return "current";
 }
 
-/** Keep "다른 회차" select always visible; enable only when mode is other. */
+/** "현재 회차"면 목록을 접고 이름만 보여 준다. "다른 회차"면 목록을 연다. */
 function setOtherSceneSelectActive(wrapId, selectId, active) {
   const wrap = $(wrapId);
   const select = $(selectId);
   wrap?.classList.remove("hidden");
-  wrap?.classList.toggle("is-muted", !active);
+  wrap?.classList.remove("is-muted");
   if (select) select.disabled = !active;
+  if (select) syncEpisodePickList(select);
+  const list = wrap?.querySelector(".wide-pick");
+  const line = select ? episodeTargetCurrentLine(select) : null;
+  if (list) list.hidden = !active;
+  if (line) line.hidden = active;
+  if (active && list) {
+    const row = list.querySelector(".wide-pick-now")?.closest(".wide-pick-row")
+      || list.querySelector(".is-selected");
+    row?.scrollIntoView({ block: "nearest" });
+  }
 }
 
 function getEpisodeTargetModeFromConfig(config) {
@@ -24709,12 +25013,32 @@ function fillEpisodeTargetSelect(selectId) {
     return `<option value="${id}">${escapeHtml(episodeTargetOptionLabel(ep, currentId))}</option>`;
   });
   select.innerHTML = `${i18n.t("app.option_value_회차를_선택하세요", { 'opts.join("")': opts.join("") })}`;
-  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
+  const currentValue = currentId ? String(currentId) : "";
+  if (!select.dataset.userPicked && currentValue && sequence.some((ep) => String(ep.sceneId) === currentValue)) {
+    select.value = currentValue;
+  } else if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
     select.value = prev;
+  } else if (currentValue) {
+    select.value = currentValue;
   } else {
-    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
-    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
+    select.value = sequence[0] ? String(sequence[0].sceneId) : "";
   }
+  syncEpisodePickList(select);
+}
+
+function episodeTargetCurrentLine(select) {
+  const wrap = select?.parentElement;
+  if (!wrap) return null;
+  let line = wrap.querySelector(".wide-pick-current");
+  if (!line) {
+    line = document.createElement("p");
+    line.className = "wide-pick-current";
+    wrap.appendChild(line);
+  }
+  const currentId = state.sceneId ? Number(state.sceneId) : 0;
+  const opt = Array.from(select.options).find((item) => Number(item.value) === currentId);
+  line.textContent = opt ? String(opt.textContent || "").trim() : "열린 회차가 없어요";
+  return line;
 }
 
 function fillEpisodeTargetMultiList(config) {
@@ -24730,29 +25054,52 @@ function fillEpisodeTargetMultiList(config) {
     Array.from(host.querySelectorAll('input[type="checkbox"]:checked'))
       .map((el) => String(el.value || "")),
   );
+  host.classList.add("wide-pick");
   host.innerHTML = sequence.map((ep) => {
     const id = Number(ep.sceneId);
-    const checked = prevChecked.has(String(id)) ? " checked" : "";
+    const checked = prevChecked.has(String(id));
+    const now = currentId && id === currentId ? '<span class="wide-pick-now">지금 열림</span>' : "";
     return (
-      `<label class="${config.multiOptionClass}">`
-      + `<input type="checkbox" name="${config.multiCheckboxName}" value="${id}"${checked}>`
-      + `<span>${escapeHtml(episodeTargetOptionLabel(ep, currentId))}</span>`
+      `<label class="wide-pick-row ${config.multiOptionClass}${checked ? " is-selected" : ""}">`
+      + `<input type="checkbox" class="wide-pick-native" name="${config.multiCheckboxName}" value="${id}"${checked ? " checked" : ""}>`
+      + '<span class="wide-pick-box" aria-hidden="true"></span>'
+      + `<span class="wide-pick-label">${escapeHtml(episodeTargetOptionLabel(ep, currentId))}</span>`
+      + now
       + `</label>`
     );
   }).join("");
+  const syncMultiPick = () => {
+    const checked = host.querySelectorAll('input[type="checkbox"]:checked');
+    host.querySelectorAll(".wide-pick-row").forEach((row) => {
+      row.classList.toggle("is-selected", Boolean(row.querySelector("input:checked")));
+    });
+    let count = host.parentElement?.querySelector("[data-role='wide-pick-count']");
+    if (!count && host.parentElement) {
+      count = document.createElement("p");
+      count.className = "wide-pick-count";
+      count.dataset.role = "wide-pick-count";
+      host.parentElement.insertBefore(count, host);
+    }
+    if (count) count.textContent = `${checked.length}/${config.multiMax}`;
+  };
   host.querySelectorAll('input[type="checkbox"]').forEach((box) => {
     box.addEventListener("change", () => {
       const checked = host.querySelectorAll('input[type="checkbox"]:checked');
       if (checked.length > config.multiMax) {
         box.checked = false;
         toast(`${i18n.t(config.multiMaxToastKey, config.multiMaxToastParams)}`);
+        syncMultiPick();
         return;
       }
       if (config.multiWarnAt && box.checked && checked.length >= config.multiWarnAt) {
         toast(`${i18n.t(config.multiWarnToastKey, { "checked.length": checked.length })}`);
       }
+      syncMultiPick();
     });
   });
+  syncMultiPick();
+  const openRow = host.querySelector(".wide-pick-now")?.closest(".wide-pick-row");
+  if (openRow && !host.closest(".hidden")) openRow.scrollIntoView({ block: "nearest" });
 }
 
 function ensureEpisodeTargetExtraSlot(config) {
@@ -24769,7 +25116,9 @@ function renderEpisodeTargetOptions(config) {
   ensureEpisodeTargetExtraSlot(config);
   fillEpisodeTargetSelect(config.otherSelectId);
   const mode = getEpisodeTargetModeFromConfig(config);
-  setOtherSceneSelectActive(config.otherWrapId, config.otherSelectId, mode === "other");
+  const otherWrap = $(config.otherWrapId);
+  if (mode === "multi") otherWrap?.classList.add("hidden");
+  else setOtherSceneSelectActive(config.otherWrapId, config.otherSelectId, mode === "other");
   if (!(Number(config.multiMax) > 0)) return;
   if (config.multiWrapId) {
     $(config.multiWrapId)?.classList.toggle("hidden", mode !== "multi");
@@ -27672,13 +28021,17 @@ function renderContinueEpisodeOptions() {
     return `<option value="${id}">${escapeHtml(label)}</option>`;
   });
   select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
-  // Restore previous pick, else prefer first non-current episode, else current.
-  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
+  const currentValue = currentId ? String(currentId) : "";
+  if (!select.dataset.userPicked && currentValue && sequence.some((ep) => String(ep.sceneId) === currentValue)) {
+    select.value = currentValue;
+  } else if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
     select.value = prev;
+  } else if (currentValue) {
+    select.value = currentValue;
   } else {
-    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
-    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
+    select.value = sequence[0] ? String(sequence[0].sceneId) : "";
   }
+  syncEpisodePickList(select);
 }
 
 function updateContinueSourceUi() {
@@ -28796,6 +29149,8 @@ async function submitAiAssist(event) {
           : mode === "continue"
             ? i18n.t('app.이어서_쓰는_중')
             : i18n.t('app.생각_중');
+  if ($("aiResult")) $("aiResult").value = button.textContent;
+  ensureAiResultVisible();
   try {
     // Panel-driven dupcheck: attach ±4 neighbors when user picks mode from AI form
     if (mode === "dupcheck" && !body.neighbor_scenes) {
@@ -28926,6 +29281,13 @@ function hideContinueStyleResults() {
   $("continueStyleResults")?.classList.add("hidden");
 }
 
+function syncContinueStyleTabKeys() {
+  const tabs = [...document.querySelectorAll("#continueStyleTabs [data-continue-style-tab]")];
+  CONTINUE_STYLE_MODES.forEach((style, index) => {
+    if (tabs[index]) tabs[index].setAttribute("data-continue-style-tab", style);
+  });
+}
+
 function setContinueStyleActiveTab(style) {
   const key = CONTINUE_STYLE_MODES.includes(style) ? style : i18n.t('app.후킹형');
   continueStyleResultsState.active = key;
@@ -28940,11 +29302,12 @@ function setContinueStyleActiveTab(style) {
 }
 
 function showContinueStyleResults(textsByStyle) {
-  continueStyleResultsState.texts = {
-    후킹형: String(textsByStyle?.후킹형 || "").trim(),
-    전개형: String(textsByStyle?.전개형 || "").trim(),
-    전환형: String(textsByStyle?.전환형 || "").trim(),
-  };
+  const texts = {};
+  CONTINUE_STYLE_MODES.forEach((style) => {
+    texts[style] = String(textsByStyle?.[style] || "").trim();
+  });
+  continueStyleResultsState.texts = texts;
+  syncContinueStyleTabKeys();
   const wrap = $("continueStyleResults");
   wrap?.classList.remove("hidden");
   ensureAiResultVisible();
@@ -28964,6 +29327,7 @@ function showContinueStyleResults(textsByStyle) {
 }
 
 function setupContinueStyleResultsUi() {
+  syncContinueStyleTabKeys();
   const host = $("continueStyleTabs");
   if (host && host.dataset.bound !== "1") {
     host.dataset.bound = "1";
@@ -29066,7 +29430,8 @@ async function runContinueWithThreeStyles() {
         return { style, text: String(result?.text || "").trim() };
       }),
     );
-    const map = { 후킹형: "", 전개형: "", 전환형: "" };
+    const map = {};
+    CONTINUE_STYLE_MODES.forEach((style) => { map[style] = ""; });
     for (const row of results) {
       map[row.style] = row.text || i18n.t('app.결과_없음');
     }
@@ -29123,7 +29488,7 @@ function isAiResultModalOpen() {
 let aiResultModalSourceText = null;
 
 function aiResultPopupIconSvg(size = 16) {
-  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="14" height="11" rx="1.5"/><path d="M10 10h8.5A1.5 1.5 0 0 1 20 11.5V19H10z"/></svg>`;
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"/><rect width="10" height="7" x="12" y="13" rx="2"/></svg>`;
 }
 
 function resetAiResultModalTitle() {
@@ -29507,6 +29872,7 @@ function pushAiResultHistory(entry = {}) {
 /** Show assist result in the right panel (or 결과보기 widget). */
 function revealAiAssistResult(options = {}) {
   const recordHistory = options.recordHistory !== false;
+  const keepInPanel = widePanelRunStillHere() && options.mode !== "temphook";
   setAiPanelOpen(true);
   try { setAiPanelTab("tools"); } catch (_) { /* ignore */ }
   const text = String($("aiResult")?.value || "").trim();
@@ -29521,9 +29887,15 @@ function revealAiAssistResult(options = {}) {
     });
   }
   if (typeof setAiPanelHistoryOpen === "function") setAiPanelHistoryOpen(false);
-  requestAnimationFrame(() => {
-    $("aiResultWrap")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
-  });
+  if (keepInPanel) showWidePanelResult();
+  else {
+    restoreAiResultLivePane();
+    widePanelRun = null;
+    hideWidePanelStage();
+    requestAnimationFrame(() => {
+      $("aiResultWrap")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    });
+  }
 }
 
 let aiPanelHistoryViewId = null;
@@ -29550,6 +29922,15 @@ function syncAiPanelHistoryChrome(open) {
     const title = open ? i18n.t("index.현재_결과로") : i18n.t("index.이전_결과_목록");
     btn.setAttribute("title", title);
     btn.setAttribute("aria-label", open ? title : i18n.t("index.히스토리"));
+  }
+  const expand = $("aiResultExpandButton");
+  if (expand) {
+    const expandTitle = open
+      ? i18n.t("index.히스토리_목록을_크게_보기")
+      : i18n.t("index.결과를_팝업으로_크게_보기");
+    expand.setAttribute("title", expandTitle);
+    expand.setAttribute("aria-label", open ? expandTitle : i18n.t("index.크게_보기"));
+    expand.setAttribute("aria-controls", open ? "aiResultHistoryModal" : "aiResultModal");
   }
 }
 
@@ -29773,6 +30154,16 @@ function openAiResultHistoryModal() {
   toggleAiPanelHistoryView();
 }
 
+/** Large popup of the whole result-history list. Pick an item inside to read it. */
+function openAiResultHistoryListPopup() {
+  const modal = $("aiResultHistoryModal");
+  if (!modal) return;
+  showAiResultHistoryListView();
+  modal.classList.remove("hidden");
+  modal.removeAttribute("hidden");
+  modal.setAttribute("aria-hidden", "false");
+}
+
 function closeAiResultHistoryModal() {
   $("aiResultHistoryModal")?.classList.add("hidden");
   aiResultHistoryViewId = null;
@@ -29862,12 +30253,7 @@ function setupAiResultModal() {
     $("aiResultExpandButton")?.addEventListener("click", (event) => {
       event.preventDefault();
       if (isAiPanelHistoryOpen()) {
-        if (aiPanelHistoryViewId) popupAiResultHistoryEntry(aiPanelHistoryViewId);
-        else {
-          const first = loadAiResultHistory()[0];
-          if (first) popupAiResultHistoryEntry(first.id);
-          else toast(i18n.t("app.팝업으로_볼_기록이_없어요"));
-        }
+        openAiResultHistoryListPopup();
         return;
       }
       openAiResultModal();
@@ -31485,6 +31871,10 @@ function setAiHelperPane(pane) {
 
 /** 결과가 준비되면 결과보기 세그먼트로 전환 */
 function ensureAiResultVisible() {
+  if (!widePanelRun && widePanelSession.id && widePanelSession.id !== "tempoHookModal"
+    && (isWidePanelReviewOpen() || isWidePanelFloatOpen())) {
+    beginWidePanelRun();
+  }
   const wrap = $("aiResultWrap");
   wrap?.classList.remove("hidden", "is-empty");
   try { setAiHelperPane("result"); } catch (_) { /* ignore */ }
@@ -38132,6 +38522,10 @@ function setTempoHookStatus(message, { showResults = false } = {}) {
     status.classList.toggle("hidden", !message);
   }
   $("tempoHookResults")?.classList.toggle("hidden", !showResults);
+  if (showResults && widePanelSession.id === "tempoHookModal") {
+    hideWidePanelStage();
+    widePanelRun = null;
+  }
 }
 
 function renderTempoHookScoreCard() {
@@ -38344,6 +38738,7 @@ async function runTempoHookAnalysis(targetSceneId) {
     return;
   }
   tempoHookState.busy = true;
+  beginWidePanelRun();
   tempoHookState.rewriteBusy = false;
   tempoHookState.sceneId = sceneId;
   tempoHookState.sceneTitle = manuscript.title || "";
@@ -38956,7 +39351,7 @@ const AI_TOOL_MODAL_META = {
     panelId: "foreshadowPanel",
     showExtraPrompt: true,
     extraPlaceholder: i18n.t('app.예_6장_단서가_너무_약하니_더_날카롭게_짚'),
-    submitLabel: i18n.t('app.확인'),
+    submitLabel: "복선 확인하기",
   },
   plottwist: {
     title: i18n.t('app.반전_개연성_검사기'),
@@ -38964,21 +39359,21 @@ const AI_TOOL_MODAL_META = {
     panelId: "foreshadowPanel",
     showExtraPrompt: true,
     extraPlaceholder: i18n.t('app.예_반전이_억지로_느껴지는지_독자가_납득할지'),
-    submitLabel: i18n.t('app.확인'),
+    submitLabel: "개연성 검사하기",
   },
   brainstorm: {
     title: i18n.t('app.브레인스토밍'),
     lead: i18n.t('app.막힌_지점에서_여러_방향의_확장_아이디어를'),
     panelId: "brainstormPanel",
     showExtraPrompt: false,
-    submitLabel: i18n.t('app.확인'),
+    submitLabel: "브레인스토밍 시작",
   },
   continue: {
     title: i18n.t('app.이어서_쓰기'),
     lead: i18n.t('app.원문_문체_시점을_유지한_채_뒷부분만_이어'),
     panelId: "continuePanel",
     showExtraPrompt: false,
-    submitLabel: i18n.t('app.확인'),
+    submitLabel: "이어서 쓰기",
   },
     rewrite: {
     title: i18n.t('app.글_다듬기'),
@@ -38993,7 +39388,7 @@ const AI_TOOL_MODAL_META = {
     lead: i18n.t('app.묘사_대상을_적으면_이_작품_문체_설정에_맞'),
     panelId: "worldDescPanel",
     showExtraPrompt: false,
-    submitLabel: i18n.t('app.확인'),
+    submitLabel: "묘사하기",
   },
   subsynopsis: {
     title: i18n.t('app.투고_공모전용_시놉시스'),
@@ -39069,7 +39464,17 @@ function openAiToolModal(mode = $("aiMode")?.value || "", options = {}) {
   }
 
   if ($("aiToolModalTitle")) $("aiToolModalTitle").textContent = meta.title || aiModeLabel(m);
-  if ($("aiToolModalLead")) $("aiToolModalLead").textContent = meta.lead || "";
+  const toolLead = meta.lead || "";
+  if ($("aiToolModalLead")) $("aiToolModalLead").textContent = toolLead;
+  const toolLeadTip = $("aiToolModalLeadTip");
+  if (toolLeadTip) {
+    const tipId = `aiToolLead_${m}`;
+    toolLeadTip.setAttribute("data-guide-tip", tipId);
+    toolLeadTip.querySelector("[data-guide-tip-dismiss]")?.setAttribute("data-guide-tip-dismiss", tipId);
+    const show = Boolean(toolLead) && !(typeof isGuideTipHidden === "function" && isGuideTipHidden(tipId));
+    toolLeadTip.hidden = !show;
+    toolLeadTip.classList.toggle("hidden", !show);
+  }
 
   // Show only the panel for this mode (foreshadow/plottwist share one panel).
   ["foreshadowPanel", "continuePanel", "rewritePanel", "brainstormPanel", "worldDescPanel", "subsynopsisPanel"].forEach((id) => {
@@ -40243,6 +40648,14 @@ async function runSuccessFormulaFeedback() {
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "successfeedback";
   updateForeshadowPanelVisibility();
+  if (!widePanelSession.id) {
+    openWidePanel({
+      id: "successFeedbackRun",
+      title: i18n.t("app.흥행_공식_피드백"),
+      sourceEl: $("aiSubmitButton") || $("aiModePicker"),
+      mount() {},
+    });
+  }
   const project = state.projects.find((item) => item.id === state.projectId);
   const mainGenre = state.mainGenre || project?.main_genre || "";
   const subGenre = state.subGenre || project?.sub_genre || "";
@@ -40344,6 +40757,8 @@ async function runSuccessPatternAnalysis() {
   });
   successPatternState.analyzing = true;
   if ($("spAnalyzeStatus")) $("spAnalyzeStatus").textContent = i18n.t('app.구조를_분석하는_중_회차가_많으면_시간이_걸');
+  if ($("aiResult")) $("aiResult").value = i18n.t('app.구조를_분석하는_중_회차가_많으면_시간이_걸');
+  ensureAiResultVisible();
   updateSpCharBudgetUi();
   try {
     const result = await api("/api/success-pattern/run", {
@@ -78840,6 +79255,10 @@ function handleError(error) {
       error?.message
       || i18n.t('app.연결_문제로_서버_저장은_보류되었지만_원고는'),
     );
+    return;
+  }
+  if (widePanelRunStillHere()) {
+    showWidePanelError(error?.message || i18n.t("app.문제가_생겼습니다_다시_시도해_주세요"));
     return;
   }
   toast(error.message || i18n.t('app.문제가_생겼습니다_다시_시도해_주세요'));

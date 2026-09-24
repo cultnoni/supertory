@@ -265,14 +265,6 @@
   function syncChromeButtons() {
     const panel = panelEl();
     if (!panel) return;
-    const switchBtn = panel.querySelector("[data-role='fb-switch-chrome']");
-    if (switchBtn) {
-      const toFloat = stateBox.chromeMode !== "float";
-      const label = toFloat ? "작은 창으로 보기" : "넓은 패널로 보기";
-      switchBtn.textContent = toFloat ? "⧉" : "▣";
-      switchBtn.setAttribute("title", label);
-      switchBtn.setAttribute("aria-label", label);
-    }
     const closeBtn = panel.querySelector("[data-role='fb-close-chrome']");
     if (closeBtn) closeBtn.hidden = stateBox.chromeMode === "float";
     panel.setAttribute("data-chrome", stateBox.chromeMode || "");
@@ -5711,10 +5703,6 @@
     }
     if (role === "fb-lens") {
       setLens(btn.getAttribute("data-lens"));
-      return;
-    }
-    if (role === "fb-switch-chrome") {
-      if (typeof switchFeedbackChrome === "function") switchFeedbackChrome();
       return;
     }
     if (role === "fb-close-chrome") {
