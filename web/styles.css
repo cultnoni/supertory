@@ -39112,6 +39112,20 @@ body.fb-review-open .fb-review-host .feedback-panel {
   flex: 1 1 auto;
   min-height: 0;
 }
+.fb-review-host > .modal-card.is-wide-panel-card,
+.idea-float-body > .modal-card.is-wide-panel-card {
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-self: stretch;
+  box-shadow: none;
+  border: 0;
+  border-radius: 10px;
+  overflow: auto;
+}
 .manuscript-page.fb-has-action-bar {
   padding-bottom: 64px;
 }

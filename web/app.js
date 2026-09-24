@@ -21506,6 +21506,65 @@ function openWidePanel(spec) {
   openWidePanelReview();
 }
 
+function isModalSurfaceOpen(modal) {
+  if (!modal) return false;
+  if (modal.dataset.wideHosted === "1") return true;
+  return !modal.classList.contains("hidden");
+}
+
+function releaseWideHostedModal(modal) {
+  if (!modal || modal.dataset.wideHosted !== "1") return;
+  if (widePanelSession.id !== modal.id) return;
+  if (releaseWideHostedModal._busy) return;
+  releaseWideHostedModal._busy = true;
+  try { closeWidePanel(); }
+  finally { releaseWideHostedModal._busy = false; }
+}
+
+/** Move a popup's card into the wide panel. The modal shell and backdrop stay hidden. */
+function presentModalInWidePanel(modal, options = {}) {
+  if (!modal) return;
+  const card = modal.querySelector(":scope > .modal-card");
+  if (!card) return;
+  const id = String(options.id || modal.id || "").trim();
+  if (!id) return;
+  if (!card.__wideHome) {
+    card.__wideHome = { parent: card.parentNode, next: card.nextSibling };
+  }
+  const title = String(
+    options.title
+    || card.querySelector(".modal-heading h2")?.textContent
+    || "",
+  ).replace(/\s+/g, " ").trim();
+  const restore = () => {
+    const home = card.__wideHome;
+    if (home?.parent && card.parentNode !== home.parent) {
+      if (home.next && home.next.parentNode === home.parent) home.parent.insertBefore(card, home.next);
+      else home.parent.appendChild(card);
+    }
+    card.classList.remove("is-wide-panel-card");
+    delete modal.dataset.wideHosted;
+    modal.classList.add("hidden");
+    modal.style.display = "";
+    modal.setAttribute("aria-hidden", "true");
+  };
+  openWidePanel({
+    id,
+    title,
+    sourceEl: options.sourceEl || $("aiModePicker") || $("aiMode"),
+    mount(container) {
+      modal.classList.add("hidden");
+      modal.style.display = "";
+      modal.setAttribute("aria-hidden", "true");
+      modal.dataset.wideHosted = "1";
+      card.classList.add("is-wide-panel-card");
+      if (card.parentNode !== container) container.appendChild(card);
+    },
+    rehome: restore,
+    unmount: restore,
+  });
+}
+
 function closeFeedbackFloat() {
   if (isWidePanelFloatOpen()) closeIdeaFloat(DOCK_FEEDBACK_KEY);
 }
@@ -24932,7 +24991,7 @@ function openAnalyzeTargetModal() {
     if (multiRadio) multiRadio.checked = false;
   }
   updateAnalyzeTargetUi();
-  $("analyzeTargetModal")?.classList.remove("hidden");
+  presentModalInWidePanel($("analyzeTargetModal"));
   requestAnimationFrame(() => {
     const mode = getAnalyzeTargetMode();
     if (mode === "other") $("analyzeOtherSceneSelect")?.focus();
@@ -24942,7 +25001,9 @@ function openAnalyzeTargetModal() {
 }
 
 function closeAnalyzeTargetModal({ returnToList = true } = {}) {
-  $("analyzeTargetModal")?.classList.add("hidden");
+  const modal = $("analyzeTargetModal");
+  if (returnToList) releaseWideHostedModal(modal);
+  modal?.classList.add("hidden");
   if (!returnToList) return;
   if (($("aiMode")?.value || "") !== "analyze") return;
   const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
@@ -24991,7 +25052,7 @@ function setupAnalyzeTargetModal() {
     document.documentElement.dataset.analyzeTargetEscBound = "1";
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
-      if ($("analyzeTargetModal") && !$("analyzeTargetModal").classList.contains("hidden")) {
+      if (isModalSurfaceOpen($("analyzeTargetModal"))) {
         event.preventDefault();
         closeAnalyzeTargetModal();
       }
@@ -25311,7 +25372,7 @@ function openSummarizeMultiTargetModal() {
     if (multiRadio) multiRadio.checked = false;
   }
   updateSummarizeMultiTargetUi();
-  $("summarizeMultiTargetModal")?.classList.remove("hidden");
+  presentModalInWidePanel($("summarizeMultiTargetModal"));
   requestAnimationFrame(() => {
     const mode = getSummarizeMultiTargetMode();
     if (mode === "other") $("summarizeMultiOtherSceneSelect")?.focus();
@@ -25322,7 +25383,9 @@ function openSummarizeMultiTargetModal() {
 
 /** 떡밥·복선 탐색기와 같은 패턴: X/배경 클릭으로 닫으면 목록으로, 확인 실행 후 닫힐 때는 그대로. */
 function closeSummarizeMultiTargetModal({ returnToList = true } = {}) {
-  $("summarizeMultiTargetModal")?.classList.add("hidden");
+  const modal = $("summarizeMultiTargetModal");
+  if (returnToList) releaseWideHostedModal(modal);
+  modal?.classList.add("hidden");
   if (!returnToList) return;
   if (($("aiMode")?.value || "") !== "summarize") return;
   const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
@@ -25356,7 +25419,7 @@ function setupSummarizeMultiTargetModal() {
     document.documentElement.dataset.summarizeMultiTargetEscBound = "1";
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
-      if ($("summarizeMultiTargetModal") && !$("summarizeMultiTargetModal").classList.contains("hidden")) {
+      if (isModalSurfaceOpen($("summarizeMultiTargetModal"))) {
         event.preventDefault();
         closeSummarizeMultiTargetModal();
       }
@@ -26111,7 +26174,7 @@ function openDupcheckTargetModal() {
     if (currentRadio) currentRadio.checked = false;
   }
   updateDupcheckTargetUi();
-  $("dupcheckTargetModal")?.classList.remove("hidden");
+  presentModalInWidePanel($("dupcheckTargetModal"));
   requestAnimationFrame(() => {
     if (getDupcheckTargetMode() === "other") {
       $("dupcheckOtherSceneSelect")?.focus();
@@ -26122,7 +26185,9 @@ function openDupcheckTargetModal() {
 }
 
 function closeDupcheckTargetModal({ returnToList = true } = {}) {
-  $("dupcheckTargetModal")?.classList.add("hidden");
+  const modal = $("dupcheckTargetModal");
+  if (returnToList) releaseWideHostedModal(modal);
+  modal?.classList.add("hidden");
   if (!returnToList) return;
   if (($("aiMode")?.value || "") !== "dupcheck") return;
   const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
@@ -26156,7 +26221,7 @@ function setupDupcheckTargetModal() {
     document.documentElement.dataset.dupcheckTargetEscBound = "1";
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
-      if ($("dupcheckTargetModal") && !$("dupcheckTargetModal").classList.contains("hidden")) {
+      if (isModalSurfaceOpen($("dupcheckTargetModal"))) {
         event.preventDefault();
         closeDupcheckTargetModal();
       }
@@ -26196,7 +26261,7 @@ function openIdeasTargetModal() {
     if (currentRadio) currentRadio.checked = false;
   }
   updateIdeasTargetUi();
-  $("ideasTargetModal")?.classList.remove("hidden");
+  presentModalInWidePanel($("ideasTargetModal"));
   requestAnimationFrame(() => {
     if (getIdeasTargetMode() === "other") {
       $("ideasOtherSceneSelect")?.focus();
@@ -26207,7 +26272,9 @@ function openIdeasTargetModal() {
 }
 
 function closeIdeasTargetModal({ returnToList = true } = {}) {
-  $("ideasTargetModal")?.classList.add("hidden");
+  const modal = $("ideasTargetModal");
+  if (returnToList) releaseWideHostedModal(modal);
+  modal?.classList.add("hidden");
   if (!returnToList) return;
   if (($("aiMode")?.value || "") !== "ideas") return;
   const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
@@ -26241,7 +26308,7 @@ function setupIdeasTargetModal() {
     document.documentElement.dataset.ideasTargetEscBound = "1";
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
-      if ($("ideasTargetModal") && !$("ideasTargetModal").classList.contains("hidden")) {
+      if (isModalSurfaceOpen($("ideasTargetModal"))) {
         event.preventDefault();
         closeIdeasTargetModal();
       }
@@ -26280,7 +26347,7 @@ function openBrainstormTargetModal() {
     if (currentRadio) currentRadio.checked = false;
   }
   updateBrainstormTargetUi();
-  $("brainstormTargetModal")?.classList.remove("hidden");
+  presentModalInWidePanel($("brainstormTargetModal"));
   requestAnimationFrame(() => {
     if (getBrainstormTargetMode() === "other") {
       $("brainstormOtherSceneSelect")?.focus();
@@ -26291,7 +26358,9 @@ function openBrainstormTargetModal() {
 }
 
 function closeBrainstormTargetModal({ returnToList = true } = {}) {
-  $("brainstormTargetModal")?.classList.add("hidden");
+  const modal = $("brainstormTargetModal");
+  if (returnToList) releaseWideHostedModal(modal);
+  modal?.classList.add("hidden");
   if (!returnToList) return;
   if (($("aiMode")?.value || "") !== "brainstorm") return;
   const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
@@ -26325,7 +26394,7 @@ function setupBrainstormTargetModal() {
     document.documentElement.dataset.brainstormTargetEscBound = "1";
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
-      if ($("brainstormTargetModal") && !$("brainstormTargetModal").classList.contains("hidden")) {
+      if (isModalSurfaceOpen($("brainstormTargetModal"))) {
         event.preventDefault();
         closeBrainstormTargetModal();
       }
@@ -26915,7 +26984,7 @@ function openWorldscanTargetModal() {
     if (multiRadio) multiRadio.checked = false;
   }
   updateWorldscanTargetUi();
-  $("worldscanTargetModal")?.classList.remove("hidden");
+  presentModalInWidePanel($("worldscanTargetModal"));
   requestAnimationFrame(() => {
     const mode = getWorldscanTargetMode();
     if (mode === "other") $("worldscanOtherSceneSelect")?.focus();
@@ -26925,7 +26994,9 @@ function openWorldscanTargetModal() {
 }
 
 function closeWorldscanTargetModal({ returnToList = true } = {}) {
-  $("worldscanTargetModal")?.classList.add("hidden");
+  const modal = $("worldscanTargetModal");
+  if (returnToList) releaseWideHostedModal(modal);
+  modal?.classList.add("hidden");
   if (!returnToList) return;
   if (($("aiMode")?.value || "") !== "worldscan") return;
   const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
@@ -26969,7 +27040,7 @@ function setupWorldscanTargetModal() {
     document.documentElement.dataset.worldscanTargetEscBound = "1";
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
-      if ($("worldscanTargetModal") && !$("worldscanTargetModal").classList.contains("hidden")) {
+      if (isModalSurfaceOpen($("worldscanTargetModal"))) {
         event.preventDefault();
         closeWorldscanTargetModal();
       }
@@ -30137,27 +30208,30 @@ function promptOutlineSummaryGate() {
       resolve("continue");
       return;
     }
-    modal.classList.remove("hidden");
     const finish = (value) => {
       closeOutlineSummaryGateModal();
       cleanup();
       resolve(value);
     };
-    const onSettings = () => finish("settings");
+    const onSettings = () => {
+      releaseWideHostedModal(modal);
+      finish("settings");
+    };
     const onContinue = () => finish("continue");
-    const onClose = () => finish("cancel");
+    const onClose = () => {
+      releaseWideHostedModal(modal);
+      finish("cancel");
+    };
+    const closeEls = [...modal.querySelectorAll("[data-close-outline-gate]")];
     const cleanup = () => {
       $("outlineGateOpenSettings")?.removeEventListener("click", onSettings);
       $("outlineGateContinue")?.removeEventListener("click", onContinue);
-      modal.querySelectorAll("[data-close-outline-gate]").forEach((el) => {
-        el.removeEventListener("click", onClose);
-      });
+      closeEls.forEach((el) => el.removeEventListener("click", onClose));
     };
     $("outlineGateOpenSettings")?.addEventListener("click", onSettings);
     $("outlineGateContinue")?.addEventListener("click", onContinue);
-    modal.querySelectorAll("[data-close-outline-gate]").forEach((el) => {
-      el.addEventListener("click", onClose);
-    });
+    closeEls.forEach((el) => el.addEventListener("click", onClose));
+    presentModalInWidePanel(modal);
   });
 }
 
@@ -30172,7 +30246,6 @@ function promptSubmissionLengthLimits() {
     }
     if (synInput) synInput.value = "";
     if (intentInput) intentInput.value = "";
-    modal.classList.remove("hidden");
     const parseLimit = (raw) => {
       const text = String(raw ?? "").trim();
       if (!text) return null;
@@ -30191,17 +30264,18 @@ function promptSubmissionLengthLimits() {
         intentLengthLimit: parseLimit(intentInput?.value),
       });
     };
-    const onCancel = () => finish(null);
+    const onCancel = () => {
+      releaseWideHostedModal(modal);
+      finish(null);
+    };
+    const closeEls = [...modal.querySelectorAll("[data-close-submission-length]")];
     const cleanup = () => {
       $("submissionLengthConfirm")?.removeEventListener("click", onConfirm);
-      modal.querySelectorAll("[data-close-submission-length]").forEach((el) => {
-        el.removeEventListener("click", onCancel);
-      });
+      closeEls.forEach((el) => el.removeEventListener("click", onCancel));
     };
     $("submissionLengthConfirm")?.addEventListener("click", onConfirm);
-    modal.querySelectorAll("[data-close-submission-length]").forEach((el) => {
-      el.addEventListener("click", onCancel);
-    });
+    closeEls.forEach((el) => el.addEventListener("click", onCancel));
+    presentModalInWidePanel(modal);
     window.setTimeout(() => synInput?.focus(), 0);
   });
 }
@@ -37939,11 +38013,11 @@ function parseEndingRewriteVersions(text) {
 }
 
 function isTempoHookModalOpen() {
-  return Boolean($("tempoHookModal") && !$("tempoHookModal").classList.contains("hidden"));
+  return isModalSurfaceOpen($("tempoHookModal"));
 }
 
 function isTempoHookTargetModalOpen() {
-  return Boolean($("tempoHookTargetModal") && !$("tempoHookTargetModal").classList.contains("hidden"));
+  return isModalSurfaceOpen($("tempoHookTargetModal"));
 }
 
 function getTempoHookTargetMode() {
@@ -37957,7 +38031,9 @@ function updateTempoHookTargetUi() {
 }
 
 function closeTempoHookTargetModal({ returnToList = true } = {}) {
-  $("tempoHookTargetModal")?.classList.add("hidden");
+  const modal = $("tempoHookTargetModal");
+  if (returnToList) releaseWideHostedModal(modal);
+  modal?.classList.add("hidden");
   if (!returnToList) return;
   if (($("aiMode")?.value || "") !== "temphook") return;
   const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
@@ -37982,7 +38058,7 @@ function openTempoHookTargetModal() {
     if (currentRadio) currentRadio.checked = false;
   }
   updateTempoHookTargetUi();
-  $("tempoHookTargetModal")?.classList.remove("hidden");
+  presentModalInWidePanel($("tempoHookTargetModal"));
   requestAnimationFrame(() => {
     if (getTempoHookTargetMode() === "other") {
       $("tempoHookOtherSceneSelect")?.focus();
@@ -38027,7 +38103,9 @@ function setupTempoHookTargetModal() {
 }
 
 function closeTempoHookModal({ returnToList = true } = {}) {
-  $("tempoHookModal")?.classList.add("hidden");
+  const modal = $("tempoHookModal");
+  if (returnToList) releaseWideHostedModal(modal);
+  modal?.classList.add("hidden");
   $("tempoHookChartTooltip")?.classList.add("hidden");
   if (!returnToList) return;
   if (($("aiMode")?.value || "") !== "temphook") return;
@@ -38037,7 +38115,7 @@ function closeTempoHookModal({ returnToList = true } = {}) {
 }
 
 function openTempoHookResultsModal() {
-  $("tempoHookModal")?.classList.remove("hidden");
+  presentModalInWidePanel($("tempoHookModal"));
   requestAnimationFrame(() => {
     $("tempoHookRetryButton")?.focus?.();
   });
@@ -38940,11 +39018,11 @@ function isAiToolPopupMode(mode = $("aiMode")?.value || "") {
 }
 
 function isAiToolModalOpen() {
-  return Boolean($("aiToolModal") && !$("aiToolModal").classList.contains("hidden"));
+  return isModalSurfaceOpen($("aiToolModal"));
 }
 
 function isSuccessPatternModalOpen() {
-  return Boolean($("successPatternModal") && !$("successPatternModal").classList.contains("hidden"));
+  return isModalSurfaceOpen($("successPatternModal"));
 }
 
 function syncAiToolExtraPromptToForm() {
@@ -39046,11 +39124,9 @@ function openAiToolModal(mode = $("aiMode")?.value || "", options = {}) {
   const submitBtn = $("aiToolModalSubmitButton");
   if (submitBtn) submitBtn.textContent = meta.submitLabel || i18n.t('app.토리에게_물어보기');
 
-  modal.classList.remove("hidden");
-  modal.style.display = "grid";
-  modal.setAttribute("aria-hidden", "false");
+  presentModalInWidePanel(modal);
   requestAnimationFrame(() => {
-    const focusEl = modal.querySelector(
+    const focusEl = document.querySelector(
       `#${meta.panelId || "aiToolModalBody"} textarea, #${meta.panelId || "aiToolModalBody"} input, #${meta.panelId || "aiToolModalBody"} select, #aiToolModalSubmitButton`,
     );
     try {
@@ -39066,6 +39142,7 @@ function closeAiToolModal({ dismissed = true, returnToList = dismissed } = {}) {
     syncAiToolExtraPromptToForm();
   }
   const modal = $("aiToolModal");
+  if (returnToList) releaseWideHostedModal(modal);
   if (modal) {
     modal.classList.add("hidden");
     modal.style.display = "";
@@ -39251,12 +39328,12 @@ function openSuccessPatternModal() {
   }
   successPatternState.modalDismissed = false;
   renderSuccessPatternStep();
-  modal.classList.remove("hidden");
+  presentModalInWidePanel(modal);
   requestAnimationFrame(() => {
     const focusEl =
       $("spNextButton")
       || $("spWorkTitle")
-      || modal.querySelector("input, button, textarea, select");
+      || document.querySelector("#successPatternWizard input, #successPatternWizard button, #successPatternWizard textarea, #successPatternWizard select");
     try {
       focusEl?.focus({ preventScroll: true });
     } catch (_) {
@@ -39266,7 +39343,9 @@ function openSuccessPatternModal() {
 }
 
 function closeSuccessPatternModal({ dismissed = true, returnToList = dismissed } = {}) {
-  $("successPatternModal")?.classList.add("hidden");
+  const modal = $("successPatternModal");
+  if (returnToList) releaseWideHostedModal(modal);
+  modal?.classList.add("hidden");
   if (dismissed && isSuccessPatternMode()) {
     successPatternState.modalDismissed = true;
   }
