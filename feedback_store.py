@@ -108,6 +108,7 @@ def create_run(
     model: str,
     prompt_version: str,
     params: Any,
+    pipeline: str = "",
 ) -> int:
     """실행 행을 running 상태로 만들고 id를 반환한다."""
     kind = str(run_kind or "").strip()
@@ -116,8 +117,8 @@ def create_run(
     cursor = conn.execute(
         """
         INSERT INTO feedback_run(
-            project_id, run_kind, status, model, prompt_version, params_json
-        ) VALUES (?, ?, 'running', ?, ?, ?)
+            project_id, run_kind, status, model, prompt_version, params_json, pipeline
+        ) VALUES (?, ?, 'running', ?, ?, ?, ?)
         """,
         (
             _int(project_id, "project_id"),
@@ -125,6 +126,7 @@ def create_run(
             str(model or ""),
             str(prompt_version or ""),
             _dumps(params if params is not None else {}, JSON_OBJECT_DEFAULT),
+            str(pipeline or ""),
         ),
     )
     return int(cursor.lastrowid)
@@ -140,6 +142,7 @@ def add_run_scene(
     revision_no: int | None,
     source_hash: str,
     paragraphs: list | None,
+    para_offset: int = 0,
 ) -> int:
     """실행에 회차 스냅샷을 붙인다. paragraphs는 JSON으로 저장한다."""
     run = _require_run(conn, run_id)
@@ -153,8 +156,8 @@ def add_run_scene(
         """
         INSERT INTO feedback_run_scene(
             run_id, project_id, scene_id, ord, scene_title, revision_no,
-            source_hash, paragraphs_json, is_primary
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+            source_hash, paragraphs_json, is_primary, para_offset
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
         """,
         (
             int(run_id),
@@ -165,6 +168,7 @@ def add_run_scene(
             None if revision_no is None else _int(revision_no, "revision_no"),
             str(source_hash or ""),
             _dumps(paragraphs if paragraphs is not None else [], JSON_ARRAY_DEFAULT),
+            _int(para_offset, "para_offset"),
         ),
     )
     return int(cursor.lastrowid)
@@ -252,9 +256,10 @@ def add_cards(conn: sqlite3.Connection, run_id: int, cards: list[dict]) -> list[
                 original_text, anchor_hash, reason, edit_plan, suggestion,
                 added_facts_json, removed_facts_json, warnings_json, report_ref,
                 perspectives_json, confidence, status, final_text, alternate_of,
-                title
+                title, card_form, issue_tags_json, source_key, intentional
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?
             )
             """,
             (
@@ -286,6 +291,10 @@ def add_cards(conn: sqlite3.Connection, run_id: int, cards: list[dict]) -> list[
                 raw.get("final_text"),
                 None if alternate_of is None else _int(alternate_of, "alternate_of"),
                 str(raw.get("title") or ""),
+                str(raw.get("card_form") or ""),
+                _dumps(raw.get("issue_tags_json") or [], JSON_ARRAY_DEFAULT),
+                str(raw.get("source_key") or ""),
+                1 if raw.get("intentional") else 0,
             ),
         )
         created.append(int(cursor.lastrowid))
@@ -319,7 +328,7 @@ def list_runs(
     rows = conn.execute(
         """
         SELECT
-            r.id, r.project_id, r.run_kind, r.status, r.model, r.prompt_version,
+            r.id, r.project_id, r.run_kind, r.pipeline, r.status, r.model, r.prompt_version,
             r.params_json, r.planned_cards, r.created_at, r.finished_at,
             COALESCE(cnt.cards_open, 0) AS cards_open,
             COALESCE(cnt.cards_applied, 0) AS cards_applied,
@@ -439,9 +448,22 @@ def get_run(conn: sqlite3.Connection, run_id: int) -> dict | None:
             ("removed_facts_json", []),
             ("warnings_json", []),
             ("perspectives_json", []),
+            ("issue_tags_json", []),
         ):
             parsed_key = key.removesuffix("_json")
             card[parsed_key] = _loads(card.pop(key), fallback)
+        if not card.get("suggestion") and str(card.get("card_form") or "") == "note":
+            rewrite = conn.execute(
+                """
+                SELECT body FROM feedback_card_comment
+                WHERE card_id = ? AND role = 'assistant' AND body LIKE '〔수정안〕%'
+                ORDER BY id DESC LIMIT 1
+                """,
+                (int(card["id"]),),
+            ).fetchone()
+            if rewrite is not None:
+                body = str(rewrite["body"] or "")
+                card["suggestion"] = body.split("\n", 1)[-1].strip()
         cards.append(card)
     run["scenes"] = scenes
     run["cards"] = cards

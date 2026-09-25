@@ -25,9 +25,15 @@ _PLACEHOLDER_KEYS = frozenset({"your_anthropic_api_key_here", "changeme"})
 
 # 공식 가격표 확인 필요 (Anthropic 공개 단가, 입력/출력 100만 토큰당 USD).
 PRICE_SONNET_USD = (3.0, 15.0)
+PRICE_HAIKU_45_USD = (1.0, 5.0)
 PRICE_PER_MILLION_USD: dict[str, tuple[float, float]] = {
     "claude-sonnet-5": PRICE_SONNET_USD,
+    "claude-haiku-4-5": PRICE_HAIKU_45_USD,
+    "claude-haiku-4-5-20251001": PRICE_HAIKU_45_USD,
 }
+# 5분 ephemeral 캐시. 쓰기는 입력의 1.25배, 읽기는 0.1배.
+CACHE_WRITE_MULTIPLIER = 1.25
+CACHE_READ_MULTIPLIER = 0.1
 
 GenerateFn = Callable[..., dict[str, Any]]
 
@@ -51,15 +57,48 @@ class ClaudeError(RuntimeError):
         self.retries = int(retries or 0)
 
 
-def estimate_cost_usd(
-    model: str, input_tokens: int, output_tokens: int
-) -> float:
-    """100만 토큰당 단가로 추정 비용을 계산한다. 공식 가격표 확인 필요."""
+def estimate_cost_parts(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    *,
+    cache_write_tokens: int = 0,
+    cache_read_tokens: int = 0,
+) -> dict[str, float]:
+    """일반 입력 / 캐시 쓰기 / 캐시 읽기 / 출력 비용을 나눈다."""
     rates = PRICE_PER_MILLION_USD.get(str(model or "").strip(), PRICE_SONNET_USD)
     inp, out = rates
-    return (max(0, int(input_tokens)) / 1_000_000.0) * inp + (
-        max(0, int(output_tokens)) / 1_000_000.0
-    ) * out
+    input_usd = max(0, int(input_tokens)) / 1_000_000.0 * inp
+    cache_write_usd = max(0, int(cache_write_tokens)) / 1_000_000.0 * inp * CACHE_WRITE_MULTIPLIER
+    cache_read_usd = max(0, int(cache_read_tokens)) / 1_000_000.0 * inp * CACHE_READ_MULTIPLIER
+    output_usd = max(0, int(output_tokens)) / 1_000_000.0 * out
+    return {
+        "input_usd": round(input_usd, 6),
+        "cache_write_usd": round(cache_write_usd, 6),
+        "cache_read_usd": round(cache_read_usd, 6),
+        "output_usd": round(output_usd, 6),
+        "total_usd": round(input_usd + cache_write_usd + cache_read_usd + output_usd, 6),
+    }
+
+
+def estimate_cost_usd(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    *,
+    cache_write_tokens: int = 0,
+    cache_read_tokens: int = 0,
+) -> float:
+    """100만 토큰당 단가로 추정 비용을 계산한다. 캐시 쓰기·읽기 요금을 포함한다."""
+    return float(
+        estimate_cost_parts(
+            model,
+            input_tokens,
+            output_tokens,
+            cache_write_tokens=cache_write_tokens,
+            cache_read_tokens=cache_read_tokens,
+        )["total_usd"]
+    )
 
 
 def parse_model_json(raw: str) -> tuple[Any | None, str]:
@@ -231,15 +270,20 @@ def generate(
     prompt: str,
     *,
     model: str,
-    system: str | None = None,
+    system: str | list[dict[str, Any]] | None = None,
     temperature: float = 0.2,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     timeout: float = DEFAULT_TIMEOUT,
     thinking: str = "off",
     json_schema: dict[str, Any] | None = None,
     json_schema_simple: dict[str, Any] | None = None,
+    cached_prefix: str | None = None,
 ) -> dict[str, Any]:
-    """POST /v1/messages. sonnet-5는 thinking 끄고 temperature를 보내지 않는다."""
+    """POST /v1/messages. sonnet-5는 thinking 끄고 temperature를 보내지 않는다.
+
+    system이 content block 목록이면 그대로 보낸다(문학 캐시 접두용).
+    cached_prefix가 있으면 유저 메시지 앞에 ephemeral 캐시 블록을 붙인다.
+    """
     if not is_configured():
         raise ClaudeError(
             "Anthropic API 키가 없습니다. 프로젝트 폴더의 .env에 ANTHROPIC_API_KEY를 넣어 주세요.",
@@ -282,6 +326,7 @@ def generate(
                     omit_temperature=omit_temperature,
                     thinking_disabled=thinking_disabled,
                     output_config=_output_config(schema),
+                    cached_prefix=cached_prefix,
                 )
                 parsed, raw = parse_model_json(text)
                 usage = _usage_from_body(body)
@@ -333,10 +378,17 @@ def generate(
 def _usage_from_body(body: dict[str, Any] | None) -> dict[str, int]:
     usage = body.get("usage") if isinstance(body, dict) else None
     if not isinstance(usage, dict):
-        return {"input_tokens": 0, "output_tokens": 0}
+        return {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        }
     return {
         "input_tokens": _as_int(usage.get("input_tokens")),
         "output_tokens": _as_int(usage.get("output_tokens")),
+        "cache_creation_input_tokens": _as_int(usage.get("cache_creation_input_tokens")),
+        "cache_read_input_tokens": _as_int(usage.get("cache_read_input_tokens")),
     }
 
 
@@ -351,17 +403,39 @@ def _payload(
     *,
     model: str,
     prompt: str,
-    system: str | None,
+    system: str | list[dict[str, Any]] | None,
     temperature: float,
     max_tokens: int,
     omit_temperature: bool,
     thinking_disabled: bool,
     output_config: dict[str, Any] | None = None,
+    cached_prefix: str | None = None,
 ) -> dict[str, Any]:
+    # 문학 캐시는 system content blocks에 둔다. 유저 쪽 cached_prefix는
+    # 예전 경로·비문학 호출용 호환이다. system에 이미 cache_control이 있으면
+    # 유저 prefix를 붙여 이중 쓰기가 나지 않게 한다.
+    system_has_cache = False
+    if isinstance(system, list):
+        for block in system:
+            if isinstance(block, dict) and block.get("cache_control"):
+                system_has_cache = True
+                break
+    prefix = "" if system_has_cache else str(cached_prefix or "").strip()
+    if prefix:
+        content: str | list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": prefix,
+                "cache_control": {"type": "ephemeral"},
+            },
+            {"type": "text", "text": (prompt or "").strip() or "(지시 없음)"},
+        ]
+    else:
+        content = (prompt or "").strip() or "(지시 없음)"
     payload: dict[str, Any] = {
         "model": model,
         "max_tokens": max(1, int(max_tokens or DEFAULT_MAX_TOKENS)),
-        "messages": [{"role": "user", "content": (prompt or "").strip()}],
+        "messages": [{"role": "user", "content": content}],
     }
     if system:
         payload["system"] = system
@@ -378,13 +452,14 @@ def _generate_once(
     prompt: str,
     *,
     model: str,
-    system: str | None,
+    system: str | list[dict[str, Any]] | None,
     temperature: float,
     max_tokens: int,
     timeout: float,
     omit_temperature: bool,
     thinking_disabled: bool,
     output_config: dict[str, Any] | None = None,
+    cached_prefix: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     payload = _payload(
         model=model,
@@ -395,6 +470,7 @@ def _generate_once(
         omit_temperature=omit_temperature,
         thinking_disabled=thinking_disabled,
         output_config=output_config,
+        cached_prefix=cached_prefix,
     )
     try:
         import anthropic  # type: ignore
@@ -459,6 +535,8 @@ def _generate_sdk(payload: dict[str, Any], *, timeout: float) -> tuple[str, dict
     usage = {
         "input_tokens": _as_int(getattr(usage_obj, "input_tokens", 0)),
         "output_tokens": _as_int(getattr(usage_obj, "output_tokens", 0)),
+        "cache_creation_input_tokens": _as_int(getattr(usage_obj, "cache_creation_input_tokens", 0)),
+        "cache_read_input_tokens": _as_int(getattr(usage_obj, "cache_read_input_tokens", 0)),
     }
     body = {
         "stop_reason": getattr(resp, "stop_reason", None),
@@ -577,6 +655,124 @@ def _short_http_message(status: int, detail: str) -> str:
     if status:
         return f"HTTP {status}"
     return "Anthropic 호출에 실패했습니다."
+
+
+BATCH_URL = "https://api.anthropic.com/v1/messages/batches"
+
+
+def message_batch_body(requests: list[dict[str, Any]]) -> dict[str, Any]:
+    """측정 스크립트가 Batch API에 넣는 요청 본문. 앱 실시간 호출은 쓰지 않는다."""
+    items = []
+    for index, item in enumerate(requests):
+        params = dict(item.get("params") or item)
+        params.pop("custom_id", None)
+        items.append(
+            {
+                "custom_id": str(item.get("custom_id") or f"req-{index}"),
+                "params": params,
+            }
+        )
+    return {"requests": items}
+
+
+def submit_message_batch(requests: list[dict[str, Any]], *, timeout: float = 60.0) -> str:
+    """Batch API에 넣고 배치 id를 돌려준다. 실시간 messages.create는 부르지 않는다."""
+    if not is_configured():
+        raise ClaudeError("Anthropic API 키가 없습니다.", code="auth")
+    api_key = anthropic_api_key()
+    data = json.dumps(message_batch_body(requests), ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        BATCH_URL,
+        data=data,
+        headers={
+            "x-api-key": api_key or "",
+            "anthropic-version": ANTHROPIC_VERSION,
+            "content-type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=max(5.0, float(timeout))) as response:  # noqa: S310
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        raise ClaudeError(_short_http_message(int(error.code), detail), code="bad_request", http_status=int(error.code)) from None
+    batch_id = str((body or {}).get("id") or "")
+    if not batch_id:
+        raise ClaudeError("Batch API가 id를 주지 않았습니다.", code="unknown")
+    return batch_id
+
+
+class BatchClaude:
+    """측정용. generate 한 번을 요청 1개인 배치로 보내고 끝날 때까지 기다린다."""
+
+    def generate(self, prompt: str, **kwargs: Any) -> dict[str, Any]:
+        model = str(kwargs.get("model") or "")
+        payload = _payload(
+            model=model,
+            prompt=prompt,
+            system=kwargs.get("system"),
+            temperature=float(kwargs.get("temperature") or 0.2),
+            max_tokens=int(kwargs.get("max_tokens") or DEFAULT_MAX_TOKENS),
+            omit_temperature=is_sampling_locked_model(model),
+            thinking_disabled=is_sampling_locked_model(model),
+            output_config=_output_config(kwargs.get("json_schema")),
+            cached_prefix=kwargs.get("cached_prefix"),
+        )
+        batch_id = submit_message_batch([{"custom_id": "call", "params": payload}])
+        # Batch는 수분 걸릴 수 있다. 측정용 기본 대기는 30분.
+        deadline = time.time() + max(float(kwargs.get("timeout") or 0), 1800.0)
+        while time.time() < deadline:
+            status, results = _poll_message_batch(batch_id)
+            if status == "ended":
+                return _result_from_batch_item(results[0] if results else {}, model)
+            time.sleep(2.0)
+        raise ClaudeError("Batch API 대기 시간이 끝났습니다.", code="timeout")
+
+
+def _poll_message_batch(batch_id: str) -> tuple[str, list[dict[str, Any]]]:
+    api_key = anthropic_api_key()
+    request = urllib.request.Request(
+        f"{BATCH_URL}/{batch_id}",
+        headers={"x-api-key": api_key or "", "anthropic-version": ANTHROPIC_VERSION},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+        body = json.loads(response.read().decode("utf-8"))
+    status = str(body.get("processing_status") or "")
+    if status != "ended":
+        return status, []
+    result_request = urllib.request.Request(
+        f"{BATCH_URL}/{batch_id}/results",
+        headers={"x-api-key": api_key or "", "anthropic-version": ANTHROPIC_VERSION},
+        method="GET",
+    )
+    with urllib.request.urlopen(result_request, timeout=60) as response:  # noqa: S310
+        raw = response.read().decode("utf-8")
+    rows = []
+    for line in raw.splitlines():
+        if line.strip():
+            rows.append(json.loads(line))
+    return status, rows
+
+
+def _result_from_batch_item(item: dict[str, Any], model: str) -> dict[str, Any]:
+    result = item.get("result") if isinstance(item.get("result"), dict) else {}
+    if result.get("type") != "succeeded":
+        raise ClaudeError(str(result.get("error") or "Batch 요청이 실패했습니다.")[:300], code="unknown")
+    message = result.get("message") if isinstance(result.get("message"), dict) else {}
+    text = _extract_text(message)
+    parsed, raw = parse_model_json(text)
+    return {
+        "text": text,
+        "parsed": parsed,
+        "raw": raw if parsed is None else None,
+        "model": model,
+        "empty": not bool((text or "").strip()),
+        "usage": _usage_from_body(message),
+        "stop_reason": message.get("stop_reason"),
+        "truncated": str(message.get("stop_reason") or "").lower() == "max_tokens",
+    }
 
 
 class LiveClaude:

@@ -52,6 +52,8 @@ import world_import_analysis
 import document_import
 import env_loader
 import genre_clusters
+import literary_form
+import tory_notifications
 import genre_tool_routing
 import prompt_pipelines
 import folder_tree
@@ -249,6 +251,14 @@ MIGRATION_093_PATH = ROOT / "db" / "093_project_romance_axes.sql"
 MIGRATION_094_PATH = ROOT / "db" / "094_feedback_run.sql"
 MIGRATION_095_PATH = ROOT / "db" / "095_feedback_card_title.sql"
 MIGRATION_096_PATH = ROOT / "db" / "096_feedback_card_comment.sql"
+MIGRATION_097_PATH = ROOT / "db" / "097_project_literary_form.sql"
+MIGRATION_098_PATH = ROOT / "db" / "098_tory_notification.sql"
+MIGRATION_099_PATH = ROOT / "db" / "099_literary_short_report.sql"
+MIGRATION_100_PATH = ROOT / "db" / "100_literary_card_fields.sql"
+MIGRATION_101_PATH = ROOT / "db" / "101_literary_long_foundation.sql"
+MIGRATION_102_PATH = ROOT / "db" / "102_literary_summary_bundle.sql"
+MIGRATION_103_PATH = ROOT / "db" / "103_literary_pending_reclaim.sql"
+MIGRATION_104_PATH = ROOT / "db" / "104_literary_unit_work.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -2009,6 +2019,22 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_095_PATH.read_text(encoding="utf-8"))
         if 96 not in applied:
             connection.executescript(MIGRATION_096_PATH.read_text(encoding="utf-8"))
+        if 97 not in applied:
+            connection.executescript(MIGRATION_097_PATH.read_text(encoding="utf-8"))
+        if 98 not in applied:
+            connection.executescript(MIGRATION_098_PATH.read_text(encoding="utf-8"))
+        if 99 not in applied:
+            connection.executescript(MIGRATION_099_PATH.read_text(encoding="utf-8"))
+        if 100 not in applied:
+            connection.executescript(MIGRATION_100_PATH.read_text(encoding="utf-8"))
+        if 101 not in applied:
+            connection.executescript(MIGRATION_101_PATH.read_text(encoding="utf-8"))
+        if 102 not in applied:
+            connection.executescript(MIGRATION_102_PATH.read_text(encoding="utf-8"))
+        if 103 not in applied:
+            connection.executescript(MIGRATION_103_PATH.read_text(encoding="utf-8"))
+        if 104 not in applied:
+            connection.executescript(MIGRATION_104_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -2312,7 +2338,7 @@ def ensure_import_delimiter_config_column(connection: sqlite3.Connection) -> Non
 
 
 def ensure_world_tori_analysis_table(connection: sqlite3.Connection) -> None:
-    """Idempotent: world_tori_analysis (migration 051)."""
+    """Idempotent: world_tori_analysis (migration 051) + reclaim columns (103)."""
     try:
         exists = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'world_tori_analysis'"
@@ -2327,6 +2353,8 @@ def ensure_world_tori_analysis_table(connection: sqlite3.Connection) -> None:
             "section_name TEXT NOT NULL DEFAULT '', "
             "field_name TEXT NOT NULL CHECK (length(trim(field_name)) > 0), "
             "analyzed_content TEXT NOT NULL DEFAULT '', "
+            "conflict_id TEXT NOT NULL DEFAULT '', "
+            "status TEXT NOT NULL DEFAULT 'pending', "
             "created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), "
             "UNIQUE (project_id, field_name), "
             "FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE)"
@@ -2335,6 +2363,28 @@ def ensure_world_tori_analysis_table(connection: sqlite3.Connection) -> None:
             "CREATE INDEX IF NOT EXISTS ix_world_tori_analysis_project "
             "ON world_tori_analysis(project_id)"
         )
+    else:
+        try:
+            cols = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(world_tori_analysis)").fetchall()
+            }
+        except sqlite3.Error:
+            cols = set()
+        if "conflict_id" not in cols:
+            try:
+                connection.execute(
+                    "ALTER TABLE world_tori_analysis ADD COLUMN conflict_id TEXT NOT NULL DEFAULT ''"
+                )
+            except sqlite3.Error:
+                pass
+        if "status" not in cols:
+            try:
+                connection.execute(
+                    "ALTER TABLE world_tori_analysis ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'"
+                )
+            except sqlite3.Error:
+                pass
     try:
         connection.execute(
             "INSERT OR IGNORE INTO schema_migration(version, name) "
@@ -3152,7 +3202,7 @@ def ensure_item_tables(connection: sqlite3.Connection) -> None:
 
 
 def ensure_character_tori_analysis_table(connection: sqlite3.Connection) -> None:
-    """Idempotent: character_tori_analysis (migration 050)."""
+    """Idempotent: character_tori_analysis (migration 050) + reclaim columns (103)."""
     try:
         exists = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'character_tori_analysis'"
@@ -3166,6 +3216,8 @@ def ensure_character_tori_analysis_table(connection: sqlite3.Connection) -> None
             "character_id INTEGER NOT NULL, "
             "field_name TEXT NOT NULL CHECK (length(trim(field_name)) > 0), "
             "analyzed_content TEXT NOT NULL DEFAULT '', "
+            "conflict_id TEXT NOT NULL DEFAULT '', "
+            "status TEXT NOT NULL DEFAULT 'pending', "
             "created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), "
             "UNIQUE (character_id, field_name), "
             "FOREIGN KEY (character_id) REFERENCES character(id) ON DELETE CASCADE)"
@@ -3174,6 +3226,28 @@ def ensure_character_tori_analysis_table(connection: sqlite3.Connection) -> None
             "CREATE INDEX IF NOT EXISTS ix_character_tori_analysis_character "
             "ON character_tori_analysis(character_id)"
         )
+    else:
+        try:
+            cols = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(character_tori_analysis)").fetchall()
+            }
+        except sqlite3.Error:
+            cols = set()
+        if "conflict_id" not in cols:
+            try:
+                connection.execute(
+                    "ALTER TABLE character_tori_analysis ADD COLUMN conflict_id TEXT NOT NULL DEFAULT ''"
+                )
+            except sqlite3.Error:
+                pass
+        if "status" not in cols:
+            try:
+                connection.execute(
+                    "ALTER TABLE character_tori_analysis ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'"
+                )
+            except sqlite3.Error:
+                pass
     try:
         connection.execute(
             "INSERT OR IGNORE INTO schema_migration(version, name) "
@@ -5539,6 +5613,92 @@ def set_project_romance_axes(
                 str(romance_blend or "none").strip() or "none",
                 int(project_id),
             ),
+        )
+    except sqlite3.OperationalError:
+        pass
+
+
+def _stored_literary_form(row: sqlite3.Row | dict | None) -> str | None:
+    if row is None:
+        return None
+    keys = row.keys() if hasattr(row, "keys") else row
+    try:
+        if "literary_form" not in keys:
+            return None
+    except TypeError:
+        return None
+    return literary_form.normalize_literary_form(row["literary_form"])
+
+
+def write_project_literary_form(
+    connection: sqlite3.Connection,
+    project_id: int,
+    form: str | None,
+    *,
+    previous: str | None,
+) -> None:
+    try:
+        connection.execute(
+            "UPDATE project SET literary_form = ? WHERE id = ?",
+            (form, int(project_id)),
+        )
+    except sqlite3.OperationalError:
+        return
+    if previous != form:
+        literary_form.on_literary_form_changed(
+            previous, form, connection=connection, project_id=project_id
+        )
+
+
+def write_project_contest(
+    connection: sqlite3.Connection,
+    project_id: int,
+    body: dict,
+    current: dict | None = None,
+) -> dict:
+    """공모전 준비 설정. 키가 있는 항목만 갱신한다."""
+    stored = literary_form.contest_fields_from(current or {})
+    present = [key for key in literary_form.CONTEST_KEYS if key in body]
+    if not present:
+        return stored
+    incoming = literary_form.contest_fields_from({**stored, **{key: body.get(key) for key in present}})
+    for key in ("contest_pages_min", "contest_pages_max"):
+        if key in body and body.get(key) not in (None, "") and incoming[key] is None:
+            raise ValueError("분량 규정은 0 이상의 원고지 매수여야 합니다.")
+    if "contest_prep" in body:
+        stored["contest_prep"] = incoming["contest_prep"]
+    if "contest_name" in body:
+        stored["contest_name"] = incoming["contest_name"]
+    if "contest_pages_min" in body:
+        stored["contest_pages_min"] = None if body.get("contest_pages_min") in (None, "") else incoming["contest_pages_min"]
+    if "contest_pages_max" in body:
+        stored["contest_pages_max"] = None if body.get("contest_pages_max") in (None, "") else incoming["contest_pages_max"]
+    assignments = ", ".join(f"{key} = ?" for key in present)
+    connection.execute(
+        f"UPDATE project SET {assignments} WHERE id = ?",
+        (*[stored[key] for key in present], int(project_id)),
+    )
+    return stored
+
+
+def write_project_style_fields(
+    connection: sqlite3.Connection,
+    project_id: int,
+    body: dict,
+) -> None:
+    """Update only the style columns present in body. Never rewrites a composed document."""
+    present = [key for key in literary_form.STYLE_FIELDS if key in body]
+    if not present:
+        return
+    assignments = ", ".join(f"{key} = ?" for key in present)
+    values = [
+        str(body.get(key) or "")[: literary_form.STYLE_FIELD_MAX_CHARS]
+        for key in present
+    ]
+    try:
+        connection.execute(
+            f"UPDATE project SET {assignments} WHERE id = ?",
+            (*values, int(project_id)),
         )
     except sqlite3.OperationalError:
         pass
@@ -8251,7 +8411,11 @@ def serialize_project_list_row(row: sqlite3.Row | dict) -> dict:
         item["list_sort_order"] = int(item.get("list_sort_order") or 0)
     except (TypeError, ValueError):
         item["list_sort_order"] = 0
-    return attach_cluster_id(item)
+    item = attach_cluster_id(item)
+    public_literary = literary_form.public_literary_fields(item)
+    literary_form.strip_literary_keys(item)
+    item.update(public_literary)
+    return item
 
 
 def list_projects_payload(connection: sqlite3.Connection) -> list[dict]:
@@ -8285,6 +8449,11 @@ def list_projects_payload(connection: sqlite3.Connection) -> list[dict]:
     try:
         connection.execute("SELECT content_rating FROM project LIMIT 1")
         cols += ", content_rating"
+    except sqlite3.OperationalError:
+        pass
+    try:
+        connection.execute("SELECT literary_form FROM project LIMIT 1")
+        cols += ", literary_form, literary_finale_kind, literary_finale_id, " + ", ".join(literary_form.STYLE_FIELDS)
     except sqlite3.OperationalError:
         pass
     try:
@@ -10264,6 +10433,67 @@ def _run_character_analysis_job(
     _finish_import_analysis_job(char_stats, world_stats, error=last_error)
 
 
+def extract_literary_style(handler, project_id: int, body: dict | None = None) -> dict:
+    """설정집 '토리야 작성해줘'. 빈 칸과 기존 〔토리〕 초안만 다시 쓴다."""
+    from feedback_pipeline.claude_client import get_client, is_configured
+    from feedback_pipeline.literature_style import extract_and_apply
+
+    if not is_configured():
+        raise ValueError("ANTHROPIC_API_KEY가 설정되지 않았습니다.")
+    mode = str((body or {}).get("mode") or "button").strip()
+    if mode not in {"button", "fill_empty"}:
+        raise ValueError("문체 추출 방식이 올바르지 않습니다.")
+    with database() as connection:
+        handler.require_project(connection, project_id)
+        result = extract_and_apply(
+            connection,
+            int(project_id),
+            mode=mode,
+            claude=get_client(),
+        )
+    updated = result.get("updated") if isinstance(result.get("updated"), dict) else {}
+    return {
+        "ok": True,
+        "skipped": bool(result.get("skipped")),
+        "updated": list(updated.keys()),
+    }
+
+
+def queue_literary_style_after_import(project_id: int) -> None:
+    """가져오기가 커밋된 뒤 문학 단편이면 빈 문체 칸만 채운다."""
+    import threading
+
+    def work() -> None:
+        time.sleep(0.4)
+        try:
+            from feedback_pipeline.claude_client import get_client, is_configured
+            from feedback_pipeline.literature_style import extract_and_apply
+
+            if not is_configured():
+                return
+            with database() as connection:
+                row = connection.execute(
+                    "SELECT cluster_id, main_genre, sub_genre, literary_form FROM project WHERE id = ?",
+                    (int(project_id),),
+                ).fetchone()
+                if literary_form.literary_track(dict(row) if row else {}) != "short":
+                    return
+                extract_and_apply(
+                    connection,
+                    int(project_id),
+                    mode="fill_empty",
+                    claude=get_client(),
+                )
+        except Exception as error:
+            print(f"문체 추출 건너뜀: {error}")
+
+    threading.Thread(
+        target=work,
+        daemon=True,
+        name=f"literary-style-{int(project_id)}",
+    ).start()
+
+
 def start_character_analysis_job(
     project_id: int,
     scene_ids: list[int] | None = None,
@@ -10751,6 +10981,20 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/(\d+)/outline", path)
             if match:
                 self.send_json(self.project_outline(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/tory-notifications", path)
+            if match:
+                project_id = int(match.group(1))
+                query = parse_qs(urlparse(self.path).query)
+                raw_status = ",".join(query.get("status", []))
+                statuses = [part.strip() for part in raw_status.split(",") if part.strip()] or None
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    payload = tory_notifications.list_notifications(
+                        connection, project_id, statuses=statuses
+                    )
+                self.send_json(payload)
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/undo-status", path)
@@ -11458,6 +11702,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         raise ValueError(
                             "로맨스 결합(공동축/메인축)일 때는 구조 축(정서형/사건형)을 선택해 주세요."
                         )
+                literary_saved = literary_form.resolve_required_literary_form(
+                    cluster_id=cluster_id,
+                    main_genre=main_genre,
+                    sub_genre=sub_genre,
+                    raw=body.get("literary_form"),
+                )
                 inherit_from_id = None
                 raw_inherit = body.get("inherit_from_project_id") or body.get("inherit_from")
                 if raw_inherit not in (None, "", 0, "0"):
@@ -11515,6 +11765,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         romance_setting=romance_fields["romance_setting"],
                         romance_blend=romance_fields["romance_blend"],
                     )
+                    write_project_literary_form(
+                        connection, project_id, literary_saved, previous=None
+                    )
                     package_info = ensure_project_package(connection, project_id)
                     if inherit_from_id:
                         inherit_info = settings_inherit.inherit_project_settings(
@@ -11560,6 +11813,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                             romance_setting=romance_fields["romance_setting"],
                             romance_blend=romance_fields["romance_blend"],
                         ),
+                        **literary_form.public_literary_fields({
+                            "cluster_id": cluster_id,
+                            "main_genre": main_genre,
+                            "sub_genre": sub_genre,
+                            "literary_form": literary_saved,
+                        }),
                         **package_info,
                         **inherit_info,
                     },
@@ -11978,6 +12237,81 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.create_bait(int(match.group(1)), body), HTTPStatus.CREATED)
                 return
 
+            if path == "/api/dev/tory-notification-fixtures":
+                if _is_frozen():
+                    self.api_error("개발용 기능입니다.", HTTPStatus.NOT_FOUND)
+                    return
+                try:
+                    fixture_project_id = int(body.get("project_id") or 0)
+                except (TypeError, ValueError) as error:
+                    raise ValueError("작품을 선택해 주세요.") from error
+                with database() as connection:
+                    self.require_project(connection, fixture_project_id)
+                    fixtures = tory_notifications.install_dev_fixtures(
+                        connection, fixture_project_id
+                    )
+                self.send_json({"ok": True, "notifications": fixtures})
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/tory-notifications/(\d+)/read", path)
+            if match:
+                project_id = int(match.group(1))
+                notification_id = int(match.group(2))
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    payload = tory_notifications.mark_read(
+                        connection, project_id, notification_id
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/tory-notifications/(\d+)/snooze", path)
+            if match:
+                project_id = int(match.group(1))
+                notification_id = int(match.group(2))
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    payload = tory_notifications.snooze_notification(
+                        connection,
+                        project_id,
+                        notification_id,
+                        hours=body.get("hours"),
+                        until=body.get("until"),
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/tory-notifications/(\d+)/dismiss", path)
+            if match:
+                project_id = int(match.group(1))
+                notification_id = int(match.group(2))
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    payload = tory_notifications.dismiss_notification(
+                        connection,
+                        project_id,
+                        notification_id,
+                        forever=bool(body.get("forever")),
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(
+                r"/api/projects/(\d+)/tory-notifications/(\d+)/actions/([^/]+)",
+                path,
+            )
+            if match:
+                project_id = int(match.group(1))
+                notification_id = int(match.group(2))
+                action_id = unquote(match.group(3))
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    payload = tory_notifications.execute_action(
+                        connection, project_id, notification_id, action_id
+                    )
+                self.send_json(payload)
+                return
+
             match = re.fullmatch(r"/api/projects/(\d+)/baits/import", path)
             if match:
                 self.send_json(self.import_baits(int(match.group(1)), body))
@@ -12290,6 +12624,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.start_project_character_analysis(int(match.group(1)), body or {}))
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/literary-style", path)
+            if match:
+                self.send_json(extract_literary_style(self, int(match.group(1)), body or {}))
+                return
+
             match = re.fullmatch(r"/api/characters/(\d+)/tori-analysis/apply", path)
             if match:
                 self.send_json(self.apply_character_tori_analysis(int(match.group(1)), body or {}))
@@ -12338,6 +12677,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/(\d+)/settings", path)
             if match:
                 self.send_json(self.update_project_settings(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/literary-finale", path)
+            if match:
+                self.send_json(self.set_literary_finale(int(match.group(1)), body))
                 return
 
             # Bulk-apply scene goal count/metric to every active scene in a project.
@@ -12795,6 +13139,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/(\d+)/settings", path)
             if match:
                 self.send_json(self.update_project_settings(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/literary-finale", path)
+            if match:
+                self.send_json(self.set_literary_finale(int(match.group(1)), body))
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/tory-check", path)
@@ -19400,6 +19749,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "plant_at_note": item.get("plant_at_note") or "",
             "source_title": item.get("source_title") or "",
             "notify_on_recover": notify_on,
+            "intentionally_open": int(item.get("intentionally_open") or 0) == 1,
             "snooze_until": item.get("snooze_until") or None,
             "created_at": item.get("created_at") or "",
             # camelCase aliases for the existing frontend shape
@@ -19411,6 +19761,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "plantAtNote": item.get("plant_at_note") or "",
             "sourceTitle": item.get("source_title") or "",
             "notifyOnRecover": notify_on,
+            "intentionallyOpen": int(item.get("intentionally_open") or 0) == 1,
             "snoozeUntil": item.get("snooze_until") or None,
             "createdAt": item.get("created_at") or "",
         }
@@ -19479,6 +19830,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         else:
             notify_on = 0 if base.get("notify_on_recover") in (0, False, "0", "false") else 1
 
+        if "intentionally_open" in body or "intentionallyOpen" in body:
+            raw_open = body.get("intentionally_open") if "intentionally_open" in body else body.get("intentionallyOpen")
+            intentionally_open = 1 if raw_open in (True, 1, "1", "true", "True") else 0
+        else:
+            intentionally_open = 1 if base.get("intentionally_open") in (1, True, "1", "true") else 0
+
         if "snooze_until" in body or "snoozeUntil" in body:
             raw_snooze = body.get("snooze_until") if "snooze_until" in body else body.get("snoozeUntil")
             if raw_snooze is None or raw_snooze == "":
@@ -19516,6 +19873,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "plant_at_note": plant_at_note,
             "source_title": source_title,
             "notify_on_recover": notify_on,
+            "intentionally_open": intentionally_open,
             "snooze_until": snooze_until,
             "created_at": created_at,
         }
@@ -19526,7 +19884,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             rows = connection.execute(
                 "SELECT id, project_id, kind, quote, summary, recover_content, recover_at, "
                 "recover_scene_id, plant_scene_id, source_scene_id, plant_at_note, source_title, "
-                "notify_on_recover, snooze_until, created_at "
+                "notify_on_recover, intentionally_open, snooze_until, created_at "
                 "FROM bait WHERE project_id = ? "
                 "ORDER BY datetime(created_at) DESC, id DESC",
                 (project_id,),
@@ -19598,7 +19956,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     connection.execute(
                         "UPDATE bait SET kind = ?, quote = ?, summary = ?, recover_content = ?, "
                         "recover_at = ?, recover_scene_id = ?, plant_scene_id = ?, source_scene_id = ?, "
-                        "plant_at_note = ?, source_title = ?, notify_on_recover = ?, snooze_until = ? "
+                        "plant_at_note = ?, source_title = ?, notify_on_recover = ?, intentionally_open = ?, snooze_until = ? "
                         "WHERE id = ? AND project_id = ?",
                         (
                             fields["kind"],
@@ -19612,6 +19970,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                             fields["plant_at_note"],
                             fields["source_title"],
                             fields["notify_on_recover"],
+                            fields["intentionally_open"],
                             fields["snooze_until"],
                             bait_id,
                             project_id,
@@ -19673,7 +20032,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             connection.execute(
                 "UPDATE bait SET kind = ?, quote = ?, summary = ?, recover_content = ?, "
                 "recover_at = ?, recover_scene_id = ?, plant_scene_id = ?, source_scene_id = ?, "
-                "plant_at_note = ?, source_title = ?, notify_on_recover = ?, snooze_until = ? "
+                "plant_at_note = ?, source_title = ?, notify_on_recover = ?, intentionally_open = ?, snooze_until = ? "
                 "WHERE id = ?",
                 (
                     fields["kind"],
@@ -19687,6 +20046,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     fields["plant_at_note"],
                     fields["source_title"],
                     fields["notify_on_recover"],
+                    fields["intentionally_open"],
                     fields["snooze_until"],
                     bait_id,
                 ),
@@ -19694,7 +20054,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             updated = connection.execute(
                 "SELECT id, project_id, kind, quote, summary, recover_content, recover_at, "
                 "recover_scene_id, plant_scene_id, source_scene_id, plant_at_note, source_title, "
-                "notify_on_recover, snooze_until, created_at FROM bait WHERE id = ?",
+                "notify_on_recover, intentionally_open, snooze_until, created_at FROM bait WHERE id = ?",
                 (bait_id,),
             ).fetchone()
         return self._serialize_bait_row(updated)  # type: ignore[arg-type]
@@ -23246,6 +23606,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             project_data["completion_guide_shown"] = bool(
                 project_data.get("completion_guide_shown")
             )
+        attach_cluster_id(project_data)
+        public_literary = literary_form.public_literary_fields(project_data)
+        literary_form.strip_literary_keys(project_data)
+        project_data.update(public_literary)
         return project_data
 
     def _load_outline_project_row(
@@ -23256,7 +23620,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "SELECT title, purpose, main_genre, sub_genre, genre_detail, cluster_id, keywords, uuid, package_path, "
                 "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
                 "tory_priority_md, outline_summary, goal_word_count, linked_success_profile_id, "
-                "completion_guide_shown "
+                "completion_guide_shown, literary_form, style_narration, style_sentence, "
+                "style_dialogue, style_lexicon, style_choice, style_habit, "
+                "contest_prep, contest_name, contest_pages_min, contest_pages_max "
                 "FROM project WHERE id = ?",
                 (project_id,),
             ).fetchone()
@@ -24362,6 +24728,41 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         ids = self._list_scene_sibling_ids(connection, chapter_id, parent_scene_id)
         self._assign_scene_sibling_orders(connection, chapter_id, parent_scene_id, ids)
 
+    def set_literary_finale(self, project_id: int, body: dict) -> dict:
+        """지금 연 회차가 속한 분석 단위를 마지막 장으로 표시한다. 문학 장편만."""
+        from feedback_pipeline.literature_units import load_literary_units
+
+        body = body or {}
+        with database() as connection:
+            self.require_project(connection, project_id)
+            project = connection.execute(
+                "SELECT cluster_id, main_genre, sub_genre, literary_form FROM project WHERE id = ?",
+                (int(project_id),),
+            ).fetchone()
+            if literary_form.literary_track(project) != "long":
+                raise ValueError("장편에서만 마지막 장을 표시할 수 있습니다.")
+            units = load_literary_units(connection, project_id)
+            if body.get("clear"):
+                kind, unit_id = "", 0
+            else:
+                try:
+                    scene_id = int(body.get("scene_id") or 0)
+                except (TypeError, ValueError):
+                    scene_id = 0
+                match = next((unit for unit in units if scene_id in unit["scene_ids"]), None)
+                if match is None:
+                    raise ValueError("표시할 회차를 찾지 못했습니다.")
+                kind, unit_id = str(match["kind"]), int(match["id"])
+            connection.execute(
+                "UPDATE project SET literary_finale_kind = ?, literary_finale_id = ? WHERE id = ?",
+                (kind, unit_id, int(project_id)),
+            )
+        return {
+            "literary_finale_kind": kind,
+            "literary_finale_id": unit_id,
+            "units": units,
+        }
+
     def update_project_settings(self, project_id: int, body: dict) -> dict:
         with database() as connection:
             self.require_project(connection, project_id)
@@ -24371,7 +24772,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     "SELECT description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
                     "tory_priority_md, outline_summary, "
                     "main_genre, sub_genre, genre_detail, cluster_id, keywords, purpose, goal_word_count, "
-                    "linked_success_profile_id "
+                    "linked_success_profile_id, literary_form, style_narration, style_sentence, "
+                    "style_dialogue, style_lexicon, style_choice, style_habit, "
+                    "contest_prep, contest_name, contest_pages_min, contest_pages_max "
                     "FROM project WHERE id = ?",
                     (project_id,),
                 ).fetchone()
@@ -24397,6 +24800,20 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             )
             main_genre = row["main_genre"] if row else ""
             sub_genre = row["sub_genre"] if row else ""
+            literary_main_before = main_genre
+            literary_sub_before = sub_genre
+            literary_form_before = _stored_literary_form(row)
+            literary_cluster_before = ""
+            if row and "cluster_id" in row.keys():
+                literary_cluster_before = str(row["cluster_id"] or "").strip()
+            literary_style_values = {
+                key: "" for key in literary_form.STYLE_FIELDS
+            }
+            if row is not None:
+                row_keys = row.keys()
+                for key in literary_form.STYLE_FIELDS:
+                    if key in row_keys:
+                        literary_style_values[key] = str(row[key] or "")
             stored_genre_detail = ""
             if row and "genre_detail" in row.keys():
                 stored_genre_detail = str(row["genre_detail"] or "").strip()
@@ -24414,6 +24831,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 row["keywords"] if row and "keywords" in row.keys() else []
             )
             purpose = row["purpose"] if row and "purpose" in row.keys() else "general_novel"
+            literary_purpose_before = purpose
             goal_word_count = int(row["goal_word_count"] or 0) if row else 0
             linked_success_profile_id = None
             if has_link_col and row and "linked_success_profile_id" in row.keys():
@@ -24564,6 +24982,49 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 romance_setting=romance_fields["romance_setting"],
                 romance_blend=romance_fields["romance_blend"],
             )
+            was_literary_target = literary_form.is_literary_track_target(
+                genre_clusters.resolve_cluster_id(
+                    cluster_id=literary_cluster_before,
+                    purpose=literary_purpose_before,
+                    main_genre=literary_main_before,
+                    sub_genre=literary_sub_before,
+                ),
+                literary_sub_before,
+                literary_main_before,
+            )
+            literary_target = literary_form.is_literary_track_target(
+                cluster_id, sub_genre, main_genre
+            )
+            literary_saved = literary_form.resolve_settings_literary_form(
+                was_target=was_literary_target,
+                target=literary_target,
+                stored_form=literary_form_before,
+                body=body,
+            )
+            write_project_literary_form(
+                connection,
+                project_id,
+                literary_saved,
+                previous=literary_form_before,
+            )
+            if literary_target:
+                for key in literary_form.STYLE_FIELDS:
+                    if key in body:
+                        literary_style_values[key] = str(body.get(key) or "")[
+                            : literary_form.STYLE_FIELD_MAX_CHARS
+                        ]
+                write_project_style_fields(connection, project_id, body)
+            contest_values = literary_form.contest_fields_from(row)
+            if literary_target and any(key in body for key in literary_form.CONTEST_KEYS):
+                contest_values = write_project_contest(connection, project_id, body, contest_values)
+            literary_public = literary_form.public_literary_fields({
+                "cluster_id": cluster_id,
+                "main_genre": main_genre,
+                "sub_genre": sub_genre,
+                "literary_form": literary_saved,
+                **literary_style_values,
+                **contest_values,
+            })
         return {
             "ok": True,
             "synopsis_md": synopsis,
@@ -24609,6 +25070,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 romance_setting=romance_fields["romance_setting"],
                 romance_blend=romance_fields["romance_blend"],
             ),
+            **literary_public,
         }
 
     def rename_project(self, project_id: int, body: dict) -> dict:
@@ -28481,6 +28943,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             delimiter_config=delimiter_config,
         )
         payload = document_import.preview_from_plan(plan, extracted)
+        if body.get("include_char_count"):
+            payload["char_count"] = len(extracted.text or "")
         payload["split"] = split_mode
         payload["delimiter_config"] = document_import.serialise_delimiter_config(
             delimiter_config, split_mode=split_mode
@@ -28673,6 +29137,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         with database() as connection:
             created_project = False
             package_info: dict = {}
+            literary_public: dict = {}
             if destination == "new_project" or project_id is None:
                 if destination in {"match_replace_scene", "proof_compare"}:
                     raise ValueError("회차 자동 매칭은 기존 작품에서만 사용할 수 있어요.")
@@ -28686,6 +29151,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     purpose=purpose,
                     main_genre=main_genre,
                     sub_genre=sub_genre,
+                )
+                literary_saved = literary_form.resolve_required_literary_form(
+                    cluster_id=cluster_id,
+                    main_genre=main_genre,
+                    sub_genre=sub_genre,
+                    raw=body.get("literary_form"),
                 )
                 # Explicit last_opened_at (μs) so import-created works sort correctly vs rapid creates.
                 max_order_row = connection.execute(
@@ -28725,11 +29196,32 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     )
                 project_id = int(cursor.lastrowid)
                 set_project_cluster_id(connection, project_id, cluster_id)
+                write_project_literary_form(
+                    connection, project_id, literary_saved, previous=None
+                )
+                literary_public = literary_form.public_literary_fields({
+                    "cluster_id": cluster_id,
+                    "main_genre": main_genre,
+                    "sub_genre": sub_genre,
+                    "literary_form": literary_saved,
+                })
                 created_project = True
                 destination = "new_chapter"
                 package_info = ensure_project_package(connection, project_id)
             else:
                 self.require_project(connection, project_id)
+                literary_saved = None
+                try:
+                    current_lit = connection.execute(
+                        "SELECT main_genre, sub_genre, cluster_id, purpose, literary_form "
+                        "FROM project WHERE id = ?",
+                        (project_id,),
+                    ).fetchone()
+                except sqlite3.OperationalError:
+                    current_lit = connection.execute(
+                        "SELECT main_genre, sub_genre, cluster_id, purpose FROM project WHERE id = ?",
+                        (project_id,),
+                    ).fetchone()
                 # Optional: update purpose / genre / keywords when provided on import into existing project.
                 if body.get("purpose") not in (None, ""):
                     connection.execute(
@@ -28756,6 +29248,40 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     sub_genre=sub_genre,
                 )
                 set_project_cluster_id(connection, project_id, cluster_id)
+                if current_lit is not None and (main_genre or "literary_form" in body):
+                    eff_main = main_genre or str(current_lit["main_genre"] or "")
+                    eff_sub = sub_genre if main_genre else str(current_lit["sub_genre"] or "")
+                    was_literary_target = literary_form.is_literary_track_target(
+                        genre_clusters.resolve_cluster_id(
+                            cluster_id=current_lit["cluster_id"],
+                            purpose=current_lit["purpose"],
+                            main_genre=current_lit["main_genre"],
+                            sub_genre=current_lit["sub_genre"],
+                        ),
+                        current_lit["sub_genre"],
+                        current_lit["main_genre"],
+                    )
+                    literary_target = literary_form.is_literary_track_target(
+                        cluster_id, eff_sub, eff_main
+                    )
+                    literary_saved = literary_form.resolve_settings_literary_form(
+                        was_target=was_literary_target,
+                        target=literary_target,
+                        stored_form=_stored_literary_form(current_lit),
+                        body=body,
+                    )
+                    write_project_literary_form(
+                        connection,
+                        project_id,
+                        literary_saved,
+                        previous=_stored_literary_form(current_lit),
+                    )
+                    literary_public = literary_form.public_literary_fields({
+                        "cluster_id": cluster_id,
+                        "main_genre": eff_main,
+                        "sub_genre": eff_sub,
+                        "literary_form": literary_saved,
+                    })
                 package_info = ensure_project_package(connection, project_id)
 
             self._save_import_delimiter_config(
@@ -28937,6 +29463,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "word_count": total_words,
                 "warnings": list(extracted.warnings) + list(plan.warnings),
                 **package_info,
+                **literary_public,
             }
             if used_hierarchy:
                 result["hierarchy"] = True
@@ -28955,6 +29482,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         result["character_analysis"] = {
             "status": str(analysis.get("status") or "skipped"),
         }
+        try:
+            track_row = connection.execute(
+                "SELECT cluster_id, main_genre, sub_genre, literary_form FROM project WHERE id = ?",
+                (int(project_id),),
+            ).fetchone()
+            if literary_form.literary_track(dict(track_row) if track_row else {}) == "short":
+                queue_literary_style_after_import(int(project_id))
+                result["literary_style"] = {"status": "started"}
+        except Exception:
+            result["literary_style"] = {"status": "skipped"}
         return result
 
     def _insert_hierarchy_import(

@@ -964,6 +964,54 @@
                 </div>
               </section>
 
+              <section class="settings-box hidden" data-settings-section="style" id="styleBank" draggable="true" hidden>
+                <div class="settings-box-header">
+                  <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
+                  <button type="button" class="settings-box-toggle" data-settings-toggle="style" aria-expanded="false">
+                    <span class="settings-box-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                        <path d="M12 20h9"/>
+                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                      </svg>
+                    </span>
+                    <span class="settings-box-title" data-i18n="app.문체">문체</span>
+                  </button>
+                  <button type="button" class="secondary compact-btn settings-icon-btn hidden" id="toriFillStyleButton" data-tori-fill="style" hidden title="토리야 작성해줘" data-i18n-title="app.토리야_작성해줘" aria-label="토리야 작성해줘" data-i18n-aria-label="app.토리야_작성해줘">
+                    <span aria-hidden="true">✦</span>
+                  </button>
+                  <button type="button" class="settings-main-open" data-settings-main="style" aria-label="문체 펼치기" data-i18n-aria-label="app.문체" title="문체 펼치기" data-i18n-title="app.문체">
+                    <span class="settings-main-arrow" aria-hidden="true">→</span>
+                  </button>
+                </div>
+                <div class="settings-box-preview" id="stylePreview"></div>
+                <div class="settings-box-body" id="styleBody" hidden>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.서술_기본값">서술 기본값</span></span>
+                    <textarea data-style-field="style_narration" data-style-tori="1" rows="3" placeholder="인칭·시점, 시제, 서술 종결체, 서술 거리. 다중 시점이면 시점 변화 규칙." data-i18n-placeholder="app.문체_서술_기본값_안내"></textarea>
+                  </label>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.문장">문장</span></span>
+                    <textarea data-style-field="style_sentence" data-style-tori="1" rows="3" placeholder="문장 길이 경향, 문단 길이, 쉼표·접속 방식, 종결어미 특징, 문장부호 습관." data-i18n-placeholder="app.문체_문장_안내"></textarea>
+                  </label>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.대화">대화</span></span>
+                    <textarea data-style-field="style_dialogue" data-style-tori="1" rows="3" placeholder="대화 비중, 따옴표 사용 여부, 화자 표시 방식, 사투리·구어." data-i18n-placeholder="app.문체_대화_안내"></textarea>
+                  </label>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.어휘와_이미지">어휘와 이미지</span></span>
+                    <textarea data-style-field="style_lexicon" data-style-tori="1" rows="3" placeholder="어휘의 결, 비유 밀도, 자주 쓰는 감각·이미지." data-i18n-placeholder="app.문체_어휘_안내"></textarea>
+                  </label>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.의도적_선택">의도적 선택</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
+                    <textarea data-style-field="style_choice" rows="3" placeholder="AI가 문제로 볼 수 있지만 일부러 한 선택이 있다면 적어주세요. 예: 독백의 구절 반복은 리듬을 위한 의도" data-i18n-placeholder="app.문체_의도적_선택_안내"></textarea>
+                  </label>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.고치고_싶은_습관">고치고 싶은 습관</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
+                    <textarea data-style-field="style_habit" rows="3" placeholder="스스로 고치고 싶은 습관을 적어주세요. 예: '~것이다'를 줄이고 싶다" data-i18n-placeholder="app.문체_습관_안내"></textarea>
+                  </label>
+                </div>
+              </section>
+
               <section class="settings-box" data-settings-section="logsyn" draggable="true">
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
@@ -1035,6 +1083,40 @@
                 <div class="settings-box-preview" id="keywordsPreview"></div>
                 <div class="settings-box-body" id="keywordsBody" hidden>
                   <p id="settingsGenreSummary" class="settings-genre-summary" hidden></p>
+                  <div id="literaryFormSidebar" class="literary-form-field hidden" hidden>
+                    <span class="settings-field-title" data-i18n="app.분량">분량</span>
+                    <div class="literary-form-choices" role="radiogroup" aria-label="단편 또는 장편" data-i18n-aria-label="app.단편_또는_장편">
+                      <label class="literary-form-choice">
+                        <input type="radio" name="literaryFormSidebar" value="short">
+                        <span data-i18n="app.단편">단편</span>
+                      </label>
+                      <label class="literary-form-choice">
+                        <input type="radio" name="literaryFormSidebar" value="long">
+                        <span data-i18n="app.장편">장편</span>
+                      </label>
+                    </div>
+                    <p class="hint" data-i18n="app.중편은_장편을_권장합니다">중편은 장편을 권장합니다</p>
+                    <p class="hint literary-form-needed" hidden data-i18n="app.단편_또는_장편을_골라_주세요">단편 또는 장편을 골라 주세요. 고르기 전에는 이후 단계 기능이 잠깁니다.</p>
+                    <button type="button" class="secondary compact-btn" data-literary-finale hidden data-i18n="app.마지막_장으로_표시">지금 연 회차를 마지막 장으로</button>
+                    <p class="hint" data-literary-finale-label hidden></p>
+                  </div>
+                  <div id="contestPrepSidebar" class="contest-prep-field hidden" hidden>
+                    <label class="contest-prep-toggle">
+                      <span data-i18n="app.공모전_준비_중">공모전 준비 중</span>
+                      <input type="checkbox" id="contestPrepSidebarToggle" data-contest-prep="1">
+                    </label>
+                    <label class="contest-prep-name">
+                      <span data-i18n="app.목표_공모전">목표 공모전</span>
+                      <input type="text" id="contestNameSidebar" data-contest-name="1" maxlength="200" placeholder="선택" data-i18n-placeholder="app.목표_공모전_안내">
+                    </label>
+                    <div class="contest-prep-pages">
+                      <span data-i18n="app.분량_규정">분량 규정</span>
+                      <input type="number" id="contestPagesMinSidebar" data-contest-min="1" min="0" placeholder="최소" data-i18n-placeholder="app.원고지_최소">
+                      <span aria-hidden="true">~</span>
+                      <input type="number" id="contestPagesMaxSidebar" data-contest-max="1" min="0" placeholder="최대" data-i18n-placeholder="app.원고지_최대">
+                      <span data-i18n="app.원고지_매">원고지 매</span>
+                    </div>
+                  </div>
                   <div class="settings-field-head">
                     <span class="settings-field-title" data-i18n="index.키워드">키워드</span>
                   </div>
@@ -1944,6 +2026,40 @@
                               disabled
                              data-i18n="app.로맨스_결합_강도">로맨스 결합 강도</button>
                           </label>
+                        </div>
+                        <div id="literaryFormBoard" class="literary-form-field hidden" hidden>
+                          <span class="settings-field-title" data-i18n="app.분량">분량</span>
+                          <div class="literary-form-choices" role="radiogroup" aria-label="단편 또는 장편" data-i18n-aria-label="app.단편_또는_장편">
+                            <label class="literary-form-choice">
+                              <input type="radio" name="literaryFormBoard" value="short">
+                              <span data-i18n="app.단편">단편</span>
+                            </label>
+                            <label class="literary-form-choice">
+                              <input type="radio" name="literaryFormBoard" value="long">
+                              <span data-i18n="app.장편">장편</span>
+                            </label>
+                          </div>
+                          <p class="hint" data-i18n="app.중편은_장편을_권장합니다">중편은 장편을 권장합니다</p>
+                          <p class="hint literary-form-needed" hidden data-i18n="app.단편_또는_장편을_골라_주세요">단편 또는 장편을 골라 주세요. 고르기 전에는 이후 단계 기능이 잠깁니다.</p>
+                          <button type="button" class="secondary compact-btn" data-literary-finale hidden data-i18n="app.마지막_장으로_표시">지금 연 회차를 마지막 장으로</button>
+                          <p class="hint" data-literary-finale-label hidden></p>
+                        </div>
+                        <div id="contestPrepBoard" class="contest-prep-field hidden" hidden>
+                          <label class="contest-prep-toggle">
+                            <span data-i18n="app.공모전_준비_중">공모전 준비 중</span>
+                            <input type="checkbox" id="contestPrepBoardToggle" data-contest-prep="1">
+                          </label>
+                          <label class="contest-prep-name">
+                            <span data-i18n="app.목표_공모전">목표 공모전</span>
+                            <input type="text" id="contestNameBoard" data-contest-name="1" maxlength="200" placeholder="선택" data-i18n-placeholder="app.목표_공모전_안내">
+                          </label>
+                          <div class="contest-prep-pages">
+                            <span data-i18n="app.분량_규정">분량 규정</span>
+                            <input type="number" id="contestPagesMinBoard" data-contest-min="1" min="0" placeholder="최소" data-i18n-placeholder="app.원고지_최소">
+                            <span aria-hidden="true">~</span>
+                            <input type="number" id="contestPagesMaxBoard" data-contest-max="1" min="0" placeholder="최대" data-i18n-placeholder="app.원고지_최대">
+                            <span data-i18n="app.원고지_매">원고지 매</span>
+                          </div>
                         </div>
                       </div>
                       <label class="adult19-toggle" id="adult19ToggleWrap">
@@ -4103,6 +4219,7 @@
                       <option value="brainstorm" data-i18n="app.브레인스토밍">브레인스토밍</option>
                       <option value="analyze" data-i18n="app.피드백_요청">일반 피드백</option>
                       <option value="markupfeedback" data-i18n="index.첨삭_피드백">첨삭 피드백</option>
+                      <option value="midcheck" data-i18n="app.작품_중간_점검" data-literary-long-only="1">작품 중간 점검</option>
                       <option value="successfeedback" class="ai-mode-success-opt" data-i18n="app.흥행_공식_피드백">흥행 공식 피드백</option>
                     </optgroup>
                     <!-- successfeedback: 연결 프로파일 기반 회차 비교 피드백 -->
@@ -4389,8 +4506,8 @@
                       aria-controls="toryChatPopup"
                     >
                       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                      <path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"/>
-                      <rect width="10" height="7" x="12" y="13" rx="2"/>
+                        <path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"/>
+                        <rect width="10" height="7" x="12" y="13" rx="2"/>
                       </svg>
                     </button>
                   </div>
@@ -4465,8 +4582,8 @@
                     aria-controls="toryChatPopup"
                   >
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                        <path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"/>
-                        <rect width="10" height="7" x="12" y="13" rx="2"/>
+                      <path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"/>
+                      <rect width="10" height="7" x="12" y="13" rx="2"/>
                     </svg>
                   </button>
                 </div>
@@ -6158,7 +6275,6 @@
           <div class="modal-actions tory-chat-history-detail-actions">
             <button type="button" class="secondary" id="aiResultHistoryDeleteButton" data-i18n="index.이_기록_삭제">이 기록 삭제</button>
             <button type="button" class="secondary" id="aiResultHistoryCopyButton" data-i18n="app.복사">복사</button>
-            <button type="button" class="secondary" id="aiResultHistoryPopupButton" title="결과를 팝업으로 크게 보기" data-i18n-title="index.결과를_팝업으로_크게_보기" data-i18n="index.팝업">팝업</button>
             <button type="button" class="primary" id="aiResultHistoryRestoreButton" data-i18n="index.다시_열기">다시 열기</button>
           </div>
         </div>
@@ -6371,6 +6487,20 @@
                 <option value="" data-i18n="app.세부_장르를_선택해_주세요">세부 장르를 선택해 주세요</option>
               </select>
             </label>
+            <div id="newProjectLiteraryForm" class="modal-literary-form hidden" hidden>
+              <span class="modal-genre-label" data-i18n="app.분량">분량</span>
+              <div class="literary-form-choices" role="radiogroup" aria-label="단편 또는 장편" data-i18n-aria-label="app.단편_또는_장편">
+                <label class="literary-form-choice">
+                  <input type="radio" name="newProjectLiteraryForm" value="short">
+                  <span data-i18n="app.단편">단편</span>
+                </label>
+                <label class="literary-form-choice">
+                  <input type="radio" name="newProjectLiteraryForm" value="long">
+                  <span data-i18n="app.장편">장편</span>
+                </label>
+              </div>
+              <p class="hint" data-i18n="app.중편은_장편을_권장합니다">중편은 장편을 권장합니다</p>
+            </div>
             <div id="newProjectRomanceAxes" class="modal-romance-axes hidden" hidden>
               <label id="newProjectRomanceStructureWrap">
                 <span class="modal-genre-label" data-i18n="app.구조_축">구조 축</span>
@@ -6580,6 +6710,20 @@
                 <option value="" data-i18n="app.세부_장르를_선택해_주세요">세부 장르를 선택해 주세요</option>
               </select>
             </label>
+            <div id="importLiteraryForm" class="modal-literary-form hidden" hidden>
+              <span class="modal-genre-label" data-i18n="app.분량">분량</span>
+              <div class="literary-form-choices" role="radiogroup" aria-label="단편 또는 장편" data-i18n-aria-label="app.단편_또는_장편">
+                <label class="literary-form-choice">
+                  <input type="radio" name="importLiteraryForm" value="short">
+                  <span data-i18n="app.단편">단편</span>
+                </label>
+                <label class="literary-form-choice">
+                  <input type="radio" name="importLiteraryForm" value="long">
+                  <span data-i18n="app.장편">장편</span>
+                </label>
+              </div>
+              <p class="hint" data-i18n="app.중편은_장편을_권장합니다">중편은 장편을 권장합니다</p>
+            </div>
             <div id="importRomanceAxes" class="modal-romance-axes hidden" hidden>
               <label id="importRomanceStructureWrap">
                 <span class="modal-genre-label" data-i18n="app.구조_축">구조 축</span>
@@ -10027,6 +10171,6 @@
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
     <script src="/app.js?v=1.4.255"></script>
-    <script src="/feedback_panel.js?v=28"></script>
+    <script src="/feedback_panel.js?v=30"></script>
   </body>
 </html>

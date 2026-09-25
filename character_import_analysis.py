@@ -302,15 +302,38 @@ def _upsert_pending(
     character_id: int,
     field_name: str,
     content: str,
+    *,
+    conflict_id: str = "",
 ) -> None:
-    connection.execute(
-        "INSERT INTO character_tori_analysis(character_id, field_name, analyzed_content) "
-        "VALUES (?, ?, ?) "
-        "ON CONFLICT(character_id, field_name) DO UPDATE SET "
-        "analyzed_content = excluded.analyzed_content, "
-        "created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-        (int(character_id), field_name, content),
-    )
+    cid = str(conflict_id or "").strip()
+    try:
+        # 회수된 행은 필드명을 바꿔 기록을 남기고, 같은 칸에 새 pending을 둔다.
+        connection.execute(
+            "UPDATE character_tori_analysis "
+            "SET field_name = field_name || '#reclaimed:' || COALESCE(NULLIF(conflict_id, ''), 'x') "
+            "WHERE character_id = ? AND field_name = ? AND status = 'reclaimed'",
+            (int(character_id), field_name),
+        )
+        connection.execute(
+            "INSERT INTO character_tori_analysis(character_id, field_name, analyzed_content, conflict_id, status) "
+            "VALUES (?, ?, ?, ?, 'pending') "
+            "ON CONFLICT(character_id, field_name) DO UPDATE SET "
+            "analyzed_content = excluded.analyzed_content, "
+            "conflict_id = excluded.conflict_id, "
+            "status = 'pending', "
+            "created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            (int(character_id), field_name, content, cid),
+        )
+    except sqlite3.OperationalError:
+        # 구스키마(conflict_id/status 없음)
+        connection.execute(
+            "INSERT INTO character_tori_analysis(character_id, field_name, analyzed_content) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(character_id, field_name) DO UPDATE SET "
+            "analyzed_content = excluded.analyzed_content, "
+            "created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            (int(character_id), field_name, content),
+        )
 
 
 def _clear_pending(connection: sqlite3.Connection, character_id: int, field_name: str) -> None:
@@ -318,6 +341,55 @@ def _clear_pending(connection: sqlite3.Connection, character_id: int, field_name
         "DELETE FROM character_tori_analysis WHERE character_id = ? AND field_name = ?",
         (int(character_id), field_name),
     )
+
+
+def reclaim_pending_by_conflict(connection: sqlite3.Connection, conflict_id: str) -> int:
+    """충돌이 닫히면 연결 pending을 회수(삭제하지 않음)."""
+    cid = str(conflict_id or "").strip()
+    if not cid:
+        return 0
+    try:
+        cur = connection.execute(
+            "UPDATE character_tori_analysis SET status = 'reclaimed' "
+            "WHERE conflict_id = ? AND status = 'pending'",
+            (cid,),
+        )
+        return int(cur.rowcount or 0)
+    except sqlite3.OperationalError:
+        return 0
+
+
+def list_pending_for_character(connection: sqlite3.Connection, character_id: int) -> dict[str, dict]:
+    try:
+        rows = connection.execute(
+            "SELECT field_name, analyzed_content, created_at, "
+            "COALESCE(conflict_id, '') AS conflict_id, "
+            "COALESCE(status, 'pending') AS status "
+            "FROM character_tori_analysis WHERE character_id = ? ORDER BY field_name",
+            (int(character_id),),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        rows = connection.execute(
+            "SELECT field_name, analyzed_content, created_at "
+            "FROM character_tori_analysis WHERE character_id = ? ORDER BY field_name",
+            (int(character_id),),
+        ).fetchall()
+    pending: dict[str, dict] = {}
+    for row in rows:
+        key = str(row["field_name"] or "")
+        if not key:
+            continue
+        status = str(row["status"] if "status" in row.keys() else "pending") or "pending"
+        if status != "pending":
+            continue
+        pending[key] = {
+            "field_name": key,
+            "label": PENDING_FIELD_LABELS.get(key, key),
+            "content": str(row["analyzed_content"] or ""),
+            "created_at": row["created_at"],
+            "conflict_id": str(row["conflict_id"] if "conflict_id" in row.keys() else "") or "",
+        }
+    return pending
 
 
 def apply_parsed_characters(
@@ -386,39 +458,25 @@ def apply_parsed_characters(
     return stats
 
 
-def list_pending_for_character(connection: sqlite3.Connection, character_id: int) -> dict[str, dict]:
-    try:
-        rows = connection.execute(
-            "SELECT field_name, analyzed_content, created_at "
-            "FROM character_tori_analysis WHERE character_id = ? ORDER BY field_name",
-            (int(character_id),),
-        ).fetchall()
-    except sqlite3.OperationalError:
-        return {}
-    pending: dict[str, dict] = {}
-    for row in rows:
-        key = str(row["field_name"] or "")
-        if key not in PENDING_FIELD_KEYS:
-            continue
-        pending[key] = {
-            "field_name": key,
-            "label": PENDING_FIELD_LABELS.get(key, key),
-            "content": str(row["analyzed_content"] or ""),
-            "created_at": row["created_at"],
-        }
-    return pending
-
-
 def pending_character_ids(connection: sqlite3.Connection, project_id: int) -> set[int]:
     try:
         rows = connection.execute(
             "SELECT DISTINCT a.character_id FROM character_tori_analysis a "
             "JOIN character c ON c.id = a.character_id "
-            "WHERE c.project_id = ? AND c.deleted_at IS NULL",
+            "WHERE c.project_id = ? AND c.deleted_at IS NULL "
+            "AND COALESCE(a.status, 'pending') = 'pending'",
             (int(project_id),),
         ).fetchall()
     except sqlite3.OperationalError:
-        return set()
+        try:
+            rows = connection.execute(
+                "SELECT DISTINCT a.character_id FROM character_tori_analysis a "
+                "JOIN character c ON c.id = a.character_id "
+                "WHERE c.project_id = ? AND c.deleted_at IS NULL",
+                (int(project_id),),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return set()
     ids: set[int] = set()
     for row in rows:
         try:

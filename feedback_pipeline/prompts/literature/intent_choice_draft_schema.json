@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["draft"],
+  "properties": {
+    "draft": {"type": "string", "maxLength": 160}
+  }
+}
+

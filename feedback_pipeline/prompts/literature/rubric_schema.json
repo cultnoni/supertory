@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items", "strengths"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "verdict", "intentional", "note", "evidence"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": ["opening", "pov", "scene_summary", "character", "motif", "implication", "ending", "economy", "style", "title", "novelty"]
+          },
+          "verdict": {"type": "string", "enum": ["works", "room", "problem", "none"]},
+          "intentional": {"type": "boolean"},
+          "note": {"type": "string"},
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["scene_no", "quote"],
+              "properties": {
+                "scene_no": {"type": "integer"},
+                "quote": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "strengths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "body", "quote", "scene_no"],
+        "properties": {
+          "title": {"type": "string"},
+          "body": {"type": "string"},
+          "quote": {"type": "string"},
+          "scene_no": {"type": "integer"}
+        }
+      }
+    }
+  }
+}

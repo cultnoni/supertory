@@ -20,6 +20,7 @@ class PromptPipelineIdTests(unittest.TestCase):
         self.assertEqual(prompt_pipelines.prompt_pipeline_id("webnovel"), "webnovel")
         self.assertEqual(prompt_pipelines.prompt_pipeline_id("general_literature"), "webnovel")
         self.assertEqual(prompt_pipelines.prompt_pipeline_id(""), "webnovel")
+        self.assertEqual(prompt_pipelines.GENERAL_LITERATURE_PIPELINE, "general_literature")
 
 
 class PromptCopyIdentityTests(unittest.TestCase):

@@ -9,6 +9,9 @@ from __future__ import annotations
 
 GENRE_LITERATURE_CLUSTER = "genre_literature"
 WEBNOVEL_PIPELINE = "webnovel"
+# Reserved for a later literary helper pass. prompt_pipeline_id() does not use it yet,
+# so 일반문학/순문학 assistants keep the webnovel prompts.
+GENERAL_LITERATURE_PIPELINE = "general_literature"
 
 
 def prompt_pipeline_id(cluster_id: object = "") -> str:

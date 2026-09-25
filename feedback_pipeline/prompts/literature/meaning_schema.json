@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kept"],
+  "properties": {
+    "kept": {"type": "boolean"}
+  }
+}

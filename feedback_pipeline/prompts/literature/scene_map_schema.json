@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scenes", "first_sentence", "last_sentence", "motifs"],
+  "properties": {
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scene_no", "para_range", "pov", "when_where", "characters", "summary", "narration"],
+        "properties": {
+          "scene_no": {"type": "integer"},
+          "para_range": {"type": "string"},
+          "pov": {"type": "string"},
+          "when_where": {"type": "string"},
+          "characters": {"type": "array", "items": {"type": "string"}},
+          "summary": {"type": "string"},
+          "narration": {"type": "string"}
+        }
+      }
+    },
+    "first_sentence": {"type": "string"},
+    "last_sentence": {"type": "string"},
+    "motifs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["image", "locations"],
+        "properties": {
+          "image": {"type": "string"},
+          "locations": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

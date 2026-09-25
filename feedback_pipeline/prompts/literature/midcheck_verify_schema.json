@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision", "revised_claim", "note"],
+  "properties": {
+    "decision": {"type": "string", "enum": ["keep", "revise"]},
+    "revised_claim": {"type": "string", "maxLength": 200},
+    "note": {"type": "string", "maxLength": 200}
+  }
+}

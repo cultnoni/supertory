@@ -1,0 +1,92 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["overview", "reading", "strengths", "diagnoses", "tasks", "comparison"],
+  "properties": {
+    "overview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reader", "editor", "critic", "judge"],
+      "properties": {
+        "reader": {"type": "string"},
+        "editor": {"type": "string"},
+        "critic": {"type": "string"},
+        "judge": {"type": "string"}
+      }
+    },
+    "reading": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["body", "intent_gap"],
+      "properties": {
+        "body": {"type": "string"},
+        "intent_gap": {"type": "string"}
+      }
+    },
+    "strengths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "body", "quote", "scene_no"],
+        "properties": {
+          "title": {"type": "string"},
+          "body": {"type": "string"},
+          "quote": {"type": "string"},
+          "scene_no": {"type": "integer"}
+        }
+      }
+    },
+    "diagnoses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "verdict", "intentional", "note", "evidence"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": ["opening", "pov", "scene_summary", "character", "motif", "implication", "ending", "economy", "style", "title", "novelty"]
+          },
+          "verdict": {"type": "string", "enum": ["works", "room", "problem"]},
+          "intentional": {"type": "boolean"},
+          "note": {"type": "string"},
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["scene_no", "quote"],
+              "properties": {
+                "scene_no": {"type": "integer"},
+                "quote": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "tasks": {"type": "array", "items": {"type": "string"}},
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reading_changed", "items"],
+      "properties": {
+        "reading_changed": {"type": "boolean"},
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "status", "note"],
+            "properties": {
+              "key": {"type": "string"},
+              "status": {"type": "string", "enum": ["resolved", "partial", "same", "new"]},
+              "note": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

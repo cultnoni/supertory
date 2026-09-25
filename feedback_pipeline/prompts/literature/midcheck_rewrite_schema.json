@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["body", "intent_gap"],
+  "properties": {
+    "body": {"type": "string", "maxLength": 900},
+    "intent_gap": {"type": "string", "maxLength": 400}
+  }
+}

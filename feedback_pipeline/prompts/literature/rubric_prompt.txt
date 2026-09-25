@@ -1,0 +1,29 @@
+장면 지도와 원고로 항목을 판정한다. 점수는 없다.
+판정은 works(잘 작동함), room(보완 여지), problem(문제) 중 하나다.
+모든 판정에 장면 번호와 원고에 있는 짧은 인용을 붙인다.
+문체 5번이나 기획의도로 보아 의도적일 수 있으면 intentional을 true로 한다.
+의도적 선택에 명시된 것은 problem으로 판정하지 않는다. 의도는 알지만 그 장면에서 전달이 잘 되지 않으면 room으로 적는다.
+문체 1~4번(서술·문장·대화·어휘)은 관찰 설명이지 목표가 아니다. 문체 1~4를 근거로 problem/room을 만들지 않는다.
+강점은 strengths에 두고, 각각 원고 인용을 붙인다. 이 인용이 리포트의 근거가 된다.
+규칙 신호는 진단이 아니다. 문체 항목과 충돌하면 신호만으로 문제 삼지 않는다.
+{{required_keys}}
+items의 key는 opening, pov, scene_summary, character, motif, implication, ending, economy, style, title만 쓴다. 공모전이 켜진 때만 novelty를 더한다.
+필수 항목은 빠짐없이 모두 넣는다.
+verdict는 works, room, problem만 쓴다.
+evidence는 scene_no와 원고에 그대로 있는 quote다. quote를 요약하거나 고치지 않는다.
+strengths는 title, body, quote, scene_no다.
+{{novelty_rule}}
+
+설정집:
+{{settings}}
+
+작가 지침:
+{{guidance}}
+
+규칙 신호:
+{{signals}}
+
+장면 지도:
+{{scene_map}}
+
+{{manuscript}}

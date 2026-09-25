@@ -1623,3 +1623,73 @@ class SuperTorySchemaTests(unittest.TestCase):
             ).fetchone()
         )
 
+    def test_project_literary_form_migration(self) -> None:
+        migration = Path(__file__).resolve().parents[1] / "db" / "097_project_literary_form.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 97"
+        ).fetchone()[0]
+        self.assertEqual(version, "project_literary_form")
+        cols = {
+            row[1]: row
+            for row in self.db.execute("PRAGMA table_info(project)").fetchall()
+        }
+        self.assertIn("literary_form", cols)
+        self.assertEqual(cols["literary_form"][3], 0)
+        for name in (
+            "style_narration",
+            "style_sentence",
+            "style_dialogue",
+            "style_lexicon",
+            "style_choice",
+            "style_habit",
+        ):
+            self.assertEqual(cols[name][3], 1)
+            self.assertEqual(cols[name][4], "''")
+        self.db.execute(
+            "UPDATE project SET literary_form = 'short', style_narration = '1인칭' WHERE id = 1"
+        )
+        row = self.db.execute(
+            "SELECT literary_form, style_narration, style_choice FROM project WHERE id = 1"
+        ).fetchone()
+        self.assertEqual(row[0], "short")
+        self.assertEqual(row[1], "1인칭")
+        self.assertEqual(row[2], "")
+
+    def test_tory_notification_migration(self) -> None:
+        migration = Path(__file__).resolve().parents[1] / "db" / "098_tory_notification.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 98"
+        ).fetchone()[0]
+        self.assertEqual(version, "tory_notification")
+        self.db.execute(
+            "INSERT INTO tory_notification(project_id, title, dedupe_key) VALUES (1, '알림', 'k')"
+        )
+        row = self.db.execute(
+            "SELECT status, dismissed_forever FROM tory_notification WHERE project_id = 1"
+        ).fetchone()
+        self.assertEqual(row[0], "unread")
+        self.assertEqual(row[1], 0)
+
+    def test_literary_short_report_migration(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "094_feedback_run.sql").read_text(encoding="utf-8"))
+        migration = (root / "099_literary_short_report.sql").read_text(encoding="utf-8")
+        self.db.executescript(migration)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 99"
+        ).fetchone()[0]
+        self.assertEqual(version, "literary_short_report")
+        self.db.execute(
+            "INSERT INTO feedback_run(project_id, run_kind) VALUES (1, 'analyze')"
+        )
+        pipeline = self.db.execute("SELECT pipeline FROM feedback_run").fetchone()[0]
+        self.assertEqual(pipeline, "")
+        contest = self.db.execute(
+            "SELECT contest_prep, contest_name FROM project WHERE id = 1"
+        ).fetchone()
+        self.assertEqual(contest[0], 0)
+        self.assertEqual(contest[1], "")
+

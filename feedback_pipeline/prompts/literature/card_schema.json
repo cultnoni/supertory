@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cards"],
+  "properties": {
+    "cards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["form", "tag", "quote", "reason", "reader_problem", "readings", "intentional", "source_key"],
+        "properties": {
+          "form": {"type": "string", "enum": ["suggest", "note"]},
+          "tag": {"type": "string", "enum": ["ambiguity", "pov", "style", "grammar", "excess", "repeat", "translationese", "cliche", "rhythm", "image"]},
+          "quote": {"type": "string"},
+          "reason": {"type": "string"},
+          "reader_problem": {"type": "string"},
+          "readings": {"type": "array", "items": {"type": "string"}},
+          "intentional": {"type": "boolean"},
+          "source_key": {"type": "string", "enum": ["", "opening", "pov", "scene_summary", "character", "motif", "implication", "ending", "economy", "style", "title", "novelty"]}
+        }
+      }
+    }
+  }
+}

@@ -10,6 +10,7 @@ from http import HTTPStatus
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import literary_form
 import feedback_store
 from feedback_pipeline.card_reply import (
     CardCommentLimit,
@@ -18,7 +19,15 @@ from feedback_pipeline.card_reply import (
     reply_to_card_comment,
 )
 from feedback_pipeline.claude_client import ClaudeError, get_client, is_configured, is_fake_mode
-from feedback_pipeline.config import FEEDBACK_MODEL, MAX_COST_USD_PER_RUN, PROMPT_VERSION
+from feedback_pipeline.config import (
+    FEEDBACK_MODEL,
+    LITERATURE_LONG_PROMPT_VERSION,
+    LITERATURE_MIDCHECK_PROMPT_VERSION,
+    LITERATURE_PROMPT_VERSION,
+    MAX_COST_USD_MIDCHECK,
+    MAX_COST_USD_PER_RUN,
+    PROMPT_VERSION,
+)
 from feedback_pipeline.context import explanation_lens_for_project
 from feedback_pipeline.paragraphs import paragraphs_from_html, source_hash
 from feedback_pipeline.runner import run_feedback
@@ -193,6 +202,19 @@ def _load_scene(conn: sqlite3.Connection, project_id: int, scene_id: int) -> dic
     return dict(row)
 
 
+def _literature_running(conn: sqlite3.Connection, project_id: int) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1 FROM feedback_run
+        WHERE project_id = ? AND pipeline IN ('literature_short', 'literature_long', 'literature_midcheck')
+          AND status = 'running'
+        LIMIT 1
+        """,
+        (int(project_id),),
+    ).fetchone()
+    return row is not None
+
+
 def _scene_has_running(conn: sqlite3.Connection, scene_id: int) -> bool:
     row = conn.execute(
         """
@@ -220,14 +242,45 @@ def _worker(
         payload["run_id"] = int(run_id)
         payload["autocommit"] = True
         payload["cancel_event"] = _cancel_event(run_id)
-        run_feedback(
-            conn,
-            project_id,
-            scene_id,
-            paragraphs,
-            payload,
-            claude=get_client(),
-        )
+        if payload.get("pipeline") == "literature_short":
+            from feedback_pipeline.literature_runner import run_literature_short
+
+            run_literature_short(
+                conn,
+                project_id,
+                int(run_id),
+                payload,
+                claude=get_client(),
+            )
+        elif payload.get("pipeline") == "literature_long":
+            from feedback_pipeline.literature_long_runner import run_literature_long
+
+            run_literature_long(
+                conn,
+                project_id,
+                int(run_id),
+                payload,
+                claude=get_client(),
+            )
+        elif payload.get("pipeline") == "literature_midcheck":
+            from feedback_pipeline.literature_midcheck import run_literature_midcheck
+
+            run_literature_midcheck(
+                conn,
+                project_id,
+                int(run_id),
+                payload,
+                claude=get_client(),
+            )
+        else:
+            run_feedback(
+                conn,
+                project_id,
+                scene_id,
+                paragraphs,
+                payload,
+                claude=get_client(),
+            )
         conn.commit()
     except Exception as error:  # noqa: BLE001
         try:
@@ -241,14 +294,15 @@ def _worker(
                 (int(run_id),),
             ).fetchone()
             if row is not None and str(row["status"] or "") == "running":
-                params = _loads_params(row["params_json"])
-                params["error"] = str(error)[:500]
+                from feedback_pipeline.run_errors import public_failure
+
+                params = public_failure(_loads_params(row["params_json"]))
                 status = "failed" if not row["report_json"] else "partial"
                 feedback_store.update_run(
                     conn,
                     run_id,
                     status=status,
-                    raw_output=str(error)[:4000],
+                    raw_output="",
                     finished_at=_now_sql(conn),
                     params_json=params,
                 )
@@ -268,16 +322,22 @@ def _start_run(
     if not is_configured():
         raise ValueError("ANTHROPIC_API_KEY가 설정되지 않았습니다.")
     scene_raw = body.get("scene_id")
+    want_midcheck = str(body.get("pipeline") or body.get("mode") or "").strip() in {
+        "literature_midcheck",
+        "midcheck",
+    }
     try:
-        scene_id = int(scene_raw)
+        scene_id = int(scene_raw) if scene_raw not in (None, "") else 0
     except (TypeError, ValueError) as error:
         raise ValueError("scene_id가 올바르지 않습니다.") from error
+    if not want_midcheck and not scene_id:
+        raise ValueError("scene_id가 올바르지 않습니다.")
     lens = str(body.get("explanation_lens") or "").strip()
     if lens and lens not in _LENS:
         raise ValueError("explanation_lens는 strong, normal, off 중 하나여야 합니다.")
     max_cost = body.get("max_cost")
     if max_cost is None or max_cost == "":
-        cost_limit = MAX_COST_USD_PER_RUN
+        cost_limit = MAX_COST_USD_MIDCHECK if want_midcheck else MAX_COST_USD_PER_RUN
     else:
         try:
             cost_limit = float(max_cost)
@@ -289,43 +349,139 @@ def _start_run(
 
     with _database() as conn:
         handler.require_project(conn, project_id)
-        scene = _load_scene(conn, project_id, scene_id)
-        if _scene_has_running(conn, scene_id):
-            raise FeedbackConflict("이미 이 회차의 첨삭이 실행 중입니다.")
-        html = str(scene.get("content_md") or "")
-        paragraphs = paragraphs_from_html(html)
-        digest = source_hash(paragraphs)
-        params = {
-            "progress": {"stage": "queued", "done": 0, "total": 5},
-            "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "stages": []},
-            "dropped": [],
-            "explanation_lens": lens or None,
-            "fake": bool(is_fake_mode()),
-        }
-        run_id = feedback_store.create_run(
-            conn,
-            project_id,
-            "analyze",
-            FEEDBACK_MODEL,
-            PROMPT_VERSION,
-            params,
-        )
-        feedback_store.add_run_scene(
-            conn,
-            run_id,
-            project_id,
-            scene_id,
-            0,
-            str(scene.get("title") or ""),
-            scene.get("revision_no"),
-            digest,
-            paragraphs,
-        )
+        scene = {"title": "", "revision_no": None, "content_md": ""}
+        if scene_id:
+            scene = _load_scene(conn, project_id, scene_id)
+        project_row = conn.execute(
+            "SELECT cluster_id, main_genre, sub_genre, literary_form FROM project WHERE id = ?",
+            (project_id,),
+        ).fetchone()
+        track = literary_form.literary_track(dict(project_row) if project_row else {})
+        if want_midcheck:
+            if track != "long":
+                raise ValueError("작품 중간 점검은 일반문학 장편에서만 사용할 수 있습니다.")
+            if _literature_running(conn, project_id):
+                raise FeedbackConflict("이미 이 작품의 첨삭이 실행 중입니다.")
+            from feedback_pipeline.literature_midcheck import prepare_midcheck_run
+
+            start_ord = body.get("start_ord")
+            end_ord = body.get("end_ord")
+            if start_ord in ("", None):
+                start_ord = None
+            else:
+                start_ord = int(start_ord)
+            if end_ord in ("", None):
+                end_ord = None
+            else:
+                end_ord = int(end_ord)
+            params = {
+                "progress": {"stage": "queued", "done": 0, "total": 4},
+                "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "stages": []},
+                "fake": bool(is_fake_mode()),
+            }
+            prepared = prepare_midcheck_run(
+                conn,
+                project_id,
+                start_ord=start_ord,
+                end_ord=end_ord,
+                model=FEEDBACK_MODEL,
+                prompt_version=LITERATURE_MIDCHECK_PROMPT_VERSION,
+                params=params,
+            )
+            run_id = int(prepared["run_id"])
+            digest = f"midcheck:{prepared['params'].get('range')}"
+            paragraphs = []
+            scene = {"title": "작품 중간 점검", "revision_no": None}
+            pipeline = "literature_midcheck"
+            cost_limit = float(body.get("max_cost") or MAX_COST_USD_MIDCHECK)
+        elif track == "short":
+            if _literature_running(conn, project_id):
+                raise FeedbackConflict("이미 이 작품의 첨삭이 실행 중입니다.")
+            from feedback_pipeline.literature_runner import prepare_literature_run
+
+            params = {
+                "progress": {"stage": "queued", "done": 0, "total": 5},
+                "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "stages": []},
+                "dropped": [],
+                "explanation_lens": lens or None,
+                "fake": bool(is_fake_mode()),
+            }
+            prepared = prepare_literature_run(
+                conn,
+                project_id,
+                model=FEEDBACK_MODEL,
+                prompt_version=LITERATURE_PROMPT_VERSION,
+                params=params,
+            )
+            run_id = int(prepared["run_id"])
+            digest = str(prepared["source_hash"])
+            paragraphs = [{"i": index} for index in range(int(prepared["paragraph_count"]))]
+            scene = {"title": "", "revision_no": None}
+            pipeline = "literature_short"
+        elif track == "long":
+            if _literature_running(conn, project_id):
+                raise FeedbackConflict("이미 이 작품의 첨삭이 실행 중입니다.")
+            from feedback_pipeline.literature_long_runner import prepare_literature_long_run
+
+            params = {
+                "progress": {"stage": "queued", "done": 0, "total": 8},
+                "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "stages": []},
+                "dropped": [],
+                "explanation_lens": lens or None,
+                "fake": bool(is_fake_mode()),
+            }
+            prepared = prepare_literature_long_run(
+                conn,
+                project_id,
+                scene_id,
+                model=FEEDBACK_MODEL,
+                prompt_version=LITERATURE_LONG_PROMPT_VERSION,
+                params=params,
+            )
+            run_id = int(prepared["run_id"])
+            digest = str(prepared["source_hash"])
+            paragraphs = [{"i": index} for index in range(int(prepared["paragraph_count"]))]
+            scene = {"title": str((prepared.get("unit") or {}).get("label") or ""), "revision_no": None}
+            pipeline = "literature_long"
+        else:
+            if _scene_has_running(conn, scene_id):
+                raise FeedbackConflict("이미 이 회차의 첨삭이 실행 중입니다.")
+            html = str(scene.get("content_md") or "")
+            paragraphs = paragraphs_from_html(html)
+            digest = source_hash(paragraphs)
+            params = {
+                "progress": {"stage": "queued", "done": 0, "total": 5},
+                "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "stages": []},
+                "dropped": [],
+                "explanation_lens": lens or None,
+                "fake": bool(is_fake_mode()),
+            }
+            run_id = feedback_store.create_run(
+                conn,
+                project_id,
+                "analyze",
+                FEEDBACK_MODEL,
+                PROMPT_VERSION,
+                params,
+            )
+            feedback_store.add_run_scene(
+                conn,
+                run_id,
+                project_id,
+                scene_id,
+                0,
+                str(scene.get("title") or ""),
+                scene.get("revision_no"),
+                digest,
+                paragraphs,
+            )
+            pipeline = ""
 
     options = {
         "scene_title": str(scene.get("title") or ""),
         "revision_no": scene.get("revision_no"),
         "max_cost": cost_limit,
+        "pipeline": pipeline,
     }
     if lens:
         options["explanation_lens"] = lens
@@ -411,11 +567,44 @@ def _get_run(handler, run_id: int) -> None:
     handler.send_json(_public_run(run))
 
 
+def _rewrite_literature_card(handler, card_id: int) -> None:
+    """지적형 카드 한 장에 대해서만 수정안을 만들어 댓글로 남긴다."""
+    from feedback_pipeline.claude_client import generate, is_configured
+    from feedback_pipeline.literature_cards import REWRITE_MARK
+
+    if not is_configured():
+        handler.api_error("AI가 설정되어 있지 않아요.", HTTPStatus.BAD_REQUEST)
+        return
+    with _database() as conn:
+        card = feedback_store.get_card(conn, card_id)
+        if card is None:
+            raise LookupError("카드를 찾을 수 없습니다.")
+        if str(card.get("card_form") or "") != "note":
+            raise ValueError("지적형 카드에서만 수정안을 요청할 수 있어요.")
+        project = conn.execute("SELECT * FROM project WHERE id = ?", (int(card["project_id"]),)).fetchone()
+        narration = str(project["style_narration"] or "") if project is not None else ""
+        feedback_store.add_card_comment(conn, card_id, "user", "수정안을 요청했습니다.")
+        result = generate(
+            "이 문장만 최소로 고친 수정안을 한 문장으로 내세요. 작가의 단어와 종결을 유지하세요.\n"
+            f"서술: {narration}\n원문: {card.get('original_text') or ''}\n이유: {card.get('reason') or ''}",
+            model="claude-sonnet-5",
+            system="요청된 수정 문장만 출력한다.",
+            max_tokens=400,
+            timeout=180.0,
+        )
+        suggestion = str(result.get("text") or "").strip()
+        if not suggestion:
+            raise ValueError("수정안을 받지 못했어요.")
+        feedback_store.add_card_comment(conn, card_id, "assistant", REWRITE_MARK + "\n" + suggestion)
+    handler.send_json({"id": card_id, "suggestion": suggestion})
+
+
 def _put_card(handler, card_id: int, body: dict[str, Any]) -> None:
     status = str(body.get("status") or "").strip()
     final_text = body.get("final_text")
     if final_text is not None:
         final_text = str(final_text)
+    suggest_info: dict[str, Any] | None = None
     with _database() as conn:
         row = conn.execute(
             "SELECT id FROM feedback_card WHERE id = ?",
@@ -428,7 +617,25 @@ def _put_card(handler, card_id: int, body: dict[str, Any]) -> None:
             "SELECT id, status, final_text FROM feedback_card WHERE id = ?",
             (int(card_id),),
         ).fetchone()
-    handler.send_json(dict(saved) if saved is not None else {"id": card_id, "status": status})
+        try:
+            from feedback_pipeline.literature_intent_suggest import on_card_status_changed
+
+            suggest_info = on_card_status_changed(
+                conn, card_id, claude=get_client() if is_configured() else None
+            )
+        except Exception:  # noqa: BLE001
+            suggest_info = None
+    payload = dict(saved) if saved is not None else {"id": card_id, "status": status}
+    if suggest_info and not suggest_info.get("skipped"):
+        payload["intent_suggest"] = {
+            "created": bool(suggest_info.get("created")),
+            "updated": bool(suggest_info.get("updated")),
+            "blocked": bool(suggest_info.get("blocked")),
+            "reason": suggest_info.get("reason"),
+            "draft": suggest_info.get("draft"),
+            "stats": suggest_info.get("stats"),
+        }
+    handler.send_json(payload)
 
 
 def _list_card_comments(handler, card_id: int) -> None:
@@ -567,6 +774,10 @@ def try_handle_post(handler, path: str, body: dict[str, Any] | None) -> bool:
         match = re.fullmatch(r"/api/feedback/cards/(\d+)/comments", path)
         if match:
             _post_card_comment(handler, int(match.group(1)), body)
+            return True
+        match = re.fullmatch(r"/api/feedback/cards/(\d+)/rewrite", path)
+        if match:
+            _rewrite_literature_card(handler, int(match.group(1)))
             return True
     except FeedbackConflict as error:
         dispatch_conflict(handler, error)

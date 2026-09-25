@@ -1,0 +1,173 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["quotes", "overview", "reading", "strengths", "diagnoses_internal", "diagnoses_in_work", "settings_relation", "tasks", "comparison", "discoveries", "conflicts"],
+  "properties": {
+    "quotes": {
+      "type": "array",
+      "description": "인용 풀. 진단·강점은 quote_id로만 참조",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "quote", "scene_no"],
+        "properties": {
+          "id": {"type": "string", "maxLength": 12},
+          "quote": {"type": "string", "maxLength": 60},
+          "scene_no": {"type": "integer"}
+        }
+      }
+    },
+    "overview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reader", "editor", "critic", "judge"],
+      "properties": {
+        "reader": {"type": "string", "maxLength": 280},
+        "editor": {"type": "string", "maxLength": 280},
+        "critic": {"type": "string", "maxLength": 280},
+        "judge": {"type": "string", "maxLength": 280}
+      }
+    },
+    "reading": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["body", "intent_gap"],
+      "properties": {
+        "body": {"type": "string", "maxLength": 450},
+        "intent_gap": {"type": "string", "maxLength": 280}
+      }
+    },
+    "strengths": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "body", "quote_id"],
+        "properties": {
+          "title": {"type": "string", "maxLength": 30},
+          "body": {"type": "string", "maxLength": 100},
+          "quote_id": {"type": "string", "maxLength": 12}
+        }
+      }
+    },
+    "diagnoses_internal": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "verdict", "intentional", "note", "quote_ids"],
+        "properties": {
+          "key": {"type": "string"},
+          "verdict": {"type": "string", "enum": ["works", "room", "problem"]},
+          "intentional": {"type": "boolean"},
+          "note": {"type": "string", "maxLength": 160},
+          "quote_ids": {"type": "array", "items": {"type": "string", "maxLength": 12}}
+        }
+      }
+    },
+    "diagnoses_in_work": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "verdict", "intentional", "note", "quote_ids"],
+        "properties": {
+          "key": {"type": "string"},
+          "verdict": {"type": "string", "enum": ["works", "room", "problem"]},
+          "intentional": {"type": "boolean"},
+          "note": {"type": "string", "maxLength": 160},
+          "quote_ids": {"type": "array", "items": {"type": "string", "maxLength": 12}}
+        }
+      }
+    },
+    "settings_relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conflicts", "added"],
+      "properties": {
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["conflict_id", "title", "note", "quote_id", "settings_section", "field", "character_id", "bait_id", "draft", "scene_id"],
+            "properties": {
+              "conflict_id": {"type": "string", "maxLength": 40},
+              "title": {"type": "string", "maxLength": 40},
+              "note": {"type": "string", "maxLength": 220},
+              "quote_id": {"type": "string", "maxLength": 12},
+              "settings_section": {"type": "string", "maxLength": 30},
+              "field": {"type": "string", "maxLength": 40},
+              "character_id": {"type": "integer"},
+              "bait_id": {"type": "string"},
+              "draft": {"type": "string", "maxLength": 120},
+              "scene_id": {"type": "integer"}
+            }
+          }
+        },
+        "added": {"type": "array", "items": {"type": "string", "maxLength": 80}}
+      }
+    },
+    "tasks": {"type": "array", "maxItems": 3, "items": {"type": "string", "maxLength": 100}},
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reading_changed", "items"],
+      "properties": {
+        "reading_changed": {"type": "boolean"},
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "status", "note"],
+            "properties": {
+              "key": {"type": "string"},
+              "status": {"type": "string"},
+              "note": {"type": "string", "maxLength": 80}
+            }
+          }
+        }
+      }
+    },
+    "discoveries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "name", "field", "content", "character_id", "profile", "summary", "intentionally_open"],
+        "properties": {
+          "kind": {"type": "string", "enum": ["character_field", "new_character", "world_field", "new_bait"]},
+          "name": {"type": "string", "maxLength": 40},
+          "field": {"type": "string", "maxLength": 40},
+          "content": {"type": "string", "maxLength": 160},
+          "character_id": {"type": "integer"},
+          "profile": {"type": "string", "maxLength": 80},
+          "summary": {"type": "string", "maxLength": 80},
+          "intentionally_open": {"type": "boolean"}
+        }
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["conflict_id", "title", "note", "quote_id", "settings_section", "field", "character_id", "bait_id", "draft", "scene_id"],
+        "properties": {
+          "conflict_id": {"type": "string", "maxLength": 40},
+          "title": {"type": "string", "maxLength": 40},
+          "note": {"type": "string", "maxLength": 220},
+          "quote_id": {"type": "string", "maxLength": 12},
+          "settings_section": {"type": "string", "maxLength": 30},
+          "field": {"type": "string", "maxLength": 40},
+          "character_id": {"type": "integer"},
+          "bait_id": {"type": "string"},
+          "draft": {"type": "string", "maxLength": 120},
+          "scene_id": {"type": "integer"}
+        }
+      }
+    }
+  }
+}

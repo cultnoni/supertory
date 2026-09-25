@@ -201,17 +201,15 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertNotIn('openDockFloat("aiHistory")', history_open)
         self.assertIn("function setAiPanelHistoryOpen(", self.js)
         self.assertIn("function popupAiResultHistoryEntry(", self.js)
+        self.assertIn("function openAiResultHistoryListPopup(", self.js)
         self.assertNotIn('id="aiPanelHistoryPopupButton"', self.html)
         self.assertNotIn('id="aiPanelHistoryRestoreButton"', self.html)
         self.assertIn('id="aiPanelHistoryCollectButton"', self.html)
         self.assertIn('id="aiPanelHistoryInsertButton"', self.html)
-        self.assertIn('id="aiResultHistoryPopupButton"', self.html)
+        self.assertNotIn('id="aiResultHistoryPopupButton"', self.html)
         self.assertIn("data-ai-panel-history-popup", self.js)
-        self.assertIn("data-ai-result-history-popup", self.js)
+        self.assertNotIn("data-ai-result-history-popup", self.js)
         self.assertNotIn("#aiResultExpandButton {", self.css.split(".ai-result-wrap.is-history-view #aiResultLivePane", 1)[1].split(".ai-result-history-pane {", 1)[0])
-        self.assertIn(".ai-history-popup-btn", self.css)
-        for locale in self.locales.values():
-            self.assertIn("app.팝업으로_볼_기록이_없어요", locale)
         self.assertNotIn('aria-haspopup="dialog"', self.html.split('id="aiResultHistoryButton"', 1)[1].split("</button>", 1)[0])
         toggle_ai = self.js.split("function toggleAiDockPanelItem(", 1)[1].split(
             "function toggleDockFloat(", 1

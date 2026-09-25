@@ -1,0 +1,55 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scenes", "first_sentence", "last_sentence", "motifs", "chapter_work"],
+  "properties": {
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scene_no", "para_range", "pov", "when_where", "characters", "summary", "narration"],
+        "properties": {
+          "scene_no": {"type": "integer"},
+          "para_range": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["start", "end"],
+            "properties": {"start": {"type": "integer"}, "end": {"type": "integer"}}
+          },
+          "pov": {"type": "string", "maxLength": 20},
+          "when_where": {"type": "string", "maxLength": 40},
+          "characters": {"type": "array", "items": {"type": "string", "maxLength": 20}},
+          "summary": {"type": "string", "maxLength": 60},
+          "narration": {"type": "string", "enum": ["장면", "요약", "혼합"]}
+        }
+      }
+    },
+    "first_sentence": {"type": "string", "maxLength": 80},
+    "last_sentence": {"type": "string", "maxLength": 80},
+    "motifs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["image", "locations"],
+        "properties": {
+          "image": {"type": "string", "maxLength": 30},
+          "locations": {"type": "array", "items": {"type": "integer"}}
+        }
+      }
+    },
+    "chapter_work": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["new_events", "character_changes", "motifs_new", "motifs_returned", "baits_resolved"],
+      "properties": {
+        "new_events": {"type": "array", "items": {"type": "string", "maxLength": 60}},
+        "character_changes": {"type": "array", "items": {"type": "string", "maxLength": 60}},
+        "motifs_new": {"type": "array", "items": {"type": "string", "maxLength": 40}},
+        "motifs_returned": {"type": "array", "items": {"type": "string", "maxLength": 40}},
+        "baits_resolved": {"type": "array", "items": {"type": "string", "maxLength": 40}}
+      }
+    }
+  }
+}

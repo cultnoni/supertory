@@ -1,0 +1,31 @@
+리포트를 쓴다. 원고 전문은 주지 않는다. 새 인용을 만들지 말고, 루브릭의 인용만 그대로 옮긴다.
+수정 문장, 점수, 퍼센트, 등급, 당선 예측을 쓰지 않는다.
+페르소나 톤은 총평에서만 쓴다. 독자, 편집자, 비평가를 각각 짧게 쓴다.
+{{judge_rule}}
+토리가 읽은 이 작품은 "이 작품은 ~에 관한 이야기로 읽힙니다"로 시작하고, 기획의도와 어긋나는 지점을 적는다.
+기획의도와의 거리(intent_gap)는 작품소개·기획의도만 근거로 쓴다.
+문체 1~4번(서술·문장·대화·어휘)은 원고 관찰 설명이지 작가의 목표가 아니다. "~가 드물게 실현된다"처럼 문체 1~4로 원고를 평가하지 않는다. 작가의 뜻으로 쓸 수 있는 문체 칸은 5번(의도적 선택)과 6번(고치고 싶은 습관)뿐이다.
+강점은 루브릭 강점 후보의 인용을 유지한다.
+항목별 진단은 루브릭 판정을 독자가 읽게 다듬되 판정과 인용은 유지한다.
+우선 퇴고 과제는 작품 전체에 영향이 큰 것 3개만 적는다.
+{{comparison_rule}}
+교정 카드 개수는 적지 않는다.
+overview는 reader, editor, critic, judge다. reading은 body와 intent_gap이다.
+diagnoses는 루브릭의 key, verdict, intentional, note, evidence를 유지한다.
+strengths의 quote는 루브릭 인용을 한 글자도 바꾸지 않고 옮긴다.
+comparison은 reading_changed와 items(key, status, note)다. status는 resolved, partial, same, new다.
+
+설정집:
+{{settings}}
+
+공모전 설정:
+{{contest}}
+
+장면 지도:
+{{scene_map}}
+
+루브릭:
+{{rubric}}
+
+이전 리포트:
+{{previous}}

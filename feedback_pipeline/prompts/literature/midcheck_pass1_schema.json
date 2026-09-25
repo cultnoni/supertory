@@ -1,0 +1,90 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reading", "role_map", "character_arcs", "motifs", "patterns", "pacing", "revisions", "needs_verify"],
+  "properties": {
+    "reading": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["body", "intent_gap"],
+      "properties": {
+        "body": {"type": "string", "maxLength": 900},
+        "intent_gap": {"type": "string", "maxLength": 400}
+      }
+    },
+    "role_map": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["unit_no", "role", "similar_streak", "blurry"],
+        "properties": {
+          "unit_no": {"type": "integer"},
+          "role": {"type": "string", "maxLength": 80},
+          "similar_streak": {"type": "boolean"},
+          "blurry": {"type": "boolean"}
+        }
+      }
+    },
+    "character_arcs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "change", "stalled"],
+        "properties": {
+          "name": {"type": "string", "maxLength": 40},
+          "change": {"type": "string", "maxLength": 200},
+          "stalled": {"type": "string", "maxLength": 80}
+        }
+      }
+    },
+    "motifs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "first_unit", "last_unit", "status", "intentionally_open", "in_settings"],
+        "properties": {
+          "id": {"type": "string", "maxLength": 40},
+          "name": {"type": "string", "maxLength": 40},
+          "first_unit": {"type": "integer"},
+          "last_unit": {"type": "integer"},
+          "status": {"type": "string", "enum": ["진행 중", "회수됨", "방치 의심", "열어둔 복선"]},
+          "intentionally_open": {"type": "boolean"},
+          "in_settings": {"type": "boolean"}
+        }
+      }
+    },
+    "patterns": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 120}},
+    "pacing": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["units", "note"],
+        "properties": {
+          "units": {"type": "string", "maxLength": 40},
+          "note": {"type": "string", "maxLength": 120}
+        }
+      }
+    },
+    "revisions": {"type": "array", "maxItems": 3, "items": {"type": "string", "maxLength": 120}},
+    "needs_verify": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "reason", "unit_nos", "keywords"],
+        "properties": {
+          "claim": {"type": "string", "maxLength": 160},
+          "reason": {"type": "string", "maxLength": 120},
+          "unit_nos": {"type": "array", "items": {"type": "integer"}},
+          "keywords": {"type": "array", "items": {"type": "string", "maxLength": 30}}
+        }
+      }
+    }
+  }
+}

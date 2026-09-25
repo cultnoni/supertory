@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "still_present", "note", "leftover_sentence"],
+        "properties": {
+          "claim": {"type": "string", "maxLength": 160},
+          "still_present": {"type": "boolean"},
+          "note": {"type": "string", "maxLength": 120},
+          "leftover_sentence": {
+            "type": "string",
+            "maxLength": 280,
+            "description": "still_present일 때 본문에서 단정이 남은 문장. cleared면 빈 문자열."
+          }
+        }
+      }
+    }
+  }
+}
+

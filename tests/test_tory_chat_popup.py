@@ -90,21 +90,25 @@ class ToryChatPopupUiTests(unittest.TestCase):
         self.assertIn(".tory-notify-expand-btn", self.css)
         self.assertIn(".tory-notify-popup-body", self.css)
 
-    def test_result_history_has_popup_option(self) -> None:
-        self.assertNotIn('id="aiPanelHistoryPopupButton"', self.html)
+    def test_result_history_has_no_popup_option(self) -> None:
+        # Nested "open again as popup" inside the history-list popup only.
+        self.assertNotIn('id="aiResultHistoryPopupButton"', self.html)
+        self.assertNotIn("data-ai-result-history-popup", self.js)
+        render_modal = self.js.split("function renderAiResultHistoryList(", 1)[1].split(
+            "function openAiResultHistoryDetail(", 1
+        )[0]
+        self.assertNotIn("ai-history-popup-btn", render_modal)
+        self.assertNotIn("data-ai-result-history-popup", render_modal)
+        # Panel history keeps its own popup affordances.
         self.assertIn("data-ai-panel-history-popup", self.js)
-        self.assertIn('id="aiResultHistoryPopupButton"', self.html)
         self.assertIn("function popupAiResultHistoryEntry", self.js)
+        self.assertIn("function openAiResultHistoryListPopup", self.js)
         expand_click = self.js.split('$("aiResultExpandButton")?.addEventListener("click"', 1)[1].split(
             "modal.querySelectorAll", 1
         )[0]
         self.assertIn("isAiPanelHistoryOpen()", expand_click)
         self.assertIn("openAiResultHistoryListPopup()", expand_click)
-        self.assertNotIn("popupAiResultHistoryEntry", expand_click)
-        hide = self.css.split(".ai-result-wrap.is-history-view #aiResultLivePane", 1)[1].split(
-            ".ai-result-history-pane {", 1
-        )[0]
-        self.assertNotIn("#aiResultExpandButton", hide)
+        self.assertIn("openAiResultModal()", expand_click)
         hub_fn = self.js.split("function setupToryChatHubUi(", 1)[1].split(
             "function setupToryChatPopupChrome(", 1
         )[0]

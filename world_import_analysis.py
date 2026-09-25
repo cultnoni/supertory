@@ -409,16 +409,38 @@ def _upsert_pending(
     section_name: str,
     field_name: str,
     content: str,
+    *,
+    conflict_id: str = "",
 ) -> None:
-    connection.execute(
-        "INSERT INTO world_tori_analysis(project_id, section_name, field_name, analyzed_content) "
-        "VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(project_id, field_name) DO UPDATE SET "
-        "analyzed_content = excluded.analyzed_content, "
-        "section_name = excluded.section_name, "
-        "created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-        (int(project_id), section_name, field_name, content),
-    )
+    cid = str(conflict_id or "").strip()
+    try:
+        connection.execute(
+            "UPDATE world_tori_analysis "
+            "SET field_name = field_name || '#reclaimed:' || COALESCE(NULLIF(conflict_id, ''), 'x') "
+            "WHERE project_id = ? AND field_name = ? AND status = 'reclaimed'",
+            (int(project_id), field_name),
+        )
+        connection.execute(
+            "INSERT INTO world_tori_analysis(project_id, section_name, field_name, analyzed_content, conflict_id, status) "
+            "VALUES (?, ?, ?, ?, ?, 'pending') "
+            "ON CONFLICT(project_id, field_name) DO UPDATE SET "
+            "analyzed_content = excluded.analyzed_content, "
+            "section_name = excluded.section_name, "
+            "conflict_id = excluded.conflict_id, "
+            "status = 'pending', "
+            "created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            (int(project_id), section_name, field_name, content, cid),
+        )
+    except sqlite3.OperationalError:
+        connection.execute(
+            "INSERT INTO world_tori_analysis(project_id, section_name, field_name, analyzed_content) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(project_id, field_name) DO UPDATE SET "
+            "analyzed_content = excluded.analyzed_content, "
+            "section_name = excluded.section_name, "
+            "created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            (int(project_id), section_name, field_name, content),
+        )
 
 
 def _clear_pending(
@@ -430,6 +452,58 @@ def _clear_pending(
         "DELETE FROM world_tori_analysis WHERE project_id = ? AND field_name = ?",
         (int(project_id), field_name),
     )
+
+
+def reclaim_pending_by_conflict(connection: sqlite3.Connection, conflict_id: str) -> int:
+    cid = str(conflict_id or "").strip()
+    if not cid:
+        return 0
+    try:
+        cur = connection.execute(
+            "UPDATE world_tori_analysis SET status = 'reclaimed' "
+            "WHERE conflict_id = ? AND status = 'pending'",
+            (cid,),
+        )
+        return int(cur.rowcount or 0)
+    except sqlite3.OperationalError:
+        return 0
+
+
+def list_pending_for_project(connection: sqlite3.Connection, project_id: int) -> dict[str, dict]:
+    try:
+        rows = connection.execute(
+            "SELECT section_name, field_name, analyzed_content, created_at, "
+            "COALESCE(conflict_id, '') AS conflict_id, "
+            "COALESCE(status, 'pending') AS status "
+            "FROM world_tori_analysis WHERE project_id = ? ORDER BY field_name",
+            (int(project_id),),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        try:
+            rows = connection.execute(
+                "SELECT section_name, field_name, analyzed_content, created_at "
+                "FROM world_tori_analysis WHERE project_id = ? ORDER BY field_name",
+                (int(project_id),),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return {}
+    pending: dict[str, dict] = {}
+    for row in rows:
+        key = str(row["field_name"] or "")
+        if key not in SHEET_FIELD_KEYS:
+            continue
+        status = str(row["status"] if "status" in row.keys() else "pending") or "pending"
+        if status != "pending":
+            continue
+        pending[key] = {
+            "field_name": key,
+            "section_name": str(row["section_name"] or field_section(key)),
+            "label": field_label(key),
+            "content": str(row["analyzed_content"] or ""),
+            "created_at": row["created_at"],
+            "conflict_id": str(row["conflict_id"] if "conflict_id" in row.keys() else "") or "",
+        }
+    return pending
 
 
 def apply_parsed_fields(
@@ -466,30 +540,6 @@ def apply_parsed_fields(
             (md, int(project_id)),
         )
     return stats
-
-
-def list_pending_for_project(connection: sqlite3.Connection, project_id: int) -> dict[str, dict]:
-    try:
-        rows = connection.execute(
-            "SELECT section_name, field_name, analyzed_content, created_at "
-            "FROM world_tori_analysis WHERE project_id = ? ORDER BY field_name",
-            (int(project_id),),
-        ).fetchall()
-    except sqlite3.OperationalError:
-        return {}
-    pending: dict[str, dict] = {}
-    for row in rows:
-        key = str(row["field_name"] or "")
-        if key not in SHEET_FIELD_KEYS:
-            continue
-        pending[key] = {
-            "field_name": key,
-            "section_name": str(row["section_name"] or field_section(key)),
-            "label": field_label(key),
-            "content": str(row["analyzed_content"] or ""),
-            "created_at": row["created_at"],
-        }
-    return pending
 
 
 def apply_pending_field(

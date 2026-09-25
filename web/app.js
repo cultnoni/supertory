@@ -254,6 +254,25 @@ const state = {
   romanceSetting: "",
   /** Cross-genre romance blend: none | subplot | co_axis | main_axis */
   romanceBlend: "none",
+  /** Literary track length: "" | short | long. Empty until 일반문학/순문학 chooses. */
+  literaryForm: "",
+  literaryFinaleKind: "",
+  literaryFinaleId: 0,
+  contestPrep: 0,
+  contestName: "",
+  contestPagesMin: "",
+  contestPagesMax: "",
+  /** Server-backed Tory notifications for the open work. Bait/custom stay separate. */
+  serverToryNotifs: [],
+  /** Six independent style fields. Not one composed document. */
+  styleFields: {
+    style_narration: "",
+    style_sentence: "",
+    style_dialogue: "",
+    style_lexicon: "",
+    style_choice: "",
+    style_habit: "",
+  },
   /** Independent of genre: "" or a content_rating key such as 19_soft / 19_hard. */
   contentRating: "",
   /** Per-project: first-complete guide card already shown */
@@ -862,6 +881,25 @@ function manuscriptPlainForTory(htmlOrText) {
     : raw).trim();
 }
 
+const EDITOR_DATA_ATTR_KEEP = new Set([
+  "data-author-note",
+  "data-author-note-label",
+  "data-list-style",
+  "data-fn-id",
+  "data-fn-num",
+  "data-fn-footer",
+  "data-fn-edit",
+  "data-fn-delete",
+  "data-sg-hl-ink",
+  "data-sg-hl-ink-prev",
+]);
+const SPAN_LAYOUT_PROPS = [
+  "display", "transform", "transform-origin", "width", "min-width", "max-width",
+  "white-space", "position", "top", "right", "bottom", "left",
+  "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+  "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+];
+
 function sanitizeEditorHtml(html) {
   const host = document.createElement("div");
   host.innerHTML = html || "";
@@ -871,10 +909,15 @@ function sanitizeEditorHtml(html) {
       const name = attr.name.toLowerCase();
       const value = attr.value || "";
       if (name.startsWith("on") || name === "srcdoc") node.removeAttribute(attr.name);
+      if (name.startsWith("data-") && !EDITOR_DATA_ATTR_KEEP.has(name)) node.removeAttribute(attr.name);
       if ((name === "href" || name === "src") && /^\s*javascript:/i.test(value)) {
         node.removeAttribute(attr.name);
       }
     });
+    if (node.tagName === "SPAN") {
+      SPAN_LAYOUT_PROPS.forEach((prop) => node.style.removeProperty(prop));
+      if (node.getAttribute("style") === "") node.removeAttribute("style");
+    }
   });
   return host.innerHTML;
 }
@@ -5192,47 +5235,119 @@ function getUsableEditorRange(editorEl = null) {
   return live;
 }
 
+function editorOwnsNode(editor, node) {
+  return Boolean(editor && node && (node === editor || editor.contains(node)));
+}
+
+/** Replace the live selection with HTML through the browser undo stack. */
+function insertHtmlUndoable(html) {
+  try {
+    document.execCommand("styleWithCSS", false, "true");
+  } catch (_) {
+    /* older engines */
+  }
+  try {
+    return document.execCommand("insertHTML", false, html);
+  } catch (_) {
+    return false;
+  }
+}
+
+function selectRange(range) {
+  if (!range) return false;
+  const selection = window.getSelection();
+  if (!selection) return false;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
+}
+
+function sortDocumentNodes(nodes) {
+  return [...nodes].sort((a, b) => {
+    if (a === b) return 0;
+    const pos = a.compareDocumentPosition(b);
+    if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+    if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+    return 0;
+  });
+}
+
+function mutateElementUndoable(el, mutate) {
+  if (!el || el.nodeType !== 1 || !el.isConnected) return false;
+  const clone = el.cloneNode(true);
+  mutate(clone);
+  if (clone.outerHTML === el.outerHTML) return false;
+  return replaceNodesUndoable([el], clone.outerHTML);
+}
+
+function nodeToHtml(node) {
+  if (!node) return "";
+  if (node.nodeType === 1) return node.outerHTML;
+  if (node.nodeType === 3) {
+    return node.data.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  return "";
+}
+
+function replaceNodesUndoable(nodes, html) {
+  const ordered = sortDocumentNodes(nodes || []);
+  if (!ordered.length) return false;
+  const last = ordered[ordered.length - 1];
+  const parent = last.parentNode;
+  const startIndex = parent ? Array.prototype.indexOf.call(parent.childNodes, ordered[0]) : -1;
+  const range = document.createRange();
+  range.setStartBefore(ordered[0]);
+  range.setEndAfter(last);
+  // Chrome insertHTML of block(s) can swallow or corrupt the next block(s).
+  // Rewrite every following sibling unchanged in the same payload.
+  let payload = html;
+  let walk = last.nextSibling;
+  while (walk) {
+    payload += nodeToHtml(walk);
+    range.setEndAfter(walk);
+    walk = walk.nextSibling;
+  }
+  if (!selectRange(range)) return false;
+  const ok = insertHtmlUndoable(payload);
+  if (ok && parent && startIndex >= 0) {
+    const restored = parent.childNodes[startIndex];
+    if (restored) {
+      try {
+        const caret = document.createRange();
+        if (restored.nodeType === 1) caret.selectNodeContents(restored);
+        else caret.setStart(restored, 0);
+        caret.collapse(true);
+        selectRange(caret);
+      } catch (_) {
+        /* ignore caret restore */
+      }
+    }
+  }
+  return ok;
+}
+
 function wrapSelectionWithSpan(styles, options = {}) {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return false;
   const range = selection.getRangeAt(0);
   const editor = getActiveRichEditor() || $("sceneContent");
-  if (!editor || !editor.contains(range.commonAncestorContainer)) return false;
+  if (!editorOwnsNode(editor, range.commonAncestorContainer)) return false;
 
-  const decorate = (span) => {
-    Object.assign(span.style, styles);
-    if (options.className) {
-      String(options.className)
-        .split(/\s+/)
-        .filter(Boolean)
-        .forEach((c) => span.classList.add(c));
-    }
-  };
-
-  if (range.collapsed) {
-    // Apply style for upcoming typing via a styled span caret.
-    const span = document.createElement("span");
-    decorate(span);
-    span.appendChild(document.createTextNode("\u200b"));
-    range.insertNode(span);
-    const next = document.createRange();
-    next.setStart(span.firstChild, 1);
-    next.collapse(true);
-    selection.removeAllRanges();
-    selection.addRange(next);
-    return true;
-  }
-
-  const fragment = range.extractContents();
   const span = document.createElement("span");
-  decorate(span);
-  span.appendChild(fragment);
-  range.insertNode(span);
-  selection.removeAllRanges();
-  const next = document.createRange();
-  next.selectNodeContents(span);
-  selection.addRange(next);
-  return true;
+  Object.assign(span.style, styles);
+  if (options.className) {
+    String(options.className)
+      .split(/\s+/)
+      .filter(Boolean)
+      .forEach((c) => span.classList.add(c));
+  }
+  if (range.collapsed) {
+    span.appendChild(document.createTextNode("\u200b"));
+  } else {
+    span.appendChild(range.cloneContents());
+  }
+  if (!selectRange(range)) return false;
+  return insertHtmlUndoable(span.outerHTML);
 }
 
 function applyEditorCommand(command, value = null) {
@@ -5270,29 +5385,57 @@ function normalizeJangpyeongPercent(value) {
   return Math.min(200, Math.max(50, n));
 }
 
-function applyJangpyeong(percent) {
+function paragraphBlocksForSelection(editor) {
+  const selection = window.getSelection();
+  if (!editor || !selection?.rangeCount) return [];
+  const range = selection.getRangeAt(0);
+  if (!editorOwnsNode(editor, range.commonAncestorContainer)) return [];
+  const start = getBlockElementForParagraph(range.startContainer, editor);
+  const end = getBlockElementForParagraph(range.endContainer, editor) || start;
+  if (!start) return [];
+  const nodes = [];
+  let cur = start;
+  while (cur && editor.contains(cur)) {
+    nodes.push(cur);
+    if (cur === end) break;
+    cur = cur.nextElementSibling;
+  }
+  return nodes;
+}
+
+/** 장평: 문단 블록에 scaleX + 역수 width. 변형 후 시각 폭=원고 폭, 줄바꿈은 레이아웃 폭 기준. */
+function applyJangpyeongStylesToBlock(clone, percent) {
   const p = normalizeJangpyeongPercent(percent);
   const scale = p / 100;
+  clone.style.removeProperty("display");
+  clone.style.removeProperty("font-stretch");
   if (p === 100) {
-    wrapSelectionWithSpan({
-      fontStretch: "100%",
-      transform: "none",
-      display: "inline",
-      transformOrigin: "left center",
-    });
+    clone.style.removeProperty("transform");
+    clone.style.removeProperty("transform-origin");
+    clone.style.removeProperty("width");
+    clone.style.removeProperty("max-width");
   } else {
-    // scaleX 는 시각적 장평; font-stretch 는 가변 폰트 지원 시 보조
-    wrapSelectionWithSpan({
-      display: "inline-block",
-      transform: `scaleX(${scale})`,
-      transformOrigin: "left center",
-      fontStretch: `${p}%`,
-    });
+    clone.style.transform = `scaleX(${scale})`;
+    clone.style.transformOrigin = "left top";
+    // scale 후 시각 폭이 100%가 되도록 레이아웃 폭을 역수로 좁히거나 넓힘
+    clone.style.width = `calc(100% / ${scale})`;
+    clone.style.maxWidth = `calc(100% / ${scale})`;
   }
-  updateEditorPlaceholder();
+  if (!clone.getAttribute("style")) clone.removeAttribute("style");
+  return clone;
+}
+
+function applyJangpyeong(percent, editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  if (!editor) return;
+  const p = normalizeJangpyeongPercent(percent);
+  const blocks = paragraphBlocksForSelection(editor);
+  if (!blocks.length) return;
+  const html = blocks.map((block) => applyJangpyeongStylesToBlock(block.cloneNode(true), p).outerHTML).join("");
+  replaceNodesUndoable(blocks, html);
+  updateEditorPlaceholder(editor);
   try {
-    const ed = getActiveRichEditor() || $("sceneContent");
-    ed?.dispatchEvent(new Event("input", { bubbles: true }));
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
   } catch (_) {
     /* ignore */
   }
@@ -5426,10 +5569,14 @@ function applyLineHeightToEntireDocument(value, editorEl = null) {
   setStoredLineHeight(value);
   applyEditorWideLineHeight(value, [editor]);
   // Also stamp block children so pasted/exported HTML keeps spacing.
-  editor.querySelectorAll("p, div, li, h1, h2, h3, h4, h5, h6, blockquote, pre").forEach((el) => {
+  const range = document.createRange();
+  range.selectNodeContents(editor);
+  const host = editor.cloneNode(true);
+  host.querySelectorAll("p, div, li, h1, h2, h3, h4, h5, h6, blockquote, pre").forEach((el) => {
     if (el.closest(".fn-footer")) return;
     el.style.lineHeight = value;
   });
+  if (selectRange(range)) insertHtmlUndoable(host.innerHTML);
   try {
     editor.dispatchEvent(new Event("input", { bubbles: true }));
   } catch (_) {
@@ -5588,7 +5735,7 @@ function applyDanColumns(editorEl = null) {
 
   const existing = findDanWrapper(range.commonAncestorContainer, editor);
   if (existing) {
-    unwrapDanColumns(existing);
+    replaceNodesUndoable([existing], existing.innerHTML);
   } else {
     const startBlock = getBlockElementForParagraph(range.startContainer, editor);
     const endBlock = getBlockElementForParagraph(range.endContainer, editor) || startBlock;
@@ -5604,15 +5751,8 @@ function applyDanColumns(editorEl = null) {
     if (!nodes.length || !nodes[0].parentNode) return;
     const wrap = document.createElement("div");
     wrap.className = "ms-dan";
-    nodes[0].parentNode.insertBefore(wrap, nodes[0]);
-    nodes.forEach((n) => wrap.appendChild(n));
-    try {
-      const next = document.createRange();
-      next.selectNodeContents(wrap);
-      next.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(next);
-    } catch (_) { /* ignore */ }
+    nodes.forEach((n) => wrap.appendChild(n.cloneNode(true)));
+    replaceNodesUndoable(nodes, wrap.outerHTML);
   }
 
   updateEditorPlaceholder(editor);
@@ -5675,22 +5815,21 @@ function applyParagraphStyle(styleKey, editorEl = null) {
   if (selection?.rangeCount) {
     block = getBlockElementForParagraph(selection.getRangeAt(0).commonAncestorContainer, editor);
   }
-  if (block && editor.contains(block)) {
-    block.classList.remove("sg-caption");
-    if (style.className) {
-      // Ensure we are on a paragraph-like node for caption.
-      if (block.tagName !== "P" && block.tagName !== "DIV") {
-        try {
-          document.execCommand("formatBlock", false, "<p>");
-        } catch (_) {
-          /* ignore */
-        }
-        if (selection?.rangeCount) {
-          block = getBlockElementForParagraph(selection.getRangeAt(0).commonAncestorContainer, editor);
-        }
-      }
-      block?.classList?.add(style.className);
+  if (block && editor.contains(block) && style.className && block.tagName !== "P" && block.tagName !== "DIV") {
+    try {
+      document.execCommand("formatBlock", false, "<p>");
+    } catch (_) {
+      /* ignore */
     }
+    if (selection?.rangeCount) {
+      block = getBlockElementForParagraph(selection.getRangeAt(0).commonAncestorContainer, editor);
+    }
+  }
+  if (block && editor.contains(block)) {
+    const clone = block.cloneNode(true);
+    clone.classList.remove("sg-caption");
+    if (style.className) clone.classList.add(style.className);
+    if (clone.outerHTML !== block.outerHTML) replaceNodesUndoable([block], clone.outerHTML);
   }
 
   updateEditorPlaceholder(editor);
@@ -5833,9 +5972,13 @@ function applyLineHeight(value, editorEl = null) {
   if (inEditor && range && !range.collapsed) {
     const blocks = collectLineHeightBlocks(editor, range);
     if (blocks.size) {
-      blocks.forEach((block) => {
-        block.style.lineHeight = value;
-      });
+      const list = sortDocumentNodes(blocks);
+      const html = list.map((block) => {
+        const clone = block.cloneNode(true);
+        clone.style.lineHeight = value;
+        return clone.outerHTML;
+      }).join("");
+      replaceNodesUndoable(list, html);
     } else {
       // Bare text + <br> manuscript: wrap selection.
       wrapSelectionWithSpan({ lineHeight: value });
@@ -6021,16 +6164,18 @@ function restoreHighlightContrastInkInSelection() {
     const restoreEl = (el) => {
       if (!el?.dataset?.sgHlInk) return;
       const prev = el.dataset.sgHlInkPrev || "";
-      if (prev) {
-        el.style.color = prev;
-        if (el.hasAttribute?.("color")) el.setAttribute("color", prev);
-      } else {
-        el.style.color = "";
-        el.style.removeProperty?.("color");
-        if (el.hasAttribute?.("color")) el.removeAttribute("color");
-      }
-      delete el.dataset.sgHlInk;
-      delete el.dataset.sgHlInkPrev;
+      mutateElementUndoable(el, (node) => {
+        if (prev) {
+          node.style.color = prev;
+          if (node.hasAttribute?.("color")) node.setAttribute("color", prev);
+        } else {
+          node.style.color = "";
+          node.style.removeProperty?.("color");
+          if (node.hasAttribute?.("color")) node.removeAttribute("color");
+        }
+        delete node.dataset.sgHlInk;
+        delete node.dataset.sgHlInkPrev;
+      });
     };
     const root = range.commonAncestorContainer.nodeType === 1
       ? range.commonAncestorContainer
@@ -6056,10 +6201,12 @@ function restoreHighlightContrastInkInSelection() {
         const raw = el.style?.color || el.getAttribute?.("color") || "";
         const hex = cssColorToHex(raw);
         if (hex && isHighlightContrastInkHex(hex)) {
-          el.style.color = pageInk;
-          if (el.hasAttribute?.("color")) el.setAttribute("color", pageInk);
-          delete el.dataset.sgHlInk;
-          delete el.dataset.sgHlInkPrev;
+          mutateElementUndoable(el, (node) => {
+            node.style.color = pageInk;
+            if (node.hasAttribute?.("color")) node.setAttribute("color", pageInk);
+            delete node.dataset.sgHlInk;
+            delete node.dataset.sgHlInkPrev;
+          });
         }
       });
     }
@@ -6099,12 +6246,16 @@ function ensureHighlightTextContrast(highlightColor) {
       const hex = cssColorToHex(raw) || cssColorToHex(getComputedStyle(el).color);
       if (!hex) return;
       if (isColorDark(hex) === isColorDark(bg)) {
-        if (!el.dataset.sgHlInkPrev) {
-          el.dataset.sgHlInkPrev = (hex && !isHighlightContrastInkHex(hex) ? hex : "") || pageInk || "";
-        }
-        el.style.color = ink;
-        if (el.hasAttribute?.("color")) el.setAttribute("color", ink);
-        tagHighlightContrastInkElement(el, el.dataset.sgHlInkPrev);
+        const prev = el.dataset.sgHlInkPrev
+          || (hex && !isHighlightContrastInkHex(hex) ? hex : "")
+          || pageInk
+          || "";
+        mutateElementUndoable(el, (node) => {
+          node.style.color = ink;
+          if (node.hasAttribute?.("color")) node.setAttribute("color", ink);
+          node.dataset.sgHlInk = "1";
+          if (prev && !node.dataset.sgHlInkPrev) node.dataset.sgHlInkPrev = prev;
+        });
       }
     });
   } catch (_) {
@@ -6220,31 +6371,25 @@ function clearShadeBox() {
             }
           });
         }
-        targets.forEach((el) => {
+        [...targets].forEach((el) => {
           try {
-            el.classList.remove("sg-text-shade-box");
-            el.style.backgroundColor = "";
-            el.style.background = "";
-            el.style.color = "";
-            el.style.padding = "";
-            el.style.borderRadius = "";
-            el.style.boxShadow = "";
-            el.style.boxDecorationBreak = "";
-            el.style.WebkitBoxDecorationBreak = "";
-            if (el.getAttribute("style") === "") el.removeAttribute("style");
-            // 스타일·클래스가 없으면 span을 풀어 텍스트만 남김
-            if (
-              el.tagName === "SPAN"
-              && !el.classList.length
-              && !el.getAttribute("style")
-              && el.attributes.length === 0
-            ) {
-              const parent = el.parentNode;
-              if (!parent) return;
-              while (el.firstChild) parent.insertBefore(el.firstChild, el);
-              parent.removeChild(el);
-              parent.normalize?.();
-            }
+            if (!el.isConnected) return;
+            const clone = el.cloneNode(true);
+            clone.classList.remove("sg-text-shade-box");
+            clone.style.backgroundColor = "";
+            clone.style.background = "";
+            clone.style.color = "";
+            clone.style.padding = "";
+            clone.style.borderRadius = "";
+            clone.style.boxShadow = "";
+            clone.style.boxDecorationBreak = "";
+            clone.style.webkitBoxDecorationBreak = "";
+            if (clone.getAttribute("style") === "") clone.removeAttribute("style");
+            const bare = clone.tagName === "SPAN"
+              && !clone.classList.length
+              && !clone.getAttribute("style")
+              && clone.attributes.length === 0;
+            replaceNodesUndoable([el], bare ? clone.innerHTML : clone.outerHTML);
           } catch (_) {
             /* ignore */
           }
@@ -6277,11 +6422,12 @@ function clearHighlight() {
         root?.querySelectorAll?.("[style*='background'], mark").forEach((el) => {
           if (el.classList?.contains("sg-text-shade-box")) return;
           if (range.intersectsNode && !range.intersectsNode(el)) return;
-          el.style.backgroundColor = "";
-          el.style.background = "";
-          if (el.tagName === "MARK") {
-            el.style.backgroundColor = "transparent";
-          }
+          mutateElementUndoable(el, (node) => {
+            node.style.backgroundColor = "";
+            node.style.background = "";
+            if (node.tagName === "MARK") node.style.backgroundColor = "transparent";
+            if (node.getAttribute("style") === "") node.removeAttribute("style");
+          });
         });
         // 조상 span에만 형광이 있는 경우(선택이 span 안쪽 텍스트만인 경우)
         let anc = range.commonAncestorContainer;
@@ -6290,8 +6436,11 @@ function clearHighlight() {
           if (anc.nodeType === 1
             && !anc.classList?.contains("sg-text-shade-box")
             && (anc.style?.backgroundColor || anc.style?.background)) {
-            anc.style.backgroundColor = "";
-            anc.style.background = "";
+            mutateElementUndoable(anc, (node) => {
+              node.style.backgroundColor = "";
+              node.style.background = "";
+              if (node.getAttribute("style") === "") node.removeAttribute("style");
+            });
             break;
           }
           anc = anc.parentElement;
@@ -6443,18 +6592,16 @@ function clearTextColor() {
       const range = selection.getRangeAt(0);
       if (!range.collapsed && editor.contains(range.commonAncestorContainer)) {
         const stripColor = (el) => {
-          if (!el || el.nodeType !== 1) return;
+          if (!el || el.nodeType !== 1 || !el.isConnected) return;
           if (el.classList?.contains("sg-text-shade-box")) return;
-          try {
-            el.style.removeProperty("color");
-            el.style.color = "";
-            if (el.hasAttribute("color")) el.removeAttribute("color");
-            if (el.getAttribute("style") === "") el.removeAttribute("style");
-            delete el.dataset?.sgHlInk;
-            delete el.dataset?.sgHlInkPrev;
-          } catch (_) {
-            /* ignore */
-          }
+          mutateElementUndoable(el, (node) => {
+            node.style.removeProperty("color");
+            node.style.color = "";
+            if (node.hasAttribute("color")) node.removeAttribute("color");
+            if (node.getAttribute("style") === "") node.removeAttribute("style");
+            delete node.dataset?.sgHlInk;
+            delete node.dataset?.sgHlInkPrev;
+          });
         };
         const root = range.commonAncestorContainer.nodeType === 1
           ? range.commonAncestorContainer
@@ -6959,15 +7106,17 @@ function applyListStyle(styleKey, editorEl = null) {
       const lists = editor.querySelectorAll(needOl ? "ol" : "ul");
       list = lists[lists.length - 1] || null;
     }
-  } else if ((list.tagName === "OL") !== needOl) {
-    list = replaceListTag(list, needOl ? "OL" : "UL");
-  } else if (list.dataset.listStyle === style.key) {
-    // Same style again → toggle list off.
+  } else if (list.dataset.listStyle === style.key && (list.tagName === "OL") === needOl) {
     removeListAtSelection(editor);
     return;
   }
 
-  if (list) applyCssListStyle(list, style);
+  if (list) {
+    const clone = document.createElement(needOl ? "ol" : "ul");
+    clone.innerHTML = list.innerHTML;
+    applyCssListStyle(clone, style);
+    replaceNodesUndoable([list], clone.outerHTML);
+  }
 
   updateEditorPlaceholder(editor);
   try {
@@ -8065,7 +8214,14 @@ function getHiddenFeatures(clusterId) {
 function isClusterFeatureVisible(featureId, clusterId = getProjectClusterId()) {
   const key = String(featureId || "").trim();
   if (!key) return true;
+  if (key === "baits" && isLiteraryMotifVisible()) return true;
   return !getHiddenFeatures(clusterId).includes(key);
+}
+
+function isLiteraryMotifVisible() {
+  return Boolean(state.projectId)
+    && isLiteraryTrackTarget()
+    && normalizeLiteraryForm(state.literaryForm) === "long";
 }
 
 function getVisibleFeatures(clusterId = getProjectClusterId()) {
@@ -8129,6 +8285,375 @@ const ROMANCE_STRUCTURE_VALUES = new Set(ROMANCE_STRUCTURE_OPTIONS.map((o) => o.
 const ROMANCE_SETTING_VALUES = new Set(ROMANCE_SETTING_OPTIONS.map((o) => o.key));
 const ROMANCE_BLEND_VALUES = new Set(ROMANCE_BLEND_OPTIONS.map((o) => o.key));
 const ROMANCE_BLEND_NEEDS_STRUCTURE = new Set(["co_axis", "main_axis"]);
+
+/** Matches literary_form.LITERARY_SHORT_IMPORT_CHAR_LIMIT. Counts every character, including spaces. */
+const LITERARY_SHORT_IMPORT_CHAR_LIMIT = 60000;
+const LITERARY_TRACK_MAINS = new Set(["general_lit", "literary"]);
+const LITERARY_LENGTH_SUB_KEYS = new Set(["short", "mid", "long"]);
+const LITERARY_TRACK_SUB_LABELS = new Set(["일반문학", "순문학", "general_lit", "literary"]);
+const STYLE_FIELD_KEYS = [
+  "style_narration",
+  "style_sentence",
+  "style_dialogue",
+  "style_lexicon",
+  "style_choice",
+  "style_habit",
+];
+const styleFieldSaveTimers = {};
+
+function isLiteraryTrackSelection(clusterId, mainGenre, subGenre) {
+  if ((typeof normalizeClusterId === "function" ? normalizeClusterId(clusterId) : String(clusterId || "")) !== "general_literature") {
+    return false;
+  }
+  const main = String(mainGenre || "").trim();
+  const sub = String(subGenre || "").trim();
+  if (main === "essay") return false;
+  if (LITERARY_TRACK_MAINS.has(main)) return true;
+  return LITERARY_TRACK_SUB_LABELS.has(sub);
+}
+
+function normalizeLiteraryForm(value) {
+  const key = String(value || "").trim().toLowerCase();
+  if (key === "short" || key === "단편") return "short";
+  if (key === "long" || key === "장편") return "long";
+  return "";
+}
+
+/** Later stages branch only on this. Null/empty means the track is off or the form is not chosen yet. */
+function literaryTrack(project = null) {
+  const clusterId = project?.cluster_id || project?.clusterId || (typeof getProjectClusterId === "function" ? getProjectClusterId() : "");
+  const main = project?.main_genre || project?.mainGenre || state.mainGenre || "";
+  const sub = project?.sub_genre || project?.subGenre || state.subGenre || "";
+  if (!isLiteraryTrackSelection(clusterId, main, sub)) return "";
+  return normalizeLiteraryForm(project?.literary_form || project?.literaryForm || state.literaryForm);
+}
+
+function modalLiteraryTrackApplies(prefix) {
+  const clusterId = getModalClusterId(prefix);
+  const picked = $(`${prefix}MainGenre`)?.value || "";
+  const mapped = mapClusterSubgenre(clusterId, picked);
+  return isLiteraryTrackSelection(clusterId, mapped?.main || picked, mapped?.sub || "");
+}
+
+function readModalLiteraryForm(prefix) {
+  const checked = document.querySelector(`input[name="${prefix}LiteraryForm"]:checked`);
+  return normalizeLiteraryForm(checked?.value);
+}
+
+function setModalSubmitGate(prefix, enabled) {
+  const submit = $(prefix === "newProject" ? "newProjectSubmitButton" : "importSubmitButton");
+  if (!submit || submit.dataset.busy === "1") return;
+  submit.disabled = !enabled;
+}
+
+function syncModalLiteraryForm(prefix) {
+  const block = $(`${prefix}LiteraryForm`);
+  const applies = modalLiteraryTrackApplies(prefix);
+  setElHidden(block, !applies);
+  if (!applies) {
+    document.querySelectorAll(`input[name="${prefix}LiteraryForm"]`).forEach((input) => {
+      input.checked = false;
+    });
+    setModalSubmitGate(prefix, true);
+    return;
+  }
+  setModalSubmitGate(prefix, Boolean(readModalLiteraryForm(prefix)));
+}
+
+function finishModalGenre(prefix, result) {
+  if (!result?.ok) return result;
+  if (!modalLiteraryTrackApplies(prefix)) return result;
+  const form = readModalLiteraryForm(prefix);
+  if (!form) {
+    return {
+      ok: false,
+      error: i18n.t("app.단편_또는_장편을_선택해_주세요"),
+      focusId: `${prefix}LiteraryForm`,
+    };
+  }
+  return { ...result, literary_form: form };
+}
+
+function readSettingsLiteraryForm() {
+  const board = document.querySelector('input[name="literaryFormBoard"]:checked')?.value;
+  const sidebar = document.querySelector('input[name="literaryFormSidebar"]:checked')?.value;
+  return normalizeLiteraryForm(board || sidebar || state.literaryForm);
+}
+
+function syncLiteraryFormControls() {
+  const form = normalizeLiteraryForm(state.literaryForm);
+  ["literaryFormBoard", "literaryFormSidebar"].forEach((name) => {
+    document.querySelectorAll(`input[name="${name}"]`).forEach((input) => {
+      input.checked = Boolean(form) && input.value === form;
+    });
+  });
+  const needsChoice = isLiteraryTrackTarget() && !form;
+  document.querySelectorAll(".literary-form-needed").forEach((el) => {
+    el.hidden = !needsChoice;
+  });
+}
+
+function isLiteraryTrackTarget() {
+  return isLiteraryTrackSelection(getProjectClusterId(), state.mainGenre, state.subGenre);
+}
+
+/** Old sub_genre length tags stay stored. Once literary_form is chosen, the screen shows that instead. */
+function literaryFormHidesLengthTag() {
+  if (!isLiteraryTrackTarget() || !normalizeLiteraryForm(state.literaryForm)) return false;
+  return LITERARY_LENGTH_SUB_KEYS.has(String(state.subGenre || "").trim());
+}
+
+function applyLiteraryLengthTagDisplay() {
+  const subField = $("subGenreField") || $("subGenreSelect")?.closest?.(".genre-field");
+  if (!subField) return;
+  const mode = getPurposeCategoryMode();
+  const modeHidden = mode === "fairy_tale" || mode === "none" || mode === "custom";
+  const romanceHidden = isGenreLiteratureContext() && String(state.mainGenre || "") === "romance";
+  setElHidden(subField, modeHidden || romanceHidden || literaryFormHidesLengthTag());
+}
+
+function applyLiteraryTrackUi() {
+  const show = Boolean(state.projectId) && isLiteraryTrackTarget();
+  document.querySelectorAll('[data-settings-section="style"]').forEach((el) => {
+    setClusterFeatureHidden(el, !show);
+  });
+  setElHidden($("literaryFormBoard"), !show);
+  setElHidden($("literaryFormSidebar"), !show);
+  setElHidden($("contestPrepBoard"), !show);
+  setElHidden($("contestPrepSidebar"), !show);
+  setElHidden($("toriFillStyleButton"), !(show && normalizeLiteraryForm(state.literaryForm) === "short"));
+  syncLiteraryFormControls();
+  syncContestControls();
+  syncContestSynopsisOrder();
+  fillStyleFields();
+  applyLiteraryLengthTagDisplay();
+  syncLiteraryMotifUi();
+}
+
+function applyLiteraryFormChoice(next) {
+  if (!state.projectId || !isLiteraryTrackTarget()) return;
+  const form = normalizeLiteraryForm(next);
+  if (!form || form === normalizeLiteraryForm(state.literaryForm)) return;
+  const previous = normalizeLiteraryForm(state.literaryForm);
+  state.literaryForm = form;
+  syncLiteraryFormControls();
+  syncLiteraryMotifUi();
+  void previous;
+  persistProjectGenre({ quiet: false }).catch(handleError);
+}
+
+function syncLiteraryMotifUi() {
+  const motif = isLiteraryMotifVisible();
+  const title = motif
+    ? i18n.t("app.모티프_복선")
+    : i18n.t("index.열린_떡밥");
+  document.querySelectorAll('[data-settings-section="baits"] .settings-box-title').forEach((el) => {
+    el.textContent = title;
+  });
+  document.querySelectorAll('[data-dock-item="baits"]').forEach((el) => {
+    el.title = title;
+    el.setAttribute("aria-label", title);
+  });
+  document.querySelectorAll("[data-literary-finale]").forEach((el) => setElHidden(el, !motif));
+  const marked = motif && state.literaryFinaleKind && Number(state.literaryFinaleId);
+  document.querySelectorAll("[data-literary-finale-label]").forEach((el) => {
+    setElHidden(el, !marked);
+    el.textContent = marked
+      ? `${i18n.t("app.마지막_장")} ${state.literaryFinaleId}`
+      : "";
+  });
+}
+
+async function markCurrentUnitAsFinale() {
+  if (!isLiteraryMotifVisible() || !state.projectId || !state.scene?.id) {
+    toast(i18n.t("app.마지막_장으로_표시할_회차를_열어_주세요"));
+    return;
+  }
+  const saved = await api(`/api/projects/${state.projectId}/literary-finale`, {
+    method: "POST",
+    body: JSON.stringify({ scene_id: state.scene.id }),
+  });
+  state.literaryFinaleKind = saved.literary_finale_kind || "";
+  state.literaryFinaleId = Number(saved.literary_finale_id || 0);
+  const project = state.projects.find((item) => Number(item.id) === Number(state.projectId));
+  if (project) {
+    project.literary_finale_kind = state.literaryFinaleKind;
+    project.literary_finale_id = state.literaryFinaleId;
+  }
+  syncLiteraryMotifUi();
+  toast(i18n.t("app.마지막_장으로_표시했어요"));
+}
+
+function syncContestControls() {
+  const prep = Number(state.contestPrep) === 1;
+  document.querySelectorAll("[data-contest-prep]").forEach((el) => {
+    el.checked = prep;
+  });
+  document.querySelectorAll("[data-contest-name]").forEach((el) => {
+    if (document.activeElement !== el) el.value = state.contestName || "";
+  });
+  document.querySelectorAll("[data-contest-min]").forEach((el) => {
+    if (document.activeElement !== el) el.value = state.contestPagesMin ?? "";
+  });
+  document.querySelectorAll("[data-contest-max]").forEach((el) => {
+    if (document.activeElement !== el) el.value = state.contestPagesMax ?? "";
+  });
+}
+
+function readContestInput(el) {
+  if (!el) return;
+  if (el.hasAttribute("data-contest-prep")) state.contestPrep = el.checked ? 1 : 0;
+  if (el.hasAttribute("data-contest-name")) state.contestName = String(el.value || "");
+  if (el.hasAttribute("data-contest-min")) state.contestPagesMin = String(el.value || "");
+  if (el.hasAttribute("data-contest-max")) state.contestPagesMax = String(el.value || "");
+  syncContestControls();
+}
+
+async function persistContestSettings() {
+  if (!state.projectId || !isLiteraryTrackTarget()) return;
+  const projectId = state.projectId;
+  const body = {
+    contest_prep: Number(state.contestPrep) ? 1 : 0,
+    contest_name: String(state.contestName || ""),
+    contest_pages_min: state.contestPagesMin === "" ? null : Number(state.contestPagesMin),
+    contest_pages_max: state.contestPagesMax === "" ? null : Number(state.contestPagesMax),
+  };
+  const saved = await api(`/api/projects/${projectId}/settings`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (liveProjectId() !== projectId) return;
+  state.contestPrep = Number(saved?.contest_prep) ? 1 : body.contest_prep;
+  state.contestName = saved?.contest_name != null ? String(saved.contest_name) : body.contest_name;
+  state.contestPagesMin = saved?.contest_pages_min == null ? "" : String(saved.contest_pages_min);
+  state.contestPagesMax = saved?.contest_pages_max == null ? "" : String(saved.contest_pages_max);
+  const project = state.projects.find((p) => Number(p.id) === Number(projectId));
+  if (project) {
+    project.contest_prep = state.contestPrep;
+    project.contest_name = state.contestName;
+    project.contest_pages_min = state.contestPagesMin === "" ? null : Number(state.contestPagesMin);
+    project.contest_pages_max = state.contestPagesMax === "" ? null : Number(state.contestPagesMax);
+  }
+  syncContestSynopsisOrder();
+}
+
+function bindContestControls() {
+  document.querySelectorAll("[data-contest-prep], [data-contest-name], [data-contest-min], [data-contest-max]").forEach((el) => {
+    if (el.dataset.contestBound === "1") return;
+    el.dataset.contestBound = "1";
+    const eventName = el.type === "text" ? "change" : "change";
+    el.addEventListener(eventName, () => {
+      readContestInput(el);
+      persistContestSettings().catch(handleError);
+    });
+  });
+}
+
+function syncContestSynopsisOrder() {
+  const sel = $("aiMode");
+  const opt = sel?.querySelector('option[value="subsynopsis"]');
+  if (!sel || !opt) return;
+  const promote = isLiteraryTrackTarget() && Number(state.contestPrep) === 1;
+  const firstGroup = sel.querySelector("optgroup");
+  if (promote && firstGroup) {
+    if (opt.parentElement !== firstGroup || firstGroup.firstElementChild !== opt) {
+      opt.dataset.contestLifted = "1";
+      firstGroup.insertBefore(opt, firstGroup.firstElementChild);
+    }
+    return;
+  }
+  if (opt.dataset.contestLifted === "1") {
+    const world = sel.querySelector('option[value="worlddesc"]');
+    if (world?.parentElement) world.parentElement.insertBefore(opt, world.nextSibling);
+    delete opt.dataset.contestLifted;
+  }
+}
+
+function emptyStyleFields() {
+  return {
+    style_narration: "",
+    style_sentence: "",
+    style_dialogue: "",
+    style_lexicon: "",
+    style_choice: "",
+    style_habit: "",
+  };
+}
+
+function fillStyleFields() {
+  STYLE_FIELD_KEYS.forEach((key) => {
+    const el = document.querySelector(`[data-style-field="${key}"]`);
+    if (!el || document.activeElement === el) return;
+    el.value = String(state.styleFields?.[key] || "");
+    if (el.dataset.styleTori === "1") applyToriDraftClass(el);
+  });
+}
+
+function scheduleStyleFieldSave(field) {
+  window.clearTimeout(styleFieldSaveTimers[field]);
+  styleFieldSaveTimers[field] = window.setTimeout(() => {
+    saveStyleField(field).catch(handleError);
+  }, 700);
+}
+
+async function saveStyleField(field) {
+  if (!STYLE_FIELD_KEYS.includes(field)) return;
+  if (!state.projectId || !isLiteraryTrackTarget()) return;
+  const projectId = state.projectId;
+  const el = document.querySelector(`[data-style-field="${field}"]`);
+  const value = String(el?.value || "");
+  state.styleFields = { ...emptyStyleFields(), ...(state.styleFields || {}), [field]: value };
+  await api(`/api/projects/${projectId}/settings`, {
+    method: "POST",
+    body: JSON.stringify({ [field]: value }),
+  });
+}
+
+function setupStyleFields() {
+  const root = $("styleBank");
+  if (!root || root.dataset.styleBound === "1") return;
+  root.dataset.styleBound = "1";
+  root.querySelectorAll("[data-style-field]").forEach((el) => {
+    el.addEventListener("input", (event) => {
+      if (el.dataset.styleTori === "1") claimToriDraftOnInput(el, event);
+      scheduleStyleFieldSave(el.getAttribute("data-style-field") || "");
+    });
+  });
+}
+
+function bindLiteraryFormRadios() {
+  document.querySelectorAll("[data-literary-finale]").forEach((button) => {
+    if (button.dataset.literaryBound === "1") return;
+    button.dataset.literaryBound = "1";
+    button.addEventListener("click", () => {
+      markCurrentUnitAsFinale().catch(handleError);
+    });
+  });
+  document.querySelectorAll('input[name="literaryFormBoard"], input[name="literaryFormSidebar"]').forEach((input) => {
+    if (input.dataset.literaryBound === "1") return;
+    input.dataset.literaryBound = "1";
+    input.addEventListener("change", () => {
+      if (!input.checked) return;
+      applyLiteraryFormChoice(input.value);
+    });
+  });
+  ["newProject", "import"].forEach((prefix) => {
+    document.querySelectorAll(`input[name="${prefix}LiteraryForm"]`).forEach((input) => {
+      if (input.dataset.literaryBound === "1") return;
+      input.dataset.literaryBound = "1";
+      input.addEventListener("change", () => {
+        syncModalLiteraryForm(prefix);
+        if (prefix === "import" && input.checked && input.value === "short") {
+          const split = $("importSplit");
+          if (split && !split.disabled) {
+            split.value = "none";
+            updateImportFormVisibility();
+          }
+        }
+      });
+    });
+  });
+}
 const MAIN_TOOLSET_BY_GENRE = {
   sf: "genre_lit_sf",
   mystery: "genre_lit_mystery",
@@ -8450,6 +8975,7 @@ function syncGenreLitRomanceFieldsUi() {
   if (subField && isLit) {
     subField.classList.toggle("hidden", isRomance);
   }
+  applyLiteraryLengthTagDisplay();
   const structureSel = $("romanceStructureSelect");
   const settingSel = $("romanceSettingSelect");
   const blendSel = $("romanceBlendSelect");
@@ -8675,6 +9201,7 @@ function hideModalGenreSelects(prefix) {
     subSelect.disabled = true;
     subSelect.value = "";
   }
+  syncModalLiteraryForm(prefix);
 }
 
 function fillModalClusterSubGenres(prefix, clusterId, opts = {}) {
@@ -8734,10 +9261,12 @@ function fillModalClusterSubGenres(prefix, clusterId, opts = {}) {
     applyModalClusterPurpose(prefix);
     syncModalGenreDetail(prefix);
     syncModalRomanceFields(prefix, opts);
+    syncModalLiteraryForm(prefix);
     return;
   }
   applyModalClusterPurpose(prefix);
   syncModalRomanceFields(prefix, opts);
+  syncModalLiteraryForm(prefix);
 }
 
 function applyModalClusterPurpose(prefix) {
@@ -8890,6 +9419,7 @@ function applyClusterFeatureGating() {
   }
   try { syncKeywordClusterUi(); } catch (_) { /* ignore */ }
   try { applyGenreToolRoutingHooks(); } catch (_) { /* ignore */ }
+  try { applyLiteraryTrackUi(); } catch (_) { /* ignore */ }
 }
 
 /* Curated language list for 번역 (source / target). */
@@ -9365,7 +9895,10 @@ function settingsGenreSummaryLine() {
     ? canonicalizeWebNovelGenre(state.mainGenre, state.subGenre, state.genreDetail)
     : { main: state.mainGenre, sub: state.subGenre, genre_detail: state.genreDetail };
   const mainText = stored.main ? mainGenreLabel(stored.main) : "";
-  const subText = stored.sub ? subGenreLabel(stored.main, stored.sub) : "";
+  const hideLengthTag = isLiteraryTrackSelection(getProjectClusterId(), stored.main, stored.sub)
+    && Boolean(normalizeLiteraryForm(state.literaryForm))
+    && LITERARY_LENGTH_SUB_KEYS.has(String(stored.sub || "").trim());
+  const subText = hideLengthTag ? "" : (stored.sub ? subGenreLabel(stored.main, stored.sub) : "");
   const detailText = genreDetailLabel(stored.genre_detail || "");
   const structureText = romanceStructureApplies({ mainGenre: stored.main, romanceBlend: state.romanceBlend })
     ? romanceStructureLabel(state.romanceStructure)
@@ -9389,7 +9922,16 @@ function settingsGenreSummaryLine() {
     i18n.t("app.서브_장르"),
   ]);
   const ratingText = isAdult19Rating(state.contentRating) ? i18n.t("app.19금") : "";
-  return [purposeText, mainText, subText, detailText, structureText, settingText, blendText, ratingText]
+  let formText = "";
+  if (isLiteraryTrackSelection(getProjectClusterId(), stored.main, stored.sub)) {
+    const form = normalizeLiteraryForm(state.literaryForm);
+    formText = form === "short"
+      ? i18n.t("app.단편")
+      : form === "long"
+        ? i18n.t("app.장편")
+        : i18n.t("app.단편_또는_장편을_골라_주세요");
+  }
+  return [purposeText, mainText, subText, detailText, structureText, settingText, blendText, formText, ratingText]
     .map((part) => String(part || "").trim())
     .filter((part) => part && !skip.has(part));
 }
@@ -9446,6 +9988,7 @@ function updateGenrePickerVisibility() {
     mainField.classList.toggle("hidden", mode === "none");
   }
   lockHeaderGenreSelects();
+  applyLiteraryLengthTagDisplay();
   if (!show) {
     if ($("mainGenreDisplay")) $("mainGenreDisplay").disabled = true;
     if ($("subGenreDisplay")) $("subGenreDisplay").disabled = true;
@@ -9969,18 +10512,37 @@ async function persistProjectGenre({ quiet = true, projectId: projectIdOpt } = {
     romanceSetting: $("romanceSettingSelect")?.value || state.romanceSetting,
     romanceBlend: $("romanceBlendSelect")?.value || state.romanceBlend,
   });
+  const saved = state.projects.find((p) => Number(p.id) === Number(projectId));
+  const wasTarget = isLiteraryTrackSelection(
+    saved?.cluster_id || inferClusterId(saved?.purpose || state.projectPurpose, saved?.main_genre || "", saved?.sub_genre || ""),
+    saved?.main_genre || "",
+    saved?.sub_genre || "",
+  );
+  const target = isLiteraryTrackSelection(clusterId, main, sub);
+  const form = target ? readSettingsLiteraryForm() : "";
+  if (target && !form && !wasTarget) {
+    state.mainGenre = main;
+    state.subGenre = sub;
+    state.clusterId = clusterId;
+    applyLiteraryTrackUi();
+    syncGenreDisplayButtons();
+    toast(i18n.t("app.단편_또는_장편을_선택해_주세요"));
+    return;
+  }
+  const genreBody = {
+    main_genre: main,
+    sub_genre: sub,
+    cluster_id: clusterId,
+    genre_detail,
+    content_rating,
+    romance_structure: romance.romance_structure,
+    romance_setting: romance.romance_setting,
+    romance_blend: romance.romance_blend,
+  };
+  if (target && form) genreBody.literary_form = form;
   await api(`/api/projects/${projectId}/settings`, {
     method: "POST",
-    body: JSON.stringify({
-      main_genre: main,
-      sub_genre: sub,
-      cluster_id: clusterId,
-      genre_detail,
-      content_rating,
-      romance_structure: romance.romance_structure,
-      romance_setting: romance.romance_setting,
-      romance_blend: romance.romance_blend,
-    }),
+    body: JSON.stringify(genreBody),
   });
   if (liveProjectId() !== projectId) return;
   state.mainGenre = main;
@@ -9991,6 +10553,7 @@ async function persistProjectGenre({ quiet = true, projectId: projectIdOpt } = {
   state.romanceStructure = romance.romance_structure;
   state.romanceSetting = romance.romance_setting;
   state.romanceBlend = romance.romance_blend;
+  state.literaryForm = form;
   const project = state.projects.find((p) => Number(p.id) === Number(projectId));
   if (project) {
     project.main_genre = main;
@@ -10001,6 +10564,8 @@ async function persistProjectGenre({ quiet = true, projectId: projectIdOpt } = {
     project.romance_structure = romance.romance_structure;
     project.romance_setting = romance.romance_setting;
     project.romance_blend = romance.romance_blend;
+    if (target && form) project.literary_form = form;
+    else delete project.literary_form;
   }
   syncGenreDisplayButtons();
   syncGenreLitRomanceFieldsUi();
@@ -11593,6 +12158,7 @@ async function loadProjects(preferredId = null) {
 async function loadProject() {
   if (!state.projectId) return;
   const projectIdAtStart = state.projectId;
+  state.serverToryNotifs = [];
   const genAtStart = projectLoadGen;
   const stillCurrent = () => (
     isCurrentProjectLoadGen(genAtStart)
@@ -11749,6 +12315,35 @@ async function loadProject() {
     outline.project?.cluster_id || fromList?.cluster_id,
   );
   if (fromList) fromList.cluster_id = state.clusterId;
+  const literaryTrackNow = isLiteraryTrackSelection(state.clusterId, state.mainGenre, state.subGenre);
+  state.literaryForm = literaryTrackNow
+    ? normalizeLiteraryForm(outline.project?.literary_form ?? fromList?.literary_form)
+    : "";
+  state.literaryFinaleKind = literaryTrackNow
+    ? String(outline.project?.literary_finale_kind || fromList?.literary_finale_kind || "")
+    : "";
+  state.literaryFinaleId = literaryTrackNow
+    ? Number(outline.project?.literary_finale_id || fromList?.literary_finale_id || 0)
+    : 0;
+  state.contestPrep = literaryTrackNow ? (Number(outline.project?.contest_prep ?? fromList?.contest_prep) ? 1 : 0) : 0;
+  state.contestName = literaryTrackNow ? String(outline.project?.contest_name ?? fromList?.contest_name ?? "") : "";
+  state.contestPagesMin = literaryTrackNow && outline.project?.contest_pages_min != null
+    ? String(outline.project.contest_pages_min)
+    : (literaryTrackNow && fromList?.contest_pages_min != null ? String(fromList.contest_pages_min) : "");
+  state.contestPagesMax = literaryTrackNow && outline.project?.contest_pages_max != null
+    ? String(outline.project.contest_pages_max)
+    : (literaryTrackNow && fromList?.contest_pages_max != null ? String(fromList.contest_pages_max) : "");
+  state.styleFields = emptyStyleFields();
+  if (literaryTrackNow) {
+    STYLE_FIELD_KEYS.forEach((key) => {
+      const fromOutline = outline.project?.[key];
+      state.styleFields[key] = String(fromOutline ?? fromList?.[key] ?? "");
+    });
+  }
+  if (fromList) {
+    if (literaryTrackNow) fromList.literary_form = state.literaryForm || null;
+    else delete fromList.literary_form;
+  }
   state.keywords = normalizeKeywordList(
     outline.project?.keywords ?? fromList?.keywords ?? [],
   );
@@ -11770,6 +12365,9 @@ async function loadProject() {
   restoreOpenSettingsSection(projectIdAtStart);
   renderSettingsCodex();
   try { applyClusterFeatureGating(); } catch (_) { /* ignore */ }
+  refreshServerToryNotifs(projectIdAtStart).then(() => {
+    if (Number(state.projectId) === Number(projectIdAtStart)) renderToryNotifyList();
+  }).catch(() => {});
   $("newChapterButton").disabled = false;
   if ($("outlineEndAddButton")) $("outlineEndAddButton").disabled = false;
   if ($("renumberChaptersButton")) $("renumberChaptersButton").disabled = false;
@@ -11861,6 +12459,13 @@ function renderSettingsCodex() {
       previewLinesKw,
       i18n.t('app.장르_키워드를_정해_보세요_더블클릭_또는'),
     );
+  }
+  {
+    const styleLines = STYLE_FIELD_KEYS
+      .map((key) => String(state.styleFields?.[key] || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .slice(0, 2);
+    renderPreviewElement($("stylePreview"), styleLines, i18n.t("app.문체를_적어_보세요"));
   }
   renderKeywordBox();
   renderPreviewElement(
@@ -28456,6 +29061,7 @@ function pruneRemovedAiAssistModeOptions() {
 }
 
 function renderAiModePickerMenu() {
+  syncContestSynopsisOrder();
   pruneRemovedAiAssistModeOptions();
   const sel = $("aiMode");
   const menu = $("aiModePickerMenu");
@@ -28475,6 +29081,7 @@ function renderAiModePickerMenu() {
         if (REMOVED_AI_ASSIST_MODES.has(String(opt.value || ""))) return;
         const featureId = AI_MODE_CLUSTER_FEATURE[opt.value];
         if (featureId && !isClusterFeatureVisible(featureId)) return;
+        if (opt.getAttribute("data-literary-long-only") === "1" && !isLiteraryLongForm()) return;
         if (opt.hidden || opt.disabled) return;
         const cls = [
           "ai-mode-picker-option",
@@ -28517,9 +29124,27 @@ function openAiModePicker() {
   syncAiSelectViewUi();
 }
 
-function isMarkupFeedbackMode(value) {
-  return String(value || "") === "markupfeedback";
+function isLiteraryLongForm() {
+  return Boolean(state.projectId)
+    && isLiteraryTrackTarget()
+    && normalizeLiteraryForm(state.literaryForm) === "long";
 }
+
+function isMidcheckMode(value) {
+  return String(value || "") === "midcheck";
+}
+
+function openMidcheckChrome(sourceEl) {
+  if (!isLiteraryLongForm()) {
+    toast(i18n.t("app.작품_중간_점검은_장편에서만") || "작품 중간 점검은 일반문학 장편에서만 쓸 수 있어요.");
+    return;
+  }
+  openWidePanel(markupWidePanelSpec(sourceEl || $("aiModePicker") || $("analyzeMenuButton")));
+  if (typeof FeedbackPanel !== "undefined" && typeof FeedbackPanel.enterMidcheckMode === "function") {
+    FeedbackPanel.enterMidcheckMode();
+  }
+}
+
 
 function markupWidePanelSpec(sourceEl) {
   return {
@@ -28585,6 +29210,10 @@ function setAiModeValue(value, { silent = false } = {}) {
   }
   if (isMarkupFeedbackMode(next)) {
     if (!silent) openMarkupFeedbackChrome($("aiModePicker"));
+    return false;
+  }
+  if (isMidcheckMode(next)) {
+    if (!silent) openMidcheckChrome($("aiModePicker"));
     return false;
   }
   const featureId = AI_MODE_CLUSTER_FEATURE[next];
@@ -30106,12 +30735,6 @@ function renderAiResultHistoryList() {
         ? fns.formatMarkupHistoryLine(item, when)
         : `${item.modeLabel || ""} ${when}`.trim()
     );
-    const popupTitle = escapeHtml(i18n.t("index.결과를_팝업으로_크게_보기"));
-    const popupLabel = escapeHtml(i18n.t("index.팝업"));
-    const popup = markup ? "" : `
-        <button type="button" class="ai-history-popup-btn" data-ai-result-history-popup="${id}" title="${popupTitle}" aria-label="${popupLabel}">
-          ${aiResultPopupIconSvg(16)}
-        </button>`;
     return `
       <div class="tory-chat-history-item-wrap${markup ? " is-markupfeedback" : ""}">
         <button type="button" class="tory-chat-history-item${markup ? " is-markupfeedback" : ""}" data-ai-result-history="${id}"${markup ? ` data-history-kind="markupfeedback"` : ""} aria-label="${aria}">
@@ -30119,7 +30742,6 @@ function renderAiResultHistoryList() {
           <span class="count">${when || ""}</span>
           <span class="meta">${preview}</span>
         </button>
-        ${popup}
       </div>`;
   }).join("");
 }
@@ -30154,7 +30776,6 @@ function openAiResultHistoryModal() {
   toggleAiPanelHistoryView();
 }
 
-/** Large popup of the whole result-history list. Pick an item inside to read it. */
 function openAiResultHistoryListPopup() {
   const modal = $("aiResultHistoryModal");
   if (!modal) return;
@@ -30344,18 +30965,9 @@ function setupAiResultModal() {
   });
   $("aiResultHistoryBackButton")?.addEventListener("click", () => showAiResultHistoryListView());
   $("aiResultHistoryList")?.addEventListener("click", (event) => {
-    const popupBtn = event.target.closest?.("[data-ai-result-history-popup]");
-    if (popupBtn) {
-      event.preventDefault();
-      popupAiResultHistoryEntry(popupBtn.getAttribute("data-ai-result-history-popup"));
-      return;
-    }
     const btn = event.target.closest?.("[data-ai-result-history]");
     if (!btn) return;
     openAiResultHistoryDetail(btn.getAttribute("data-ai-result-history"));
-  });
-  $("aiResultHistoryPopupButton")?.addEventListener("click", () => {
-    if (aiResultHistoryViewId) popupAiResultHistoryEntry(aiResultHistoryViewId);
   });
   $("aiResultHistoryRestoreButton")?.addEventListener("click", () => {
     if (aiResultHistoryViewId) restoreAiResultHistoryEntry(aiResultHistoryViewId);
@@ -34948,6 +35560,9 @@ function getUnifiedToryNotifs() {
         : (n.note || i18n.t('app.회차_미정')),
     });
   }
+  for (const item of state.serverToryNotifs || []) {
+    items.push(item);
+  }
   items.sort((a, b) => {
     // Due for current scene first, then enabled, then newest
     const aDue = state.sceneId && Number(a.sceneId) === Number(state.sceneId) ? 1 : 0;
@@ -35033,6 +35648,154 @@ function renderToryNotifyDueBanner(items) {
   );
   banner.innerHTML = `${i18n.t('app.strong_지금_회차_알림_due_len', {'due.length': due.length, sceneName: sceneName})}`;
   banner.classList.remove("hidden");
+}
+
+function renderServerToryNotifyCard(item) {
+  const title = escapeHtml(item.title || i18n.t("app.알림"));
+  const msg = escapeHtml(String(item.message || "").replace(/\s+/g, " ").trim());
+  const quotes = (item.quotes || [])
+    .map((quote) => `<p class="tory-notify-card-quote">${escapeHtml(quote)}</p>`)
+    .join("");
+  const actions = (item.actions || []).map((action) => {
+    const actionId = escapeHtml(String(action.id || ""));
+    const label = escapeHtml(String(action.label || ""));
+    return `<button type="button" class="secondary" data-tory-server-action="${actionId}" data-tory-server-id="${Number(item.serverId) || 0}">${label}</button>`;
+  }).join("");
+  return `
+    <article class="tory-notify-card is-on is-server" data-tory-notif-id="${escapeHtml(item.id)}" data-type="server">
+      <div class="tory-notify-card-top">
+        <span class="tory-notify-type is-server">${escapeHtml(i18n.t("app.토리_알림"))}</span>
+      </div>
+      <div class="tory-notify-card-title">${title}</div>
+      ${msg ? `<p class="tory-notify-card-msg">${msg}</p>` : ""}
+      ${quotes}
+      <div class="tory-notify-card-foot">${actions}</div>
+    </article>`;
+}
+
+function ensureSettingsSectionOpen(section) {
+  if (state.openSettingsSection !== section) setOpenSettingsSection(section);
+  else applySettingsSectionState();
+}
+
+function revealManuscriptQuote(quote) {
+  const text = String(quote || "").trim();
+  const root = $("sceneContent");
+  if (!text || !root) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    const index = node.textContent.indexOf(text.slice(0, 40));
+    if (index >= 0) {
+      const range = document.createRange();
+      range.setStart(node, index);
+      range.setEnd(node, Math.min(node.textContent.length, index + text.length));
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      node.parentElement?.scrollIntoView?.({ block: "center" });
+      return;
+    }
+    node = walker.nextNode();
+  }
+  toast(i18n.t("app.원고에서_그_문장을_찾지_못했어요"));
+}
+
+async function applyToryNotifNavigate(target = {}) {
+  const surface = String(target.surface || "");
+  const prefill = typeof target.prefill === "string" ? target.prefill : "";
+  if (surface === "midcheck") {
+    openMidcheckChrome($("aiModePicker"));
+    return;
+  }
+  if (surface === "scene") {
+    const sceneId = Number(target.scene_id || 0);
+    if (!sceneId) {
+      toast(i18n.t("app.이동할_회차가_없어요"));
+      return;
+    }
+    await openScene(sceneId);
+    if (target.quote && typeof revealManuscriptQuote === "function") revealManuscriptQuote(target.quote);
+    return;
+  }
+  if (surface === "settings") {
+    const section = String(target.section || "style");
+    const field = String(target.field || "");
+    setActiveBinder("settings");
+    ensureSettingsSectionOpen(section);
+    if (field && prefill) {
+      const el = document.querySelector(`[data-style-field="${field}"]`);
+      if (el) {
+        el.value = prefill;
+        state.styleFields = { ...emptyStyleFields(), ...(state.styleFields || {}), [field]: prefill };
+        el.focus();
+      }
+    }
+    return;
+  }
+  if (surface === "character") {
+    setActiveBinder("settings");
+    ensureSettingsSectionOpen("characters");
+    const characterId = Number(target.character_id || 0);
+    if (characterId && typeof openCharacter === "function") {
+      await openCharacter(characterId);
+    } else if (typeof openCharacterBoard === "function") {
+      await openCharacterBoard();
+    }
+    if (prefill) {
+      const fieldId = target.field === "short_description" ? "characterSummary" : "characterProfile";
+      const el = $(fieldId);
+      if (el) {
+        el.value = prefill;
+        el.focus();
+      }
+    }
+    return;
+  }
+}
+
+async function runServerToryNotifAction(notificationId, actionId) {
+  const projectId = state.projectId;
+  if (!projectId || !notificationId || !actionId) return;
+  const result = await api(
+    `/api/projects/${projectId}/tory-notifications/${notificationId}/actions/${encodeURIComponent(actionId)}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  const effect = result?.effect || {};
+  if (effect.type === "navigate") await applyToryNotifNavigate(effect.target || {});
+  await refreshServerToryNotifs(projectId);
+  renderToryNotifyList();
+}
+
+async function refreshServerToryNotifs(projectId = state.projectId) {
+  const id = Number(projectId || 0);
+  if (!id) {
+    state.serverToryNotifs = [];
+    return;
+  }
+  const rows = await api(`/api/projects/${id}/tory-notifications`);
+  if (Number(state.projectId) !== id) return;
+  state.serverToryNotifs = Array.isArray(rows) ? rows.map(mapServerToryNotif) : [];
+}
+
+function mapServerToryNotif(row) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  const quotes = Array.isArray(payload.quotes)
+    ? payload.quotes
+    : (payload.quote ? [payload.quote] : []);
+  return {
+    id: `server:${row.id}`,
+    serverId: Number(row.id),
+    type: "server",
+    title: String(row.title || ""),
+    message: String(row.body || ""),
+    quotes: quotes.map((quote) => String(quote || "").trim()).filter(Boolean).slice(0, 2),
+    actions: Array.isArray(row.actions) ? row.actions : [],
+    enabled: true,
+    createdAt: row.created_at || "",
+    sceneId: Number(payload.scene_id) || null,
+    kind: String(row.kind || ""),
+  };
 }
 
 function renderToryNotifyCard(item) {
@@ -35125,7 +35888,9 @@ function renderToryNotifyList() {
       </div>`;
     return;
   }
-  list.innerHTML = items.map((item) => renderToryNotifyCard(item)).join("");
+  list.innerHTML = items.map((item) => (
+    item.type === "server" ? renderServerToryNotifyCard(item) : renderToryNotifyCard(item)
+  )).join("");
 }
 
 function fillToryNotifySceneSelect(selected = "") {
@@ -35418,6 +36183,13 @@ function setupToryNotifyCenter() {
   $("toryNotifyList")?.addEventListener("click", (event) => {
     // Ignore clicks on the switch label (handled by change)
     if (event.target.closest?.(".tory-switch")) return;
+    const serverAction = event.target.closest?.("[data-tory-server-action]");
+    if (serverAction) {
+      const notificationId = Number(serverAction.dataset.toryServerId || 0);
+      const actionId = serverAction.dataset.toryServerAction || "";
+      runServerToryNotifAction(notificationId, actionId).catch(handleError);
+      return;
+    }
 
     const openSceneBtn = event.target.closest?.("[data-tory-notif-open-scene]");
     if (openSceneBtn) {
@@ -36868,6 +37640,13 @@ const SETTINGS_BOOKMARK_META = {
     open: () => openSettingsDocMain("synopsis"),
   },
   keywords: { title: i18n.t('app.장르_키워드'), open: () => openKeywordBoard() },
+  style: {
+    title: i18n.t('app.문체'),
+    // Six columns, not one settings document — open the sidebar box instead of a main editor.
+    open: () => {
+      if (typeof setOpenSettingsSection === "function") setOpenSettingsSection("style");
+    },
+  },
   // Per-doc keys (field → buttons / bookmarks)
   synopsis: { title: i18n.t('app.시놉시스'), open: () => openSettingsDocMain("synopsis") },
   logline: { title: i18n.t('app.로그라인'), open: () => openSettingsDocMain("logline") },
@@ -37955,7 +38734,7 @@ const BAIT_STORAGE_PREFIX = "supertory.baits.";
 const SETTINGS_ORDER_PREFIX = "supertory.settingsOrder.";
 // Default 설정집 폴더 순서 (흥행작 프로파일 연결 = 떡밥모음 아래)
 const DEFAULT_SETTINGS_ORDER = [
-  "ideas", "intro", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
+  "ideas", "intro", "style", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
 ];
 /** Prior factory defaults — snap exact matches once to the current DEFAULT. */
 const LEGACY_SETTINGS_ORDERS = [
@@ -48011,6 +48790,7 @@ function baitToApiBody(item) {
     notify_on_recover: n.notifyOnRecover !== false,
     snooze_until: n.snoozeUntil || null,
     created_at: n.createdAt || undefined,
+    intentionally_open: n.intentionallyOpen ? 1 : 0,
   };
 }
 
@@ -48088,6 +48868,8 @@ function normalizeBaitItem(raw) {
   item.quote = item.quote || item.throwContent || item.ideaThrow || "";
   item.snoozeUntil = item.snoozeUntil || null;
   if (item.snoozeUntil === "") item.snoozeUntil = null;
+  item.intentionallyOpen = item.intentionallyOpen === true || item.intentionally_open === 1
+    || item.intentionally_open === true || item.intentionallyOpen === 1;
   return item;
 }
 
@@ -48242,6 +49024,12 @@ function loadSettingsOrder() {
     ) {
       ordered.splice(dictAt, 1);
       ordered.splice(ordered.indexOf("items") + 1, 0, "dictionary");
+    }
+    const styleAt = ordered.indexOf("style");
+    const introAt = ordered.indexOf("intro");
+    if (styleAt >= 0 && introAt >= 0 && styleAt === ordered.length - 1 && styleAt !== introAt + 1) {
+      ordered.splice(styleAt, 1);
+      ordered.splice(ordered.indexOf("intro") + 1, 0, "style");
     }
     const inviteAt = ordered.indexOf("readingInvite");
     const sourcesForInvite = ordered.indexOf("sources");
@@ -48446,6 +49234,7 @@ function renderBaitList() {
           <div><strong>회수 예정</strong> ${recoverTitle}</div>
         </div>
         <div class="bait-card-actions">
+          ${isLiteraryMotifVisible() ? `<label class="bait-open-flag"><input type="checkbox" data-bait-open="${escapeHtml(bait.id)}"${bait.intentionallyOpen ? " checked" : ""}> ${escapeHtml(i18n.t("app.의도적으로_열어둠"))}</label>` : ""}
           <button type="button" class="secondary" data-bait-edit="${escapeHtml(bait.id)}">수정</button>
           <button type="button" class="secondary" data-bait-delete="${escapeHtml(bait.id)}">삭제</button>
         </div>
@@ -48849,6 +49638,15 @@ function setupBaitCollection() {
     state.openSettingsSection = "baits";
     applySettingsSectionState();
     renderBaitList();
+  });
+  $("baitList")?.addEventListener("change", (event) => {
+    const box = event.target.closest?.("[data-bait-open]");
+    if (!box) return;
+    const id = box.getAttribute("data-bait-open");
+    const item = loadBaits().find((bait) => bait.id === id) || { id };
+    updateBaitOnServer(id, { ...item, intentionallyOpen: box.checked })
+      .then(() => renderBaitList())
+      .catch(handleError);
   });
   $("baitList")?.addEventListener("click", (event) => {
     const editBtn = event.target.closest?.("[data-bait-edit]");
@@ -53095,13 +53893,8 @@ let pendingContextPasteMode = null;
 
 function sanitizePastedHtml(html) {
   const wrap = document.createElement("div");
-  wrap.innerHTML = String(html || "");
+  wrap.innerHTML = sanitizeEditorHtml(String(html || ""));
   wrap.querySelectorAll("script, style, meta, link, iframe, object, embed, title, head").forEach((n) => n.remove());
-  wrap.querySelectorAll("*").forEach((el) => {
-    [...el.attributes].forEach((attr) => {
-      if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
-    });
-  });
   return wrap;
 }
 
@@ -53346,32 +54139,91 @@ function copyFormatFromSelection() {
   toast(i18n.t('app.서식을_복사했어요_붙일_문장을_드래그로_선택'));
 }
 
-function applyFormatPainterToSelection(editor) {
-  if (!formatPainterSnapshot || formatPainterSnapshot.editorId !== editor.id) return false;
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed) return false;
-  if (!editor.contains(selection.anchorNode)) return false;
-  const snap = formatPainterSnapshot;
-  formatPainterSnapshot = null;
-  setFormatPainterArmed(null, false);
-  editor.focus();
-  try {
-    document.execCommand("styleWithCSS", false, "true");
-  } catch (_) {
-    /* older engines */
-  }
-  if (document.queryCommandState("bold") !== snap.bold) document.execCommand("bold");
-  if (document.queryCommandState("italic") !== snap.italic) document.execCommand("italic");
-  if (document.queryCommandState("underline") !== snap.underline) document.execCommand("underline");
-  if (document.queryCommandState("strikeThrough") !== snap.strike) document.execCommand("strikeThrough");
-  const styles = {};
+function painterStylesFromSnap(snap) {
+  const styles = {
+    fontWeight: snap.bold ? "700" : "400",
+    fontStyle: snap.italic ? "italic" : "normal",
+    textDecoration: [
+      snap.underline ? "underline" : "",
+      snap.strike ? "line-through" : "",
+    ].filter(Boolean).join(" ") || "none",
+  };
   if (snap.fontFamily) styles.fontFamily = snap.fontFamily;
   if (snap.fontSize) styles.fontSize = snap.fontSize;
   if (snap.color) styles.color = snap.color;
   if (snap.backgroundColor && !/^(transparent|rgba\(0,\s*0,\s*0,\s*0\))$/i.test(snap.backgroundColor)) {
     styles.backgroundColor = snap.backgroundColor;
   }
-  if (Object.keys(styles).length) wrapSelectionWithSpan(styles);
+  return styles;
+}
+
+function rangeInsideSamePainterSpan(range, snap) {
+  const startEl = range.startContainer?.nodeType === 1
+    ? range.startContainer
+    : range.startContainer?.parentElement;
+  const span = startEl?.closest?.("span");
+  if (!span || !span.contains(range.endContainer)) return false;
+  const cs = window.getComputedStyle(span);
+  const weight = Number.parseInt(cs.fontWeight, 10);
+  if (snap.bold ? !(weight >= 600) : weight >= 600) return false;
+  if ((cs.fontStyle === "italic") !== Boolean(snap.italic)) return false;
+  const deco = `${cs.textDecorationLine || ""} ${cs.textDecoration || ""}`;
+  if (deco.includes("underline") !== Boolean(snap.underline)) return false;
+  if (deco.includes("line-through") !== Boolean(snap.strike)) return false;
+  if (snap.fontSize && cs.fontSize !== snap.fontSize) return false;
+  if (snap.color && cs.color !== snap.color) return false;
+  return true;
+}
+
+function clipRangeToBlock(range, block) {
+  try {
+    if (typeof range.intersectsNode === "function" && !range.intersectsNode(block)) return null;
+  } catch (_) {
+    return null;
+  }
+  const next = range.cloneRange();
+  if (!block.contains(range.startContainer)) next.setStart(block, 0);
+  if (!block.contains(range.endContainer)) next.setEnd(block, block.childNodes.length);
+  return next.collapsed ? null : next;
+}
+
+function applyFormatPainterToSelection(editor) {
+  if (!formatPainterSnapshot || formatPainterSnapshot.editorId !== editor.id) return false;
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount || selection.isCollapsed) return false;
+  const range = selection.getRangeAt(0);
+  if (!editorOwnsNode(editor, range.commonAncestorContainer)) return false;
+  const blocks = paragraphBlocksForSelection(editor);
+  if (!blocks.length) return false;
+  const snap = formatPainterSnapshot;
+  const styles = painterStylesFromSnap(snap);
+  const jobs = [];
+  for (const block of blocks) {
+    const sub = clipRangeToBlock(range, block);
+    if (!sub || rangeInsideSamePainterSpan(sub, snap)) continue;
+    jobs.push(sub);
+  }
+  if (!jobs.length) {
+    formatPainterSnapshot = null;
+    setFormatPainterArmed(null, false);
+    return false;
+  }
+  editor.focus();
+  let applied = 0;
+  for (const sub of jobs) {
+    const span = document.createElement("span");
+    Object.assign(span.style, styles);
+    try {
+      span.appendChild(sub.cloneContents());
+    } catch (_) {
+      continue;
+    }
+    if (!selectRange(sub)) continue;
+    if (insertHtmlUndoable(span.outerHTML)) applied += 1;
+  }
+  if (!applied) return false;
+  formatPainterSnapshot = null;
+  setFormatPainterArmed(null, false);
   markManuscriptEditorDirty(editor);
   updateFormatButtonState();
   toast(i18n.t('app.서식을_붙였어요'));
@@ -53383,9 +54235,9 @@ function setupFormatPainterHandling() {
     const editor = $(id);
     if (!editor || editor.dataset.paintBound === "1") return;
     editor.dataset.paintBound = "1";
-    editor.addEventListener("mouseup", () => applyFormatPainterToSelection(editor));
-    editor.addEventListener("keyup", (event) => {
-      if (event.key === "Shift") applyFormatPainterToSelection(editor);
+    editor.addEventListener("mouseup", (event) => {
+      if (event.button !== 0) return;
+      applyFormatPainterToSelection(editor);
     });
   });
   if (!document.documentElement.dataset.formatPainterEscBound) {
@@ -66253,6 +67105,7 @@ function openNewProjectModal() {
   resetModalDraftKeywords("newProject");
   const submit = $("newProjectSubmitButton");
   if (submit) {
+    delete submit.dataset.busy;
     submit.disabled = false;
     submit.textContent = i18n.t('app.만들기');
   }
@@ -66270,6 +67123,7 @@ function closeNewProjectModal() {
   $("newProjectModal")?.classList.add("hidden");
   const submit = $("newProjectSubmitButton");
   if (submit) {
+    delete submit.dataset.busy;
     submit.disabled = false;
     submit.textContent = i18n.t('app.만들기');
   }
@@ -66301,6 +67155,7 @@ async function submitNewProject(event) {
   }
   const submit = $("newProjectSubmitButton");
   if (submit) {
+    submit.dataset.busy = "1";
     submit.disabled = true;
     submit.textContent = i18n.t('app.만드는_중');
   }
@@ -66318,6 +67173,7 @@ async function submitNewProject(event) {
         romance_setting: genres.romance_setting || "",
         romance_blend: genres.romance_blend || "none",
     };
+    if (genres.literary_form) payload.literary_form = genres.literary_form;
     if (inheritOn && inheritFrom) {
       payload.inherit_from_project_id = inheritFrom;
       payload.inherit_chronicle = Boolean($("newProjectInheritChronicle")?.checked);
@@ -66342,8 +67198,10 @@ async function submitNewProject(event) {
     }
   } catch (error) {
     if (submit) {
+      delete submit.dataset.busy;
       submit.disabled = false;
       submit.textContent = i18n.t('app.만들기');
+      syncModalLiteraryForm("newProject");
     }
     throw error;
   }
@@ -66736,7 +67594,7 @@ function readModalGenreValues(prefix, purpose) {
         sub = picked;
       }
       const canon = canonicalizeWebNovelGenre(mapped.main, sub, "");
-      return {
+      return finishModalGenre(prefix, {
         ok: true,
         main: canon.main,
         sub: canon.sub,
@@ -66747,7 +67605,7 @@ function readModalGenreValues(prefix, purpose) {
         romance_structure: "",
         romance_setting: "",
         romance_blend: "none",
-      };
+      });
     }
     const romance = readModalRomanceFields(prefix, mapped.main, clusterId);
     if (mapped.main === "romance") {
@@ -66774,7 +67632,7 @@ function readModalGenreValues(prefix, purpose) {
         };
       }
     }
-    return {
+    return finishModalGenre(prefix, {
       ok: true,
       main: mapped.main,
       sub,
@@ -66783,7 +67641,7 @@ function readModalGenreValues(prefix, purpose) {
       genre_detail: readModalGenreDetail(prefix),
       content_rating: readModalAdult19(prefix, clusterId, mapped.purpose),
       ...romance,
-    };
+    });
   }
   const mode = getPurposeCategoryMode(purpose);
   const main = String($(`${prefix}MainGenre`)?.value || "").trim();
@@ -66804,7 +67662,7 @@ function readModalGenreValues(prefix, purpose) {
       focusId: `${prefix}SubGenre`,
     };
   }
-  return {
+  return finishModalGenre(prefix, {
     ok: true,
     main,
     sub: (mode === "fiction" || mode === "translation") ? sub : "",
@@ -66812,7 +67670,7 @@ function readModalGenreValues(prefix, purpose) {
     cluster_id: clusterId || inferClusterId(purpose, main, sub),
     genre_detail: readModalGenreDetail(prefix),
     content_rating: readModalAdult19(prefix, clusterId, purpose),
-  };
+  });
 }
 
 /** Pending insert for +챕터: { partId, index } or null. */
@@ -77092,6 +77950,29 @@ async function startToriSettingsFill(kind) {
     toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
+  if (target === "style") {
+    if (normalizeLiteraryForm(state.literaryForm) !== "short") {
+      toast(i18n.t("app.단편에서만_문체를_추출해요"));
+      return;
+    }
+    setToriFillButtonsBusy(true);
+    try {
+      const result = await api(`/api/projects/${state.projectId}/literary-style`, {
+        method: "POST",
+        body: JSON.stringify({ mode: "button" }),
+      });
+      await loadProject();
+      fillStyleFields();
+      toast(result?.skipped
+        ? i18n.t("app.비어_있는_문체_칸이_없어요")
+        : i18n.t("app.문체를_채워_두었어요"));
+    } catch (error) {
+      handleError(error);
+    } finally {
+      setToriFillButtonsBusy(false);
+    }
+    return;
+  }
   const payload = {
     infer: true,
     include_characters: target === "characters",
@@ -80099,6 +80980,7 @@ function closeImportModal() {
   window.clearTimeout(importPreviewTimer);
   importPreviewToken += 1;
   $("importModal").classList.add("hidden");
+  delete $("importSubmitButton").dataset.busy;
   $("importSubmitButton").disabled = false;
   $("importSubmitButton").textContent = i18n.t('app.가져오기');
   importModalMode = "document";
@@ -80453,6 +81335,7 @@ async function submitImport(event) {
   let importRomanceStructure = "";
   let importRomanceSetting = "";
   let importRomanceBlend = "none";
+  let importLiteraryForm = "";
   const isDocumentImport = importModalMode !== "proof"
     && destination !== "proof_pipeline"
     && destination !== "proof_compare"
@@ -80471,6 +81354,7 @@ async function submitImport(event) {
     importRomanceStructure = genres.romance_structure || "";
     importRomanceSetting = genres.romance_setting || "";
     importRomanceBlend = genres.romance_blend || "none";
+    importLiteraryForm = genres.literary_form || "";
     if (genres.purpose) $("importPurpose").value = genres.purpose;
     importClusterId = genres.cluster_id || importClusterId;
   } else {
@@ -80501,11 +81385,20 @@ async function submitImport(event) {
   const projectTitle = customTitle;
   const chapterTitle = String($("importChapterTitle")?.value || "").trim() || customTitle;
 
+  if (isDocumentImport && importLiteraryForm === "short") {
+    const charCount = await importExtractedCharCount(file);
+    if (charCount > LITERARY_SHORT_IMPORT_CHAR_LIMIT) {
+      const proceed = window.confirm(i18n.t("app.단편으로_가져오기엔_분량이_많습니다_계속할까요"));
+      if (!proceed) return;
+    }
+  }
+
   const submit = $("importSubmitButton");
   const isProofJob = importModalMode === "proof"
     || destination === "proof_pipeline"
     || destination === "proof_compare"
     || destination === "match_replace_scene";
+  submit.dataset.busy = "1";
   submit.disabled = true;
   const busyLabel = destination === "proof_pipeline"
     ? i18n.t('app.토리가_회차_식별_교정_비교_중')
@@ -80533,6 +81426,7 @@ async function submitImport(event) {
       romance_structure: importRomanceStructure,
       romance_setting: importRomanceSetting,
       romance_blend: importRomanceBlend,
+      ...(importLiteraryForm ? { literary_form: importLiteraryForm } : {}),
       keywords: isDocumentImport ? getModalDraftKeywords("import") : undefined,
       project_title: projectTitle,
       chapter_title: chapterTitle,
@@ -80595,8 +81489,10 @@ async function submitImport(event) {
       } else {
         toast(i18n.t('app.토리가_교정_비교_보고서를_만들었어요_원고는'));
       }
+      delete submit.dataset.busy;
       submit.disabled = false;
       submit.textContent = i18n.t('app.가져오기');
+      syncModalLiteraryForm("import");
       return;
     }
 
@@ -80636,9 +81532,40 @@ async function submitImport(event) {
     }
   } catch (error) {
     handleError(error);
+    delete submit.dataset.busy;
     submit.disabled = false;
     submit.textContent = i18n.t('app.가져오기');
+    syncModalLiteraryForm("import");
   }
+}
+
+async function importExtractedCharCount(file) {
+  try {
+    const contentBase64 = await fileToBase64(file);
+    const result = await api("/api/import/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        filename: file.name,
+        content_base64: contentBase64,
+        split: "none",
+        include_char_count: true,
+      }),
+    });
+    const count = Number(result?.char_count);
+    if (Number.isFinite(count)) return count;
+  } catch (_) {
+    /* fall through */
+  }
+  const name = String(file?.name || "").toLowerCase();
+  if (/\.(txt|text|md|markdown|html|htm|csv)$/.test(name)) {
+    try {
+      const text = await file.text();
+      return text.length;
+    } catch (_) {
+      return 0;
+    }
+  }
+  return 0;
 }
 
 function openAdminModal(tab = null) {
@@ -85388,6 +86315,9 @@ setupOpeningIdeasModal();
 setupChapterSubtitleModal();
 setupModalKeywordField("import");
 setupGenreClusterPicker("import");
+bindLiteraryFormRadios();
+bindContestControls();
+setupStyleFields();
 setupWelcomeScreen();
 setupAdminMode();
 setupCharacterPortraitUi();

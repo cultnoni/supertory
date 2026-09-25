@@ -1,0 +1,74 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["internal", "in_work", "strengths"],
+  "properties": {
+    "internal": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "verdict", "intentional", "note", "evidence"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": ["pov", "scene_summary", "character_interior", "implication", "style", "opening", "ending", "novelty"]
+          },
+          "verdict": {"type": "string", "enum": ["works", "room", "problem", "none"]},
+          "intentional": {"type": "boolean"},
+          "note": {"type": "string", "maxLength": 80},
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["scene_no", "quote"],
+              "properties": {"scene_no": {"type": "integer"}, "quote": {"type": "string", "maxLength": 40}}
+            }
+          }
+        }
+      }
+    },
+    "in_work": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "verdict", "intentional", "note", "evidence"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": ["continuity", "role", "character_consistency", "character_arc", "motif", "chapter_edges", "opening", "ending", "novelty"]
+          },
+          "verdict": {"type": "string", "enum": ["works", "room", "problem", "none"]},
+          "intentional": {"type": "boolean"},
+          "note": {"type": "string", "maxLength": 80},
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["scene_no", "quote"],
+              "properties": {"scene_no": {"type": "integer"}, "quote": {"type": "string", "maxLength": 40}}
+            }
+          }
+        }
+      }
+    },
+    "strengths": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "body", "quote", "scene_no"],
+        "properties": {
+          "title": {"type": "string", "maxLength": 30},
+          "body": {"type": "string", "maxLength": 80},
+          "quote": {"type": "string", "maxLength": 40},
+          "scene_no": {"type": "integer"}
+        }
+      }
+    }
+  }
+}

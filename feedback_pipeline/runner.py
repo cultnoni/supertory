@@ -108,22 +108,46 @@ def _add_usage(
     result: dict[str, Any] | None,
     model: str,
 ) -> float:
+    from feedback_pipeline.claude_client import estimate_cost_parts
+
     usage = (result or {}).get("usage") or {}
     inp = int(usage.get("input_tokens") or 0)
     out = int(usage.get("output_tokens") or 0)
-    cost = estimate_cost_usd(model, inp, out)
+    cache_write = int(usage.get("cache_creation_input_tokens") or 0)
+    cache_read = int(usage.get("cache_read_input_tokens") or 0)
+    parts = estimate_cost_parts(
+        model, inp, out, cache_write_tokens=cache_write, cache_read_tokens=cache_read
+    )
+    cost = float(parts["total_usd"])
     bucket = params.setdefault("usage", {})
     stages = bucket.setdefault("stages", [])
     stages.append(
         {
             "stage": stage,
+            "model": model,
             "input_tokens": inp,
             "output_tokens": out,
+            "cache_creation_input_tokens": cache_write,
+            "cache_read_input_tokens": cache_read,
+            "cost_input_usd": parts["input_usd"],
+            "cost_cache_write_usd": parts["cache_write_usd"],
+            "cost_cache_read_usd": parts["cache_read_usd"],
+            "cost_output_usd": parts["output_usd"],
             "cost_usd": round(cost, 6),
         }
     )
     bucket["input_tokens"] = int(bucket.get("input_tokens") or 0) + inp
     bucket["output_tokens"] = int(bucket.get("output_tokens") or 0) + out
+    bucket["cache_creation_input_tokens"] = int(bucket.get("cache_creation_input_tokens") or 0) + cache_write
+    bucket["cache_read_input_tokens"] = int(bucket.get("cache_read_input_tokens") or 0) + cache_read
+    bucket["cost_input_usd"] = round(float(bucket.get("cost_input_usd") or 0) + parts["input_usd"], 6)
+    bucket["cost_cache_write_usd"] = round(
+        float(bucket.get("cost_cache_write_usd") or 0) + parts["cache_write_usd"], 6
+    )
+    bucket["cost_cache_read_usd"] = round(
+        float(bucket.get("cost_cache_read_usd") or 0) + parts["cache_read_usd"], 6
+    )
+    bucket["cost_output_usd"] = round(float(bucket.get("cost_output_usd") or 0) + parts["output_usd"], 6)
     bucket["cost_usd"] = round(float(bucket.get("cost_usd") or 0) + cost, 6)
     return float(bucket["cost_usd"])
 
@@ -1041,8 +1065,10 @@ def run_feedback(
         )
         _commit(conn, options)
         return run_id
-    except CostLimitExceeded as error:
-        params["error"] = str(error)
+    except CostLimitExceeded:
+        from feedback_pipeline.run_errors import public_failure
+
+        params = public_failure(params)
         _save_params(conn, run_id, params)
         feedback_store.update_run(
             conn,
@@ -1054,20 +1080,20 @@ def run_feedback(
         )
         _commit(conn, options)
         return run_id
-    except Exception as error:
-        params["error"] = str(error)[:500]
-        status = "failed" if report_failed or "리포트" in str(error) or isinstance(error, ClaudeError) else "partial"
-        # If we never stored a report, it's failed.
+    except Exception:
+        from feedback_pipeline.run_errors import public_failure
+
         row = conn.execute(
             "SELECT report_json FROM feedback_run WHERE id = ?", (run_id,)
         ).fetchone()
         has_report = bool(row and row[0])
         status = "failed" if not has_report else "partial"
+        params = public_failure(params, cards=has_report)
         feedback_store.update_run(
             conn,
             run_id,
             status=status,
-            raw_output=last_raw or str(error)[:4000],
+            raw_output=last_raw or "",
             finished_at=_now(conn),
             params_json=params,
         )

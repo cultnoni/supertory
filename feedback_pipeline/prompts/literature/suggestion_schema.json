@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fixes"],
+  "properties": {
+    "fixes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "suggestion", "cannot_fix", "cannot_fix_reason", "delete_span"],
+        "properties": {
+          "id": {"type": "string"},
+          "suggestion": {"type": "string", "minLength": 1},
+          "cannot_fix": {"type": "boolean"},
+          "cannot_fix_reason": {"type": "string"},
+          "delete_span": {"type": "string"}
+        }
+      }
+    }
+  }
+}

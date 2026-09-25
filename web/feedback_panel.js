@@ -83,16 +83,21 @@
     partial: "일부 완료",
     failed: "실패",
   };
-  const STAGE_LABELS = {
-    queued: "문단 중복 검사",
-    dup: "문단 중복 검사",
-    consistency: "정합성 검사",
-    consistency_p2: "정합성 검사",
-    report: "리포트",
-    cards: "카드 생성",
-    priority: "마무리",
-    done: "마무리",
-    interrupted: "중단됨",
+  const STAGE_LABEL_KEYS = {
+    queued: ["app.단계_문단_중복_검사", "문단 중복 검사"],
+    dup: ["app.단계_문단_중복_검사", "문단 중복 검사"],
+    consistency: ["app.단계_정합성_검사", "정합성 검사"],
+    consistency_p2: ["app.단계_정합성_검사", "정합성 검사"],
+    prior_summaries: ["app.앞_장_요약_준비", "앞 장 요약 준비"],
+    style: ["app.단계_문체", "문체"],
+    signals: ["app.단계_규칙_신호", "규칙 신호"],
+    scene_map: ["app.단계_장면_지도", "장면 지도"],
+    rubric: ["app.단계_루브릭", "루브릭"],
+    report: ["app.단계_리포트", "리포트"],
+    cards: ["app.단계_카드_생성", "카드 생성"],
+    priority: ["app.단계_마무리", "마무리"],
+    done: ["app.단계_마무리", "마무리"],
+    interrupted: ["app.단계_중단됨", "중단됨"],
   };
 
   const stateBox = {
@@ -122,6 +127,10 @@
     pollTimer: 0,
     reportOpen: true,
     collected: Object.create(null),
+    midcheckMode: false,
+    midcheckWhole: true,
+    midcheckStartOrd: 1,
+    midcheckEndOrd: 1,
     collapsedCards: Object.create(null),
     expandedDiff: Object.create(null),
     expandedWarnings: Object.create(null),
@@ -1618,6 +1627,23 @@
   function locateCard(card, mapping) {
     const list = Array.isArray(mapping) ? mapping : [];
     if (!card || !list.length) return locateFail("인용문을 찾지 못했어요");
+    if (card.card_form === "suggest" || card.card_form === "note") {
+      const quote = String(card.start_quote || card.original_text || "");
+      const quoted = quote ? findParaWithQuote(list, quote, Number(card.start_para) || 0) : null;
+      if (quoted) {
+        const span = joinParaRange(list, quoted.i, quoted.i);
+        const needle = normalizeNeedle(quote);
+        const hits = needle ? hitsInParas(span, quote, needle) : [];
+        const range = hits.length ? rangeFromHit(span, hits[0].start, hits[0].end) : paraWholeRange(list, quoted.i);
+        if (range) return locateResult(range, quoted.i, quoted.i, "quote", null);
+      }
+      const fallback = paraWholeRange(list, Number(card.start_para) || 0);
+      if (fallback) {
+        toastMsg(litText("app.원고가_수정되어_위치가", "원고가 수정되어 위치가 정확하지 않을 수 있습니다"));
+        return locateResult(fallback, Number(card.start_para) || 0, Number(card.start_para) || 0, "para", null);
+      }
+      return locateFail(litText("app.원고가_수정되어_위치가", "원고가 수정되어 위치가 정확하지 않을 수 있습니다"));
+    }
     const startN = Number(card.start_para) || 0;
     const endN = Number(card.end_para) || startN;
     const span = startN && endN ? Math.abs(endN - startN) + 1 : 0;
@@ -1924,9 +1950,24 @@
     }).join("");
   }
 
+  function sceneOrdOf(card) {
+    const scenes = (stateBox.run && stateBox.run.scenes) || [];
+    const id = Number(card && card.scene_id);
+    for (let i = 0; i < scenes.length; i += 1) {
+      if (Number(scenes[i].scene_id) === id) return Number(scenes[i].ord) || i;
+    }
+    return 0;
+  }
+
   function sortCards(cards) {
     const list = Array.isArray(cards) ? cards.slice() : [];
+    const literary = isLiteratureRun(stateBox.run);
     list.sort(function (a, b) {
+      if (literary) {
+        const oa = sceneOrdOf(a);
+        const ob = sceneOrdOf(b);
+        if (oa !== ob) return oa - ob;
+      }
       const sa = Number(a && a.start_para);
       const sb = Number(b && b.start_para);
       const na = Number.isFinite(sa) ? sa : 1e9;
@@ -2359,15 +2400,55 @@
 
   function stageLabel(progress, cardCount, planned) {
     const stage = String((progress && progress.stage) || "");
+    if (stage === "prior_summaries") {
+      const done = Number(progress.done) || 0;
+      const total = Number(progress.total) || 0;
+      if (progress.label) return String(progress.label);
+      return litText(
+        "app.앞_장_요약을_준비하는_중",
+        "앞 장 요약을 준비하는 중 (${done}/${total})",
+        { done: done, total: total }
+      );
+    }
     if (stage === "cards") {
       const done = cardCount != null ? cardCount : Number(progress.done) || 0;
       const total = planned || Number(progress.total) || 0;
-      return "카드 생성 " + done + "/" + (total || "m");
+      return litText(
+        "app.카드_생성_진행",
+        "카드 생성 ${done}/${total}",
+        { done: done, total: total || "m" }
+      );
     }
-    return STAGE_LABELS[stage] || "문단 중복 검사";
+    const pair = STAGE_LABEL_KEYS[stage];
+    if (pair) return litText(pair[0], pair[1]);
+    return litText("app.단계_문단_중복_검사", "문단 중복 검사");
+  }
+
+  const LIT_TAG_KEYS = {
+    ambiguity: ["app.유형_의미_모호", "의미 모호"],
+    pov: ["app.유형_시점_이탈", "시점 이탈"],
+    style: ["app.유형_문체_이탈", "문체 이탈"],
+    grammar: ["app.유형_비문", "비문"],
+    excess: ["app.유형_과잉_설명", "과잉 설명"],
+    repeat: ["app.유형_반복_표현", "반복 표현"],
+    translationese: ["app.유형_번역투", "번역투"],
+    cliche: ["app.유형_상투적_표현", "상투적 표현"],
+    rhythm: ["app.유형_리듬", "리듬·문장 길이"],
+    image: ["app.유형_감각_이미지", "감각·이미지 약함"],
+  };
+
+  function literatureTagLabel(tag) {
+    const pair = LIT_TAG_KEYS[String(tag || "")];
+    return pair ? litText(pair[0], pair[1]) : "";
   }
 
   function styleTypeLabel(card) {
+    const tags = (card && (card.issue_tags || card.issue_tags_json)) || [];
+    if ((card && (card.card_form === "suggest" || card.card_form === "note")) && tags.length) {
+      return tags.map(function (tag) { return literatureTagLabel(tag) || tag; }).join(" · ");
+    }
+    const fromType = literatureTagLabel(card && card.style_type);
+    if (fromType && card && (card.card_form === "suggest" || card.card_form === "note")) return fromType;
     const kind = String((card && card.kind) || "");
     if (KIND_LABELS[kind]) return KIND_LABELS[kind];
     const style = String((card && card.style_type) || "other");
@@ -2764,7 +2845,62 @@
   }
 
   function analysisRequestBody(sceneId, lens) {
-    return { scene_id: sceneId, explanation_lens: lens };
+    const body = { scene_id: sceneId, explanation_lens: lens || null };
+    if (stateBox.midcheckMode) {
+      body.pipeline = "literature_midcheck";
+      body.mode = "midcheck";
+      if (!stateBox.midcheckWhole) {
+        if (stateBox.midcheckStartOrd != null && stateBox.midcheckStartOrd !== "") {
+          body.start_ord = Number(stateBox.midcheckStartOrd) - 1;
+        }
+        if (stateBox.midcheckEndOrd != null && stateBox.midcheckEndOrd !== "") {
+          body.end_ord = Number(stateBox.midcheckEndOrd) - 1;
+        }
+      }
+    }
+    return body;
+  }
+
+  function enterMidcheckMode() {
+    stateBox.midcheckMode = true;
+    stateBox.midcheckWhole = true;
+    stateBox.tab = "report";
+    const panel = panelEl();
+    if (!panel) return;
+    const title = panel.querySelector(".fb-app-title");
+    if (title) title.textContent = litText("app.작품_중간_점검", "작품 중간 점검");
+    const cardsTab = panel.querySelector("[data-role='fb-tab'][data-tab='cards']");
+    if (cardsTab) cardsTab.hidden = true;
+    let range = panel.querySelector("[data-role='fb-midcheck-range']");
+    if (!range) {
+      const host = panel.querySelector(".fb-start-wrap");
+      if (host) {
+        range = document.createElement("div");
+        range.className = "fb-midcheck-range";
+        range.setAttribute("data-role", "fb-midcheck-range");
+        range.innerHTML =
+          "<label><input type=\"checkbox\" data-role=\"fb-mid-whole\" checked> "
+          + esc(litText("app.작품_전체", "작품 전체")) + "</label>"
+          + "<label>" + esc(litText("app.시작_단위", "시작 단위"))
+          + " <input type=\"number\" min=\"1\" data-role=\"fb-mid-start\" value=\"1\" disabled></label>"
+          + "<label>" + esc(litText("app.끝_단위", "끝 단위"))
+          + " <input type=\"number\" min=\"1\" data-role=\"fb-mid-end\" value=\"1\" disabled></label>";
+        host.parentNode.insertBefore(range, host);
+      }
+    }
+    renderAll();
+  }
+
+  function leaveMidcheckMode() {
+    stateBox.midcheckMode = false;
+    const panel = panelEl();
+    if (!panel) return;
+    const title = panel.querySelector(".fb-app-title");
+    if (title) title.textContent = "첨삭 피드백";
+    const cardsTab = panel.querySelector("[data-role='fb-tab'][data-tab='cards']");
+    if (cardsTab) cardsTab.hidden = false;
+    const range = panel.querySelector("[data-role='fb-midcheck-range']");
+    if (range) range.remove();
   }
 
   function referenceNotes(report, cards, dropped) {
@@ -2878,9 +3014,14 @@
     else if (status === "failed") extra = " · 실패";
     else if (status === "partial" || status === "interrupted") extra = " · 일부 실패";
     const primary = Number(row && row.is_primary) === 1 ? " · 기준" : "";
+    const kindLabel = String(row && row.pipeline) === "literature_short"
+      ? " · " + litText("app.문학_리포트", "문학 리포트")
+      : (String(row && row.pipeline) === "literature_long"
+        ? " · " + litText("app.문학_장편_리포트", "문학 장편 리포트")
+        : " · 카드 " + total);
     return formatRunWhenShort(row && row.created_at)
       + primary
-      + " · 카드 " + total
+      + kindLabel
       + extra;
   }
 
@@ -3950,7 +4091,7 @@
     const start = Number(card && card.start_para) || 0;
     const end = Number(card && card.end_para) || start;
     if (start && end - start + 1 > 5) return "범위가 너무 넓어요";
-    const saved = stateBox.run && (stateBox.run.paragraphs || []);
+    const saved = runParagraphsForEditor(stateBox.run);
     const live = paragraphsFromEditor(editorRoot());
     if (paragraphsDiffer(saved, live)) return "분석 때와 원고가 달라요";
     return "인용문을 찾지 못했어요";
@@ -4158,9 +4299,14 @@
     }
     const mapping = mapEditorParagraphs(editor);
     stateBox.mapping = mapping;
+    const openId = currentScene().sceneId;
     const cards = Array.isArray(run.cards) ? run.cards : [];
     for (let i = 0; i < cards.length; i += 1) {
       const card = cards[i];
+      if (isLiteratureRun(run) && Number(card.scene_id) && Number(card.scene_id) !== openId) {
+        stateBox.locateById[String(card.id)] = locateFail("다른 회차의 카드예요");
+        continue;
+      }
       stateBox.locateById[String(card.id)] = locateCard(card, mapping);
     }
     applyHighlights();
@@ -4173,6 +4319,14 @@
       refreshLocations();
       renderCards();
     }, LOCATE_DEBOUNCE_MS);
+  }
+
+  async function openCardScene(card) {
+    if (!card || !isLiteratureRun(stateBox.run)) return;
+    const sceneId = Number(card.scene_id) || 0;
+    if (!sceneId || sceneId === currentScene().sceneId || typeof openScene !== "function") return;
+    await openScene(sceneId);
+    refreshLocations();
   }
 
   function selectCard(cardId, opts) {
@@ -4291,6 +4445,7 @@
     const body = await apiCall("/api/feedback/runs/" + runId);
     const sameQuiet = quiet && Number(stateBox.run && stateBox.run.id) === Number(runId);
     stateBox.run = body;
+    if (isLiteratureRun(body)) stateBox.sortMode = "manuscript";
     if (!sameQuiet) {
       stateBox.kindFilter = [];
       stateBox.commentsByCard = Object.create(null);
@@ -4359,7 +4514,11 @@
 
   async function startAnalysis() {
     const ctx = currentScene();
-    if (!ctx.projectId || !ctx.sceneId) {
+    if (!ctx.projectId) {
+      toastMsg("작품을 먼저 열어 주세요.");
+      return;
+    }
+    if (!stateBox.midcheckMode && !ctx.sceneId) {
       toastMsg("먼저 목차에서 회차 하나를 열어 주세요.");
       return;
     }
@@ -4373,11 +4532,13 @@
     stateBox.tab = "report";
     renderAll();
     try {
-      const saved = await persistThenContinue();
-      if (!saved) return;
+      if (!stateBox.midcheckMode) {
+        const saved = await persistThenContinue();
+        if (!saved) return;
+      }
       const created = await apiCall("/api/projects/" + ctx.projectId + "/feedback/runs", {
         method: "POST",
-        body: JSON.stringify(analysisRequestBody(ctx.sceneId, stateBox.lens)),
+        body: JSON.stringify(analysisRequestBody(ctx.sceneId || 0, stateBox.lens)),
       });
       stateBox.reveal = "high";
       await loadRuns();
@@ -4412,6 +4573,25 @@
       body: JSON.stringify(body),
     });
     if (stateBox.run && stateBox.run.id) await loadRun(stateBox.run.id, { quiet: true });
+  }
+
+  async function requestLiteratureRewrite(cardId) {
+    if (stateBox.rewriteBusyId) return;
+    stateBox.rewriteBusyId = String(cardId);
+    refreshListAndChrome();
+    try {
+      const saved = await apiCall("/api/feedback/cards/" + cardId + "/rewrite", { method: "POST", body: "{}" });
+      const card = ((stateBox.run && stateBox.run.cards) || []).find(function (item) {
+        return String(item.id) === String(cardId);
+      });
+      if (card && saved && saved.suggestion) card.suggestion = saved.suggestion;
+      toastMsg(litText("app.수정안을_받아_두었어요", "수정안을 받아 두었어요"));
+    } catch (error) {
+      toastMsg((error && error.message) || "수정안을 받지 못했어요.");
+    } finally {
+      stateBox.rewriteBusyId = "";
+      refreshListAndChrome();
+    }
   }
 
   async function setCardStatus(cardId, status) {
@@ -4574,7 +4754,7 @@
     return n;
   }
 
-  function rememberApply(card, plan, status) {
+  function rememberApply(card, plan, status, undoCount) {
     stateBox.applyMemory = (stateBox.applyMemory || []).filter(function (row) {
       return String(row.cardId) !== String(card.id);
     });
@@ -4588,6 +4768,7 @@
       endPara: plan.endPara,
       joinStart: plan.joinStart,
       joinEnd: plan.joinEnd,
+      undoCount: Math.max(1, Number(undoCount) || 1),
       sceneId: currentScene().sceneId,
     });
   }
@@ -4636,6 +4817,7 @@
       if (String(cards[i].id) === String(cardId)) card = cards[i];
     }
     if (!card) return;
+    await openCardScene(card);
     if (String(stateBox.activeCardId) !== String(cardId)) selectCard(cardId, { force: true });
     if (otherEditorActive()) {
       toastMsg("이 화면에서는 적용할 수 없어요. 수정안 복사를 이용해 주세요");
@@ -4663,6 +4845,12 @@
       return;
     }
     restoreScroller(scrollerSnap);
+    const liveBefore = readPlanLiveText(mapEditorParagraphs(editorRoot()), plan);
+    if (normalizeApplyText(liveBefore) !== normalizeApplyText(plan.originalText || "")) {
+      toastMsg("원고가 바뀌어 적용하지 않았어요. 수정안을 복사해 주세요");
+      restoreScroller(scrollerSnap);
+      return;
+    }
     stateBox.applyBusy = true;
     const ran = runApplyPlan(plan, { confirm: true });
     if (!ran.ok) {
@@ -4671,21 +4859,11 @@
       restoreScroller(scrollerSnap);
       return;
     }
-    if (!verifyAppliedText(plan)) {
-      undoApplyEdits(APPLY_UNDO_MAX, function () {
-        const mapping = mapEditorParagraphs(editorRoot());
-        return normalizeApplyText(readPlanLiveText(mapping, plan)) === normalizeApplyText(plan.originalText);
-      });
-      stateBox.applyBusy = false;
-      toastMsg("적용에 실패해서 되돌렸어요. 수정안을 복사해 주세요");
-      restoreScroller(scrollerSnap);
-      return;
-    }
     dispatchEditorInput();
     const status = opts.edited ? "applied_edited" : "applied";
     card.status = status;
     if (opts.edited) card.final_text = plan.expectedText;
-    rememberApply(card, plan, status);
+    rememberApply(card, plan, status, ran.undoCount);
     try {
       await putCardStatus(cardId, status, opts.edited ? { final_text: plan.expectedText } : null);
     } catch (error) {
@@ -4727,11 +4905,10 @@
     }).pop();
     if (!mem) return;
     focusEditorForApply();
-    undoApplyEdits(APPLY_UNDO_MAX, function () {
-      const mapping = mapEditorParagraphs(editorRoot());
-      const live = joinedTextAt(mapping, mem.joinStart, String(mem.originalText || "").length);
-      return normalizeApplyText(live) === normalizeApplyText(mem.originalText);
-    });
+    const times = Math.max(1, Number(mem.undoCount) || 1);
+    for (let i = 0; i < times; i += 1) {
+      if (!execCommandNamed("undo")) break;
+    }
     dispatchEditorInput();
     putCardStatus(cardId, "open").catch(function (error) {
       toastMsg((error && error.message) || "카드 상태를 바꾸지 못했어요.");
@@ -5095,7 +5272,7 @@
     renderParaInfo();
     const banner = panelEl() && panelEl().querySelector("[data-role='fb-mismatch']");
     if (!banner) return;
-    const saved = stateBox.run && (stateBox.run.paragraphs || []);
+    const saved = runParagraphsForEditor(stateBox.run);
     const live = paragraphsFromEditor(editorRoot());
     const mismatch = paragraphsDiffer(saved, live);
     banner.hidden = !mismatch;
@@ -5142,13 +5319,360 @@
       return;
     }
     el.hidden = false;
-    if (run.status === "partial") {
-      el.innerHTML = "<p class=\"fb-status-msg\">일부 단계가 실패했어요</p>";
-    } else if (run.status === "failed") {
-      el.innerHTML = "<p class=\"fb-status-msg\">분석에 실패했어요</p>"
+    const publicError = (run.params && run.params.public_error)
+      || litText("app.지금은_토리가_원고를_읽을_수_없어요", "지금은 토리가 원고를 읽을 수 없어요. 잠시 후 다시 시도해 주세요.");
+    const cardsFailed = Boolean(run.params && run.params.cards_failed);
+    if (run.status === "failed") {
+      el.innerHTML = "<p class=\"fb-status-msg\">" + esc(publicError) + "</p>"
         + "<button type=\"button\" class=\"primary compact-btn\" data-role=\"fb-retry\">다시 시도</button>";
+    } else if (run.status === "partial" && !cardsFailed) {
+      el.innerHTML = "<p class=\"fb-status-msg\">일부 단계가 실패했어요</p>";
+    } else if (run.status === "partial" && cardsFailed) {
+      el.innerHTML = "";
+      el.hidden = true;
     } else {
       el.innerHTML = "<p class=\"hint\">분석이 끝났어요.</p>";
+    }
+  }
+
+  function litText(key, fallback, vars) {
+    try {
+      if (typeof i18n !== "undefined" && typeof i18n.t === "function") {
+        const value = i18n.t(key, vars);
+        if (value && value !== key) {
+          return value;
+        }
+      }
+    } catch (_) { /* keep fallback */ }
+    let out = fallback;
+    if (vars && out) {
+      Object.keys(vars).forEach(function (k) {
+        out = String(out).split("${" + k + "}").join(String(vars[k]));
+      });
+    }
+    return out;
+  }
+
+  function isLiteratureRun(run) {
+    if (!run) return false;
+    const pipe = String(run.pipeline || "");
+    if (pipe === "literature_short" || pipe === "literature_long" || pipe === "literature_midcheck") return true;
+    const reportPipe = run.report && String(run.report.pipeline || "");
+    return reportPipe === "literature_short" || reportPipe === "literature_long" || reportPipe === "literature_midcheck";
+  }
+
+  function isMidcheckRun(run) {
+    if (!run) return false;
+    if (String(run.pipeline) === "literature_midcheck") return true;
+    return Boolean(run.report && String(run.report.pipeline) === "literature_midcheck");
+  }
+
+  function isLiteratureLongRun(run) {
+    if (!run) return false;
+    if (String(run.pipeline) === "literature_long") return true;
+    return Boolean(run.report && String(run.report.pipeline) === "literature_long");
+  }
+
+  function runParagraphsForEditor(run) {
+    if (!isLiteratureRun(run)) return (run && run.paragraphs) || [];
+    const sceneId = currentScene().sceneId;
+    const scenes = (run && run.scenes) || [];
+    const hit = scenes.find(function (row) { return Number(row && row.scene_id) === sceneId; });
+    return (hit && hit.paragraphs) || [];
+  }
+
+  function litItemLabel(key) {
+    const map = {
+      opening: ["app.도입", "도입"],
+      pov: ["app.시점_서술_거리", "시점·서술 거리"],
+      scene_summary: ["app.장면과_요약", "장면과 요약"],
+      character: ["app.인물", "인물"],
+      character_interior: ["app.인물_내면", "인물 내면"],
+      character_consistency: ["app.인물_일관성", "인물 일관성"],
+      character_arc: ["app.인물_궤적", "인물 궤적"],
+      motif: ["app.이미지_모티프", "모티프·복선"],
+      implication: ["app.함축", "함축"],
+      ending: ["app.결말", "결말"],
+      economy: ["app.경제성", "경제성"],
+      style: ["app.문체_일관성", "문체 일관성"],
+      title: ["app.제목", "제목"],
+      novelty: ["app.새로움", "새로움"],
+      continuity: ["app.앞_장과의_연결", "앞 장과의 연결"],
+      role: ["app.이_장의_역할", "이 장의 역할"],
+      chapter_edges: ["app.장의_시작과_끝", "장의 시작과 끝"],
+    };
+    const pair = map[key] || [key, key];
+    return litText(pair[0], pair[1]);
+  }
+
+  function litVerdictLabel(verdict) {
+    if (verdict === "problem") return litText("app.문제", "문제");
+    if (verdict === "room") return litText("app.보완_여지", "보완 여지");
+    if (verdict === "none") return litText("app.판정_없음", "판정 없음");
+    return litText("app.잘_작동함", "잘 작동함");
+  }
+
+  function renderMidcheckReport(el, collectBtn, run) {
+    const report = (run && run.report) || {};
+    const collectText = formatReportCollectText(run);
+    if (collectBtn) {
+      collectBtn.hidden = !collectText;
+      collectBtn.classList.toggle("is-on", Boolean(run && hasCollectedMark("run", run.id)));
+      collectBtn.setAttribute("aria-pressed", run && hasCollectedMark("run", run.id) ? "true" : "false");
+    }
+    if (!el) return;
+    const reading = report.reading || {};
+    const roleRows = (report.role_map || []).map(function (row) {
+      const flags = [];
+      if (row.similar_streak) flags.push("유사 연속");
+      if (row.blurry) flags.push("흐릿");
+      return "<tr><td><button type=\"button\" class=\"fb-mid-unit\" data-role=\"fb-mid-unit\" data-unit-no=\""
+        + esc(row.unit_no) + "\">" + esc(row.unit_no) + "장</button></td><td>"
+        + esc(row.role || "") + (flags.length ? " <em>" + esc(flags.join(", ")) + "</em>" : "")
+        + "</td></tr>";
+    }).join("");
+    const motifRows = (report.motifs || []).map(function (row) {
+      const missing = row.propose_add || row.in_settings === false;
+      const addBtn = missing
+        ? " <button type=\"button\" class=\"fb-linkish\" data-role=\"fb-midcheck-add-bait\" data-name=\""
+          + esc(row.name || "") + "\">"
+          + esc(litText("app.모티프_복선에_추가할까요", "모티프·복선에 추가할까요?"))
+          + "</button>"
+        : "";
+      const missingMark = missing
+        ? " <span class=\"hint\">" + esc(litText("app.설정집에_없음", "설정집에 없음")) + "</span>"
+        : "";
+      return "<tr><td>" + esc(row.name || row.id || "") + missingMark + addBtn + "</td><td>"
+        + esc(row.first_unit) + "~" + esc(row.last_unit) + "장</td><td>"
+        + esc(row.status || "") + "</td></tr>";
+    }).join("");
+    const arcs = (report.character_arcs || []).map(function (row) {
+      return "<li><strong>" + esc(row.name || "") + "</strong> "
+        + esc(row.change || "")
+        + (row.stalled ? " <span class=\"hint\">멈춤: " + esc(row.stalled) + "</span>" : "")
+        + "</li>";
+    }).join("");
+    const revisions = (report.revisions || []).map(function (item) {
+      return "<li>" + esc(item) + "</li>";
+    }).join("");
+    el.hidden = false;
+    el.innerHTML =
+      "<div class=\"fb-report-body fb-midcheck\">"
+      + (report.summary_only_note ? "<p class=\"hint\">" + esc(report.summary_only_note) + "</p>" : "")
+      + "<h4>" + esc(
+        (report.range && !report.range.whole && report.range.start_unit_no && report.range.end_unit_no)
+          ? litText("app.토리가_읽은_범위", "토리가 읽은 ${start}~${end}장", {
+            start: report.range.start_unit_no,
+            end: report.range.end_unit_no,
+          })
+          : litText("app.토리가_읽은_지금까지의_작품", "토리가 읽은 지금까지의 작품")
+      ) + "</h4>"
+      + "<p>" + esc(reading.body || "") + "</p>"
+      + (reading.intent_gap ? "<p class=\"hint\">" + esc(reading.intent_gap) + "</p>" : "")
+      + "<h4>" + esc(litText("app.장별_역할_지도", "장별 역할 지도")) + "</h4>"
+      + (roleRows ? "<table class=\"fb-scores\"><tbody>" + roleRows + "</tbody></table>" : "<p class=\"hint\">-</p>")
+      + "<h4>" + esc(litText("app.인물_궤적", "인물 궤적")) + "</h4>"
+      + (arcs ? "<ul class=\"fb-list\">" + arcs + "</ul>" : "<p class=\"hint\">-</p>")
+      + "<h4>" + esc(litText("app.모티프_복선_현황", "모티프·복선 현황")) + "</h4>"
+      + (motifRows ? "<table class=\"fb-scores\"><thead><tr><th>항목</th><th>구간</th><th>상태</th></tr></thead><tbody>"
+        + motifRows + "</tbody></table>" : "<p class=\"hint\">-</p>")
+      + "<h4>" + esc(litText("app.큰_퇴고_방향", "큰 퇴고 방향")) + "</h4>"
+      + (revisions ? "<ul class=\"fb-list\">" + revisions + "</ul>" : "<p class=\"hint\">-</p>")
+      + "</div>";
+  }
+
+  function litQuoteButton(item) {
+    const quote = String((item && item.quote) || "");
+    if (!quote) return "";
+    return "<button type=\"button\" class=\"fb-lit-quote\" data-role=\"fb-lit-quote\" data-quote=\""
+      + esc(quote) + "\" data-scene-id=\"" + esc(item.scene_id || "")
+      + "\" data-para=\"" + esc(item.local || item.para || "") + "\">"
+      + esc(quote) + "</button>";
+  }
+
+  function renderLiteratureReport(el, collectBtn, run) {
+    const report = (run && run.report) || {};
+    const collectText = formatReportCollectText(run);
+    if (collectBtn) {
+      collectBtn.hidden = !collectText;
+      collectBtn.classList.toggle("is-on", Boolean(run && hasCollectedMark("run", run.id)));
+      collectBtn.setAttribute("aria-pressed", run && hasCollectedMark("run", run.id) ? "true" : "false");
+    }
+    if (!el) return;
+    const overview = report.overview || {};
+    const reading = report.reading || {};
+    const longForm = isLiteratureLongRun(run);
+    const diagnoses = Array.isArray(report.diagnoses) ? report.diagnoses : [];
+    const internal = Array.isArray(report.diagnoses_internal) ? report.diagnoses_internal : [];
+    const inWork = Array.isArray(report.diagnoses_in_work) ? report.diagnoses_in_work : [];
+    const diagnosisPool = longForm && (internal.length || inWork.length)
+      ? internal.concat(inWork)
+      : diagnoses;
+    const openItems = diagnosisPool.filter(function (item) {
+      return item && (item.verdict === "problem" || item.verdict === "room");
+    });
+    const works = diagnosisPool.filter(function (item) { return item && item.verdict === "works"; });
+    const voices = [
+      ["reader", litText("app.독자", "독자")],
+      ["editor", litText("app.편집자", "편집자")],
+      ["critic", litText("app.비평가", "비평가")],
+      ["judge", litText("app.심사위원", "심사위원")],
+    ];
+    function diagnosisHtml(item) {
+      const evidences = Array.isArray(item.evidence) ? item.evidence : [];
+      const quotes = evidences.map(litQuoteButton).filter(Boolean).join(" ");
+      const keep = item.intentional
+        ? " <span class=\"fb-badge\">" + esc(litText("app.의도라면_유지", "의도라면 유지")) + "</span>"
+        : "";
+      const novelty = item.key === "novelty"
+        ? " <span class=\"hint\">" + esc(litText("app.참고_의견", "참고 의견")) + "</span>"
+        : "";
+      const note = linkUnitMentions(item.note || "");
+      return "<li><strong>" + esc(litItemLabel(item.key)) + "</strong> "
+        + esc(litVerdictLabel(item.verdict)) + keep + novelty
+        + (note ? "<p>" + note + "</p>" : "")
+        + (quotes ? "<p>" + quotes + "</p>" : "")
+        + "</li>";
+    }
+    function linkUnitMentions(text) {
+      const raw = String(text || "");
+      if (!raw) return "";
+      return esc(raw).replace(/(\d+)\s*장/g, function (_m, num) {
+        return "<button type=\"button\" class=\"fb-lit-unit\" data-role=\"fb-lit-unit\" data-unit-ord=\""
+          + esc(num) + "\">" + esc(num) + "장</button>";
+      });
+    }
+    const voiceHtml = voices.map(function (pair) {
+      const text = String(overview[pair[0]] || "").trim();
+      if (!text) return "";
+      return "<p><strong>" + esc(pair[1]) + "</strong> " + linkUnitMentions(text) + "</p>";
+    }).join("");
+    const strengthHtml = (Array.isArray(report.strengths) ? report.strengths : []).map(function (item) {
+      return "<li><strong>" + esc(item.title || "") + "</strong>"
+        + (item.body ? "<p>" + linkUnitMentions(item.body) + "</p>" : "")
+        + (litQuoteButton(item) ? "<p>" + litQuoteButton(item) + "</p>" : "")
+        + "</li>";
+    }).join("");
+    const taskHtml = (Array.isArray(report.tasks) ? report.tasks : []).map(function (task) {
+      return "<li>" + linkUnitMentions(task) + "</li>";
+    }).join("");
+    const comparison = report.comparison && typeof report.comparison === "object" ? report.comparison : null;
+    const changes = comparison && Array.isArray(comparison.changes)
+      ? comparison.changes
+      : (comparison && Array.isArray(comparison.items) ? comparison.items : []);
+    const comparisonHtml = comparison
+      ? "<section class=\"fb-lit-block\"><h4>" + esc(litText("app.이전_버전과_비교", "이전 버전과 비교")) + "</h4><ul class=\"fb-list\">"
+        + changes.map(function (item) {
+          return "<li>" + esc(litItemLabel(item.key)) + " · " + esc(item.status || "")
+            + (item.note ? " " + esc(item.note) : "") + "</li>";
+        }).join("")
+        + (comparison.reading_changed
+          ? "<li>" + esc(litText("app.토리가_읽은_이_작품", "토리가 읽은 이 작품")) + "</li>"
+          : "")
+        + "</ul></section>"
+      : "";
+    const relation = report.settings_relation && typeof report.settings_relation === "object"
+      ? report.settings_relation
+      : null;
+    const relationHtml = relation
+      ? "<section class=\"fb-lit-block\"><h4>" + esc(litText("app.설정집과의_관계", "설정집과의 관계")) + "</h4>"
+        + ((relation.conflicts || []).length
+          ? "<p><strong>" + esc(litText("app.발견된_모순", "발견된 모순")) + "</strong></p><ul class=\"fb-list\">"
+            + (relation.conflicts || []).map(function (item) {
+              return "<li>" + esc(item.title || "") + (item.note ? "<p>" + linkUnitMentions(item.note) + "</p>" : "")
+                + (item.quote ? "<p>" + litQuoteButton(item) + "</p>" : "") + "</li>";
+            }).join("") + "</ul>"
+          : "")
+        + ((relation.added || []).length
+          ? "<p><strong>" + esc(litText("app.설정집에_추가된_것", "설정집에 추가된 것")) + "</strong></p><ul class=\"fb-list\">"
+            + (relation.added || []).map(function (item) {
+              return "<li>" + esc(typeof item === "string" ? item : JSON.stringify(item)) + "</li>";
+            }).join("") + "</ul>"
+          : "")
+        + "</section>"
+      : "";
+    const pages = report.paper_pages != null
+      ? "<p class=\"hint\">" + esc(litText("app.원고지_약", "원고지 약")) + " " + esc(report.paper_pages)
+        + esc(litText("app.원고지_매_근사", "매 (근사치)")) + "</p>"
+      : "";
+    const unitLine = longForm && report.unit
+      ? "<p class=\"hint\">" + esc(litText("app.분석_단위", "분석 단위")) + ": "
+        + esc((report.unit && report.unit.label) || "") + "</p>"
+      : "";
+    const readingTitle = longForm
+      ? litText("app.토리가_읽은_이_장", "토리가 읽은 이 장")
+      : litText("app.토리가_읽은_이_작품", "토리가 읽은 이 작품");
+    function diagnosisSection(title, items) {
+      if (!items || !items.length) return "";
+      const open = items.filter(function (item) {
+        return item && (item.verdict === "problem" || item.verdict === "room");
+      });
+      const good = items.filter(function (item) { return item && item.verdict === "works"; });
+      return "<section class=\"fb-lit-block\"><h4>" + esc(title) + "</h4><ul class=\"fb-list\">"
+        + open.map(diagnosisHtml).join("") + "</ul>"
+        + (good.length
+          ? "<button type=\"button\" class=\"fb-fold\" data-role=\"fb-lit-fold\" aria-expanded=\""
+            + (stateBox.litWorksOpen ? "true" : "false") + "\">"
+            + esc(litVerdictLabel("works")) + " " + good.length + "</button>"
+            + "<ul class=\"fb-list\"" + (stateBox.litWorksOpen ? "" : " hidden") + ">"
+            + good.map(diagnosisHtml).join("") + "</ul>"
+          : "")
+        + "</section>";
+    }
+    el.hidden = false;
+    el.innerHTML = "<div class=\"fb-report-body\">"
+      + "<p class=\"fb-lit-label\">" + esc(litText("app.AI_검사_확인_필요", "AI 검사, 확인 필요")) + "</p>"
+      + pages + unitLine
+      + "<section class=\"fb-lit-block\"><h4>" + esc(litText("app.총평", "총평")) + "</h4>" + voiceHtml + "</section>"
+      + "<section class=\"fb-lit-block\"><h4>" + esc(readingTitle) + "</h4>"
+      + "<p>" + linkUnitMentions(reading.body || "") + "</p>"
+      + (reading.intent_gap ? "<p>" + linkUnitMentions(reading.intent_gap) + "</p>" : "")
+      + "</section>"
+      + (strengthHtml ? "<section class=\"fb-lit-block\"><h4>" + esc(litText("app.강점", "강점")) + "</h4><ul class=\"fb-list\">" + strengthHtml + "</ul></section>" : "")
+      + (longForm
+        ? diagnosisSection(litText("app.장_내부_진단", "장 내부 진단"), internal)
+          + diagnosisSection(litText("app.작품_속_이_장_진단", "작품 속 이 장 진단"), inWork)
+        : ("<section class=\"fb-lit-block\"><h4>" + esc(litText("app.항목별_진단", "항목별 진단")) + "</h4><ul class=\"fb-list\">"
+          + openItems.map(diagnosisHtml).join("")
+          + "</ul>"
+          + (works.length
+            ? "<button type=\"button\" class=\"fb-fold\" data-role=\"fb-lit-fold\" aria-expanded=\""
+              + (stateBox.litWorksOpen ? "true" : "false") + "\">"
+              + esc(litVerdictLabel("works")) + " " + works.length + "</button>"
+              + "<ul class=\"fb-list\"" + (stateBox.litWorksOpen ? "" : " hidden") + ">"
+              + works.map(diagnosisHtml).join("") + "</ul>"
+            : "")
+          + "</section>"))
+      + relationHtml
+      + (taskHtml ? "<section class=\"fb-lit-block\"><h4>" + esc(litText("app.우선_퇴고_과제", "우선 퇴고 과제")) + "</h4><ol class=\"fb-list\">" + taskHtml + "</ol></section>" : "")
+      + comparisonHtml
+      + "</div>";
+  }
+
+  async function gotoLiteratureQuote(btn) {
+    const quote = btn.getAttribute("data-quote") || "";
+    const sceneId = Number(btn.getAttribute("data-scene-id")) || 0;
+    const para = Number(btn.getAttribute("data-para")) || 0;
+    if (sceneId && sceneId !== currentScene().sceneId && typeof openScene === "function") {
+      await openScene(sceneId);
+    }
+    const mapping = mapEditorParagraphs(editorRoot());
+    stateBox.mapping = mapping;
+    const quoted = quote ? findParaWithQuote(mapping, quote, para) : null;
+    if (quoted) {
+      const span = joinParaRange(mapping, quoted.i, quoted.i);
+      const needle = normalizeNeedle(quote);
+      const hits = needle ? hitsInParas(span, quote, needle) : [];
+      const range = hits.length ? rangeFromHit(span, hits[0].start, hits[0].end) : paraWholeRange(mapping, quoted.i);
+      if (range) {
+        scrollRangeIntoView(range);
+        return;
+      }
+    }
+    toastMsg(litText("app.원고가_수정되어_위치가", "원고가 수정되어 위치가 정확하지 않을 수 있습니다"));
+    if (para) {
+      const range = paraWholeRange(mapping, para);
+      if (range) scrollRangeIntoView(range);
     }
   }
 
@@ -5167,6 +5691,14 @@
       collectBtn.setAttribute("aria-pressed", run && hasCollectedMark("run", run.id) ? "true" : "false");
     }
     if (!el) return;
+    if (isLiteratureRun(run)) {
+      if (isMidcheckRun(run)) {
+        renderMidcheckReport(el, collectBtn, run);
+        return;
+      }
+      renderLiteratureReport(el, collectBtn, run);
+      return;
+    }
     if (!hasStructured && !md) {
       el.hidden = true;
       el.innerHTML = "";
@@ -5275,6 +5807,12 @@
       + (collapsed ? "false" : "true") + "\">"
       + (collapsed ? "펼치기" : "접기") + "</button>";
     html += "<span class=\"fb-kind\">" + esc(styleTypeLabel(card)) + "</span>";
+    if (card.card_form === "suggest" || card.card_form === "note") {
+      html += "<span class=\"fb-badge\">" + esc(litText(
+        card.card_form === "suggest" ? "app.수정안_형식" : "app.지적형_형식",
+        card.card_form === "suggest" ? "수정안" : "지적형"
+      )) + "</span>";
+    }
     html += "<span class=\"fb-badge pri-" + esc(analyzing ? "analyzing" : pri) + "\">"
       + esc(analyzing ? "분석 중" : (PRIORITY_LABELS[pri] || pri || "")) + "</span>";
     html += "<button type=\"button\" class=\"fb-loc\" data-role=\"fb-goto\">"
@@ -5356,11 +5894,31 @@
       }
       if (maybe) html += "<p class=\"fb-maybe\">확인이 필요한 항목</p>";
       html += "<div class=\"fb-card-actions\">";
-      if (hasSuggestion) {
+      if (card.card_form === "note" && !hasSuggestion) {
+        html += "<p class=\"fb-lit-label\">" + esc(litText("app.AI_검사_확인_필요", "AI 검사, 확인 필요")) + "</p>";
+        if (card.intentional) html += "<p class=\"fb-lit-label\">" + esc(litText("app.의도라면_유지", "의도라면 유지")) + "</p>";
+        html += "<button type=\"button\" class=\"fb-primary compact-btn\" data-role=\"fb-lit-edited\"" + (missing ? " disabled" : "") + ">" + esc(litText("app.직접_고쳤어요", "직접 고쳤어요")) + "</button>";
+        html += "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-ignore\">" + esc(litText("app.그대로_둘게요", "그대로 둘게요")) + "</button>";
+        const rewriting = String(stateBox.rewriteBusyId || "") === String(id);
+        html += "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-lit-rewrite\""
+          + (rewriting ? " disabled" : "") + ">"
+          + esc(rewriting
+            ? litText("app.수정안을_받고_있어요", "수정안을 받고 있어요")
+            : litText("app.토리에게_수정안_요청", "토리에게 수정안 요청"))
+          + "</button>";
+      } else if (card.card_form === "suggest" || (card.card_form === "note" && hasSuggestion)) {
+        html += "<p class=\"fb-lit-label\">" + esc(litText("app.AI_검사_확인_필요", "AI 검사, 확인 필요")) + "</p>";
+        if (card.intentional) html += "<p class=\"fb-lit-label\">" + esc(litText("app.의도라면_유지", "의도라면 유지")) + "</p>";
+        html += "<button type=\"button\" class=\"fb-primary compact-btn\" data-role=\"fb-apply\"" + (missing || otherEditorActive() ? " disabled" : "") + ">" + esc(litText("app.적용", "적용")) + "</button>";
+        html += "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-apply-edit\"" + (missing || otherEditorActive() ? " disabled" : "") + ">" + esc(litText("app.수정_후_적용", "수정 후 적용")) + "</button>";
+        html += "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-ignore\">" + esc(litText("app.적용_안_함", "적용 안 함")) + "</button>";
+      } else if (hasSuggestion) {
         html += "<button type=\"button\" class=\"fb-primary compact-btn\" data-role=\"fb-apply\"" + (missing || otherEditorActive() ? " disabled" : "") + ">고치기</button>";
         html += "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-copy\">수정안 복사</button>";
       }
-      html += "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-ignore\">무시하기</button>";
+      if (card.card_form !== "note" && card.card_form !== "suggest") {
+        html += "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-ignore\">무시하기</button>";
+      }
       html += renderCommentThread(card, commentUiState(card));
       html += "<button type=\"button\" class=\"fb-collect-btn" + (hasCollectedMark("card", id) ? " is-on" : "")
         + "\" data-role=\"fb-collect-card\" title=\"수집에 저장\" aria-label=\"수집\" aria-pressed=\""
@@ -5422,6 +5980,12 @@
       hasMore: moreMedium || moreLow,
     });
     let body = "";
+    const cardsFailed = Boolean(run && run.params && run.params.cards_failed);
+    if (cardsFailed) {
+      const publicError = (run.params && run.params.public_error)
+        || litText("app.지금은_토리가_원고를_읽을_수_없어요", "지금은 토리가 원고를 읽을 수 없어요. 잠시 후 다시 시도해 주세요.");
+      body += "<p class=\"fb-status-msg\">" + esc(publicError) + "</p>";
+    }
     if (display.emptyFilter) {
       body = "<p class=\"fb-filter-empty\">선택한 유형의 제안이 없어요 "
         + "<button type=\"button\" class=\"fb-text-btn\" data-role=\"fb-kind-clear\" aria-label=\"필터 해제\">해제</button></p>";
@@ -5610,10 +6174,63 @@
   function onClick(event) {
     const btn = event.target.closest("button[data-role]");
     const role = btn && btn.getAttribute("data-role");
+    if (role === "fb-lit-quote") {
+      gotoLiteratureQuote(btn);
+      return;
+    }
+    if (role === "fb-midcheck-add-bait") {
+      const name = String(btn.getAttribute("data-name") || "").trim();
+      if (!name) return;
+      const ctx = currentScene();
+      if (!ctx.projectId) {
+        toastMsg(litText("app.작품을_먼저_선택해_주세요", "작품을 먼저 선택해 주세요"));
+        return;
+      }
+      const marked = "〔토리〕 " + name;
+      btn.disabled = true;
+      apiCall("/api/projects/" + ctx.projectId + "/baits", {
+        method: "POST",
+        body: JSON.stringify({
+          kind: "plant",
+          quote: marked,
+          summary: marked,
+        }),
+      }).then(function () {
+        toastMsg(litText("app.모티프_복선에_추가했어요", "모티프·복선에 추가했어요"));
+        btn.textContent = litText("app.추가됨", "추가됨");
+      }).catch(function (error) {
+        btn.disabled = false;
+        toastMsg((error && error.message) || litText("app.추가에_실패했어요", "추가에 실패했어요"));
+      });
+      return;
+    }
+    if (role === "fb-lit-unit") {
+      const ord = Math.max(0, Number(btn.getAttribute("data-unit-ord") || 0) - 1);
+      const units = ((stateBox.run && stateBox.run.report && stateBox.run.report.unit_index) || []);
+      let sceneId = 0;
+      if (units[ord] && units[ord].scene_ids && units[ord].scene_ids.length) {
+        sceneId = Number(units[ord].scene_ids[0]) || 0;
+      }
+      if (!sceneId && stateBox.run && Array.isArray(stateBox.run.scenes) && stateBox.run.scenes[ord]) {
+        sceneId = Number(stateBox.run.scenes[ord].scene_id) || 0;
+      }
+      if (sceneId && typeof openScene === "function") {
+        openScene(sceneId);
+      }
+      return;
+    }
+    if (role === "fb-lit-fold") {
+      stateBox.litWorksOpen = !stateBox.litWorksOpen;
+      renderReport();
+      return;
+    }
     const card = event.target.closest("[data-card-id]");
     const cardId = card && card.getAttribute("data-card-id");
     if (role === "fb-goto" && cardId) {
-      selectCard(cardId);
+      const target = ((stateBox.run && stateBox.run.cards) || []).find(function (item) {
+        return String(item.id) === String(cardId);
+      });
+      openCardScene(target).then(function () { selectCard(cardId, { force: true }); });
       return;
     }
     if (role === "fb-peer") {
@@ -5677,6 +6294,14 @@
     }
     if (role === "fb-debug-locate") {
       copyLocateDiag();
+      return;
+    }
+    if (role === "fb-mid-unit") {
+      const unitNo = Number(btn.getAttribute("data-unit-no") || 0);
+      const records = ((stateBox.run && stateBox.run.report) || {}).unit_records || [];
+      const hit = records.find(function (row) { return Number(row.unit_no) === unitNo; });
+      const sceneId = hit && Array.isArray(hit.scene_ids) ? Number(hit.scene_ids[0] || 0) : 0;
+      if (sceneId && typeof openScene === "function") openScene(sceneId);
       return;
     }
     if (role === "fb-start") {
@@ -5798,6 +6423,26 @@
       ignoreCardAndAdvance(cardId);
       return;
     }
+    if (role === "fb-lit-edited" && cardId) {
+      setCardStatus(cardId, "applied_edited");
+      return;
+    }
+    if (role === "fb-lit-rewrite" && cardId) {
+      requestLiteratureRewrite(cardId);
+      return;
+    }
+    if (role === "fb-apply-edit" && cardId) {
+      const found = ((stateBox.run && stateBox.run.cards) || []).find(function (item) {
+        return String(item.id) === String(cardId);
+      });
+      const edited = window.prompt(litText("app.수정_후_적용", "수정 후 적용"), (found && found.suggestion) || "");
+      if (edited != null && String(edited).trim()) {
+        putCardStatus(cardId, "applied_edited", { final_text: edited }).catch(function (error) {
+          toastMsg((error && error.message) || "적용하지 못했어요.");
+        });
+      }
+      return;
+    }
     if (role === "fb-comment-toggle" && cardId) {
       toggleCardComments(cardId).catch(function (error) {
         if (typeof handleError === "function") handleError(error);
@@ -5834,6 +6479,27 @@
   }
 
   function onChange(event) {
+    const midWhole = event.target.closest("[data-role='fb-mid-whole']");
+    if (midWhole) {
+      stateBox.midcheckWhole = Boolean(midWhole.checked);
+      const panel = panelEl();
+      if (panel) {
+        panel.querySelectorAll("[data-role='fb-mid-start'], [data-role='fb-mid-end']").forEach(function (el) {
+          el.disabled = stateBox.midcheckWhole;
+        });
+      }
+      return;
+    }
+    const midStart = event.target.closest("[data-role='fb-mid-start']");
+    if (midStart) {
+      stateBox.midcheckStartOrd = Number(midStart.value || 1);
+      return;
+    }
+    const midEnd = event.target.closest("[data-role='fb-mid-end']");
+    if (midEnd) {
+      stateBox.midcheckEndOrd = Number(midEnd.value || 1);
+      return;
+    }
     const select = event.target.closest("[data-role='fb-runs']");
     if (!select) return;
     const id = Number(select.value);
@@ -6197,6 +6863,7 @@
     hideBracket();
     hideReviewChrome();
     clearCardHighlights();
+    leaveMidcheckMode();
     if (typeof restoreDictHighlightAfterReview === "function") restoreDictHighlightAfterReview();
   }
 
@@ -6339,6 +7006,8 @@
     onClose: onClose,
     onSceneChange: onSceneChange,
     startAnalysis: startAnalysis,
+    enterMidcheckMode: enterMidcheckMode,
+    leaveMidcheckMode: leaveMidcheckMode,
     planCardApply: planCardApply,
     openWalkIds: openWalkIds,
     openWalkState: openWalkState,

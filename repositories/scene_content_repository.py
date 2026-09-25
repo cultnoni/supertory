@@ -77,6 +77,7 @@ class SceneContentRepository:
                 "VALUES (?, 1, ?, ?, ?)",
                 (scene_id, content_html, int(word_count), save_note),
             )
+            self._note_long_form_summary(scene_id, content_html)
             saved = self.get_current_revision(scene_id)
             if saved is None:
                 raise ValueError("현재 원고를 찾을 수 없습니다.")
@@ -113,7 +114,16 @@ class SceneContentRepository:
         saved = self.get_current_revision(scene_id)
         if saved is None:
             raise ValueError("현재 원고를 찾을 수 없습니다.")
+        self._note_long_form_summary(scene_id, content_html)
         return saved
+
+    def _note_long_form_summary(self, scene_id: int, content_html: str) -> None:
+        try:
+            from feedback_pipeline.literature_summary import note_scene_content_for_long_form
+
+            note_scene_content_for_long_form(self.connection, scene_id, content_html)
+        except Exception:
+            return
 
     def update_scene_meta(self, scene_id: int, values: dict) -> dict:
         """Update manuscript metadata and bump ``row_version`` (same SQL as before)."""

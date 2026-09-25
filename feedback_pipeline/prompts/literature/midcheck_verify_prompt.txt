@@ -1,0 +1,12 @@
+다음 판단이 원문 발췌로 지지되는지 확인한다. decision은 keep 또는 revise.
+revise면 revised_claim에 고친 한 문장을 쓴다.
+revised_claim과 note에도 summary_only, chapter_work, 기록 공백, 데이터 없음, 요약 전용 같은 시스템·내부 사정을 쓰지 마라. 판단은 원고 내용만.
+
+판단:
+{{claim}}
+
+이유:
+{{reason}}
+
+발췌:
+{{excerpts}}

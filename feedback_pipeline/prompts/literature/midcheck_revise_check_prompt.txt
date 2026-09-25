@@ -1,0 +1,12 @@
+revise된 원래 판단의 단정 표현이 본문에 그대로 남았는지 확인한다.
+각 항목에 claim(원래), still_present(true면 단정이 남음), leftover_sentence, note.
+still_present가 true면 leftover_sentence에 본문에서 단정이 남은 문장 전체를 그대로 적는다(부분 구절이 아니라 문장).
+cleared면 leftover_sentence는 빈 문자열.
+JSON만.
+
+본문:
+{{body}}
+
+revise 목록:
+{{revisions}}
+

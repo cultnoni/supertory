@@ -1,0 +1,10 @@
+원고의 문단 번호([P숫자])를 기준으로 장면 지도를 만든다.
+장면마다 문단 범위, 시점 인물, 시간·장소, 등장인물, 한 줄 요약, 장면 또는 요약 서술을 적는다.
+첫 문장, 마지막 문장, 반복되는 이미지·모티프와 그 등장 위치도 적는다.
+판정이나 수정 문장은 쓰지 않는다.
+키는 scenes, first_sentence, last_sentence, motifs만 쓴다.
+scenes 항목은 scene_no, para_range, pov, when_where, characters, summary, narration이다.
+narration은 장면, 요약, 혼합 중 하나다.
+motifs 항목은 image와 locations다.
+
+{{manuscript}}

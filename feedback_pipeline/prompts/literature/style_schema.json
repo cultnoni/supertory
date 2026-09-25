@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "style_narration": {"type": "string"},
+    "style_sentence": {"type": "string"},
+    "style_dialogue": {"type": "string"},
+    "style_lexicon": {"type": "string"}
+  },
+  "required": ["style_narration", "style_sentence", "style_dialogue", "style_lexicon"]
+}
