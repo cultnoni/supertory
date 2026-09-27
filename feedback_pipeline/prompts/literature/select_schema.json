@@ -8,10 +8,12 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "pattern_count"],
+        "required": ["id", "pattern_count", "matches_author_intent", "author_intent_basis"],
         "properties": {
           "id": {"type": "string"},
-          "pattern_count": {"type": "integer"}
+          "pattern_count": {"type": "integer"},
+          "matches_author_intent": {"type": "boolean"},
+          "author_intent_basis": {"type": "string"}
         }
       }
     },
@@ -20,10 +22,12 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "reason"],
+        "required": ["id", "reason", "matches_author_intent", "author_intent_basis"],
         "properties": {
           "id": {"type": "string"},
-          "reason": {"type": "string"}
+          "reason": {"type": "string"},
+          "matches_author_intent": {"type": "boolean"},
+          "author_intent_basis": {"type": "string"}
         }
       }
     }

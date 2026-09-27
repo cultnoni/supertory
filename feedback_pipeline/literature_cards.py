@@ -17,6 +17,7 @@ from feedback_pipeline.literature_cache import (
     cache_prefix,
     with_schema_instruction,
 )
+from feedback_pipeline.literature_compare import changed_indexes, snapshot_paragraphs
 from feedback_pipeline.literature_text import format_numbered_manuscript, locate_quote, loose_norm, quote_in_text
 from feedback_pipeline.runner import CostLimitExceeded, _add_usage, _check_cost
 
@@ -49,6 +50,26 @@ _THIRD_PERSON = ("그는", "그가", "그의", "그녀")
 _PARTICLE_SUFFIXES = ("에서는", "에게는", "으로는", "에서", "에게", "으로", "처럼", "하며", "하고", "이다", "였다", "했다", "하는", "되는", "은", "는", "이", "가", "을", "를", "의", "와", "과", "도", "만", "로")
 REWRITE_MARK = "〔수정안〕"
 _ENDINGS = ("습니다", "니까", "까요", "데요", "네요", "어요", "아요", "예요", "이에요", "했다", "였다", "있다", "없다", "한다", "된다", "는다", "다")
+# 시점 이탈: (a) 인칭 전환 / (b) 알 수 없는 정보 확정 — reason에 어느 쪽인지 명시해야 함.
+_POV_KIND_A = re.compile(
+    r"인칭\s*전환|인칭이\s*(바뀌|달라)|1인칭.{0,16}3인칭|3인칭.{0,16}1인칭|"
+    r"3인칭으로\s*(지칭|바뀌|전환)|전지(적)?\s*(서술|시점으로)|외부\s*서술자"
+)
+_POV_KIND_B = re.compile(
+    r"알\s*수\s*없는\s*정보|화자가\s*알\s*수\s*없|시점\s*인물이\s*알\s*수\s*없|"
+    r"알\s*수\s*없.{0,12}확정"
+)
+_POV_UNQUOTED_SPEECH = re.compile(
+    r"따옴표\s*없|따옴표\s*없이|인용\s*없|방송|인터뷰|전화|기억\s*속|"
+    r"간접화법|옮긴\s*(말|발화|질문|목소리)|목소리를\s*옮"
+)
+# 같은 단어가 짧은 구간에 세 번 이상 → 반복이지 시점 이탈이 아님.
+_WORD_TRIPLE = re.compile(r"([가-힣A-Za-z]{1,12})(?:\s*[,，]\s*|\s+)\1(?:\s*[,，]\s*|\s+)\1")
+# 기획의도·문체 5번이 "의도적으로 ~한다"고 밝히는 신호.
+_WILL_SIGNAL = re.compile(
+    r"의도|일부러|반복해서|보여준|말하지\s*않|밝히지\s*않|유보|여백|"
+    r"질문으로|드러내지\s*않|숨긴|감춘|끝내\s*말"
+)
 
 
 def para_content_hash(text: str) -> str:
@@ -189,6 +210,17 @@ def classify_previous_cards(
             continue
         if status != "open":
             continue
+        current_text = str(current.get("text") or "")
+        # 근거 인용이 현재 문단에 없으면 이어받지 않는다.
+        if not quote_in_text(quote or prev_text, current_text) and not quote_in_text(prev_text, current_text):
+            log.append(
+                {
+                    "action": "carry_skip",
+                    "target": card_type_key(tags) or "card",
+                    "detail": "근거 인용이 현재 원고에 없음",
+                }
+            )
+            continue
         global_para = _global_para_for(assembled, scene_id, local)
         form = "suggest" if str(raw.get("card_form") or "") == "suggest" and raw.get("suggestion") else "note"
         carry_open.append(
@@ -206,11 +238,12 @@ def classify_previous_cards(
                 "end_para": int(raw.get("end_para") or local),
                 "start_quote": quote[:80],
                 "end_quote": quote[:80],
-                "original_text": str(current.get("text") or prev_text),
+                "original_text": current_text or prev_text,
                 "global_para": int(global_para or 0),
                 "reader_problem": "",
                 "carried": True,
                 "carried_from_status": "open",
+                "intent_judged": True,
             }
         )
         log.append(
@@ -223,14 +256,22 @@ def classify_previous_cards(
     return {"carry_open": carry_open, "skip_keys": skip_keys, "log": log}
 
 
+def _card_slot_key(card: dict[str, Any]) -> str:
+    para = card.get("global_para") or card.get("para") or card.get("start_para") or ""
+    return f"{para}|{card_type_key(card.get('tags') or [])}"
+
+
 def apply_card_carry(
     merged: list[dict[str, Any]],
     screened: list[dict[str, Any]],
     *,
     carry_open: list[dict[str, Any]],
     skip_keys: set[str],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, str]]]:
-    """ignored/applied는 빼고, open 이어받기를 선별 후보에 넣는다."""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, str]]]:
+    """ignored/applied는 빼고, open 이어받기는 선별 없이 바로 이어받는다.
+
+    같은 문단·같은 유형의 새 탐지는 이어받기가 있으면 선별 후보에서 뺀다.
+    """
     log: list[dict[str, str]] = []
     filtered_merged: list[dict[str, Any]] = []
     for card in merged:
@@ -246,28 +287,54 @@ def apply_card_carry(
             )
             continue
         filtered_merged.append(card)
-    filtered_screened: list[dict[str, Any]] = []
+
+    carry_direct: list[dict[str, Any]] = []
+    occupied: set[str] = set()
+    for card in carry_open:
+        key = card_match_key(str(card.get("original_text") or card.get("quote") or ""), card.get("tags") or [])
+        if key in skip_keys:
+            continue
+        slot = _card_slot_key(card)
+        if slot != "|" and slot in occupied:
+            continue
+        carry_direct.append(card)
+        if slot != "|":
+            occupied.add(slot)
+        log.append(
+            {
+                "action": "carry_direct",
+                "target": ",".join(card.get("tags") or []),
+                "detail": "선별 없이 이전 open 이어받기",
+            }
+        )
+
+    select_candidates: list[dict[str, Any]] = []
     for card in screened:
         key = card_match_key(str(card.get("original_text") or card.get("quote") or ""), card.get("tags") or [])
         quote_key = card_match_key(str(card.get("quote") or ""), card.get("tags") or [])
         if key in skip_keys or quote_key in skip_keys:
             continue
-        filtered_screened.append(card)
-    for card in carry_open:
-        if any(_quotes_overlap(card, existing) for existing in filtered_screened):
+        slot = _card_slot_key(card)
+        if slot != "|" and slot in occupied:
+            log.append(
+                {
+                    "action": "drop_card",
+                    "target": ",".join(card.get("tags") or []),
+                    "detail": "이어받은 카드와 같은 문단·유형(재선별 안 함)",
+                }
+            )
             continue
-        key = card_match_key(str(card.get("original_text") or card.get("quote") or ""), card.get("tags") or [])
-        if key in skip_keys:
+        if any(_quotes_overlap(card, existing) for existing in carry_direct):
+            log.append(
+                {
+                    "action": "drop_card",
+                    "target": ",".join(card.get("tags") or []),
+                    "detail": "이어받은 카드와 인용 겹침(재선별 안 함)",
+                }
+            )
             continue
-        filtered_screened.append(card)
-        log.append(
-            {
-                "action": "carry_into_select",
-                "target": ",".join(card.get("tags") or []),
-                "detail": "선별 후보에 이전 open 추가",
-            }
-        )
-    return filtered_merged, filtered_screened, log
+        select_candidates.append(card)
+    return filtered_merged, select_candidates, carry_direct, log
 
 
 def _model(options: dict[str, Any], stage: str) -> str:
@@ -285,6 +352,76 @@ def _choice_hits(text: str, choice: str) -> bool:
         if len(phrase) >= 4 and phrase in blob:
             return True
     return False
+
+
+def _will_topic_covers(quote: str, reason: str, will_text: str, tags: list[str] | None) -> bool:
+    """기획의도·문체 5번이 의도적으로 하는 일과 카드 지적이 겹치면 True.
+
+    특정 원고 문장에 묶지 않는다. 의지 문구의 내용어와 카드(원문+이유)가
+    겹치고, 의지 쪽에 의도 신호가 있을 때만 거른다.
+    """
+    source = str(will_text or "")
+    if len(loose_norm(source)) < 4 or not _WILL_SIGNAL.search(source):
+        return False
+    overlap = _content_tokens(source) & _content_tokens(f"{quote} {reason}")
+    if len(overlap) >= 2:
+        return True
+    if not overlap:
+        return False
+    blob = loose_norm(source)
+    tag_set = set(tags or [])
+    if "repeat" in tag_set and "반복" in blob:
+        return True
+    if "ambiguity" in tag_set and any(token in blob for token in ("말하지않", "밝히지않", "유보", "여백", "감춘", "숨긴")):
+        return True
+    if "excess" in tag_set and any(token in blob for token in ("설명", "풀어", "반복해서")):
+        return True
+    for tag in tag_set:
+        label = TAG_LABELS.get(tag, "")
+        if label and loose_norm(label) and loose_norm(label) in blob:
+            return True
+    return False
+
+
+def _author_will_covers(
+    quote: str,
+    reason: str,
+    *,
+    style_choice: str,
+    intent_md: str,
+    tags: list[str] | None = None,
+) -> bool:
+    """카드 지적 ↔ 문체 5번·기획의도가 같으면 거른다(원고 특화 키워드 없음)."""
+    blob = f"{quote}\n{reason}"
+    if _choice_hits(blob, style_choice) or _choice_hits(blob, intent_md):
+        return True
+    if _will_topic_covers(quote, reason, style_choice, tags):
+        return True
+    if _will_topic_covers(quote, reason, intent_md, tags):
+        return True
+    return False
+
+
+def _pov_screen_detail(reason: str, reader_problem: str = "", quote: str = "") -> str:
+    """시점 이탈 카드가 남길 수 없으면 탈락 사유, 남기면 빈 문자열."""
+    text = f"{reason}\n{reader_problem}"
+    if _WORD_TRIPLE.search(str(quote or "")):
+        return "같은 단어 반복은 시점 이탈이 아님"
+    # 실제 인칭·정보 근거 (부정 표현만 있는 '(a) 인칭 전환 아님'은 인정하지 않음)
+    real_a = bool(
+        re.search(
+            r"3인칭으로\s*(지칭|바뀌|전환)|전지(적)?\s*(서술|시점)|외부\s*서술자|"
+            r"1인칭.{0,16}3인칭|3인칭.{0,16}1인칭|"
+            r"인칭이\s*(바뀌|달라)|인칭\s*전환(?!\s*아님)",
+            text,
+        )
+    )
+    real_b = bool(_POV_KIND_B.search(text)) and not re.search(r"알\s*수\s*없는\s*정보.{0,8}아님", text)
+    if _POV_UNQUOTED_SPEECH.search(text) and not (real_a or real_b):
+        return "따옴표 없는 발화·방송 옮김은 시점 이탈이 아님"
+    if real_a or real_b:
+        return ""
+    return "시점 이탈 유형(인칭 전환/알 수 없는 정보) 미명시"
 
 
 def _habit_hits(tag: str, habit: str) -> bool:
@@ -322,6 +459,7 @@ def seed_cards(
     *,
     style_choice: str,
     style_habit: str,
+    intent_md: str = "",
 ) -> list[dict[str, Any]]:
     """문장으로 좁혀지는 진단만 카드 씨앗으로 만든다."""
     cards: list[dict[str, Any]] = []
@@ -345,8 +483,10 @@ def seed_cards(
                 form = "suggest"
                 priority = "medium" if priority == "low" else priority
             reason = str(item.get("note") or "")
-            if _choice_hits(quote + reason, style_choice):
-                continue
+            if tag == "pov":
+                detail = _pov_screen_detail(reason, quote=quote)
+                if detail:
+                    continue
             cards.append(
                 {
                     "form": form,
@@ -367,7 +507,13 @@ def seed_cards(
     return cards
 
 
-def _normalize_model_card(raw: dict[str, Any], *, style_choice: str, style_habit: str) -> dict[str, Any] | None:
+def _normalize_model_card(
+    raw: dict[str, Any],
+    *,
+    style_choice: str,
+    style_habit: str,
+    intent_md: str = "",
+) -> dict[str, Any] | None:
     tag = str(raw.get("tag") or "").strip()
     if tag not in SUGGEST_TAGS | NOTE_TAGS:
         return None
@@ -375,7 +521,7 @@ def _normalize_model_card(raw: dict[str, Any], *, style_choice: str, style_habit
     reason = str(raw.get("reason") or "").strip()
     if len(quote) < 4 or not reason:
         return None
-    if _choice_hits(quote + reason, style_choice):
+    if tag == "pov" and _pov_screen_detail(reason, str(raw.get("reader_problem") or ""), quote):
         return None
     form = "suggest" if tag in SUGGEST_TAGS else "note"
     if _habit_hits(tag, style_habit) and tag in NOTE_TAGS:
@@ -395,13 +541,30 @@ def _normalize_model_card(raw: dict[str, Any], *, style_choice: str, style_habit
     }
 
 
-def screen_detected_cards(cards: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    """독자 문제가 구체적이지 않거나, 의미 모호에 두 해석이 없으면 뺀다."""
+def screen_detected_cards(
+    cards: list[dict[str, Any]],
+    *,
+    intent_md: str = "",
+    style_choice: str = "",
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """독자 문제가 구체적이지 않거나, 의미 모호에 두 해석이 없으면 뺀다.
+
+    기획의도 대조는 선별 단계의 모델 판정(matches_author_intent)이 맡고,
+    키워드 방식은 모델 판정이 없을 때만 보조로 쓴다.
+    """
+    del intent_md, style_choice  # 선별 단계에서 처리
     log: list[dict[str, str]] = []
     kept: list[dict[str, Any]] = []
     for card in cards:
         problem = str(card.get("reader_problem") or "").strip()
-        tags = card.get("tags") or []
+        tags = list(card.get("tags") or [])
+        quote = str(card.get("quote") or "")
+        reason = str(card.get("reason") or "")
+        if "pov" in tags:
+            detail = _pov_screen_detail(reason, problem, quote)
+            if detail:
+                log.append({"action": "drop_card", "target": "pov", "detail": detail})
+                continue
         if len(problem) < 8 or any(phrase in problem for phrase in _GENERIC_PROBLEMS):
             log.append({"action": "drop_card", "target": ",".join(tags), "detail": "독자 문제가 일반론이거나 비어 있음"})
             continue
@@ -412,6 +575,91 @@ def screen_detected_cards(cards: list[dict[str, Any]]) -> tuple[list[dict[str, A
                 continue
         kept.append(card)
     return kept, log
+
+
+def resolve_select_cards(
+    screened: list[dict[str, Any]],
+    parsed: dict[str, Any],
+    *,
+    style_choice: str = "",
+    intent_md: str = "",
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """선별 결과에서 keep/drop과 matches_author_intent를 반영한다.
+
+    모델이 matches_author_intent를 준 카드는 그 판정을 따른다.
+    판정이 없으면 키워드(_author_will_covers)로만 보조 거른다.
+    """
+    log: list[dict[str, str]] = []
+    keep_items = {
+        str(item.get("id")): item
+        for item in (parsed.get("keep") or [])
+        if isinstance(item, dict)
+    }
+    drop_items = {
+        str(item.get("id")): item
+        for item in (parsed.get("drop") or [])
+        if isinstance(item, dict)
+    }
+    selected: list[dict[str, Any]] = []
+    for card in screened:
+        cid = str(card.get("candidate_id"))
+        tags = list(card.get("tags") or [])
+        quote = str(card.get("quote") or "")
+        reason = str(card.get("reason") or "")
+        keep_item = keep_items.get(cid)
+        drop_item = drop_items.get(cid)
+
+        intent_flag = None
+        basis = ""
+        if keep_item is not None and "matches_author_intent" in keep_item:
+            intent_flag = bool(keep_item.get("matches_author_intent"))
+            basis = str(keep_item.get("author_intent_basis") or "").strip()
+        elif drop_item is not None and "matches_author_intent" in drop_item:
+            intent_flag = bool(drop_item.get("matches_author_intent"))
+            basis = str(drop_item.get("author_intent_basis") or "").strip()
+
+        if intent_flag is True:
+            detail = "기획의도·의도적 선택(모델)"
+            if basis:
+                detail = f"{detail}: {basis[:120]}"
+            log.append({"action": "drop_card", "target": ",".join(tags), "detail": detail})
+            continue
+
+        if keep_item is None:
+            drop_reason = str((drop_item or {}).get("reason") or "") or "작가가 손해를 보지 않음"
+            prefix = "선별(이어받기 탈락): " if card.get("carried") else "선별: "
+            log.append(
+                {
+                    "action": "drop_card",
+                    "target": ",".join(tags),
+                    "detail": prefix + drop_reason,
+                }
+            )
+            continue
+
+        if intent_flag is None:
+            if _author_will_covers(quote, reason, style_choice=style_choice, intent_md=intent_md, tags=tags):
+                log.append(
+                    {
+                        "action": "drop_card",
+                        "target": ",".join(tags),
+                        "detail": "기획의도·의도적 선택(키워드 보조)",
+                    }
+                )
+                continue
+        else:
+            card = {**card, "intent_judged": True}
+            if basis:
+                card["author_intent_basis"] = basis
+
+        count = int(keep_item.get("pattern_count") or 1)
+        if count > 1:
+            card = {
+                **card,
+                "reason": (str(card.get("reason") or "") + f"\n같은 패턴 {count}곳").strip(),
+            }
+        selected.append(card)
+    return selected, log
 
 
 def assign_priority(card: dict[str, Any], tasks: list[str], habit: str) -> None:
@@ -489,20 +737,31 @@ def demote_cards(
     meaning_ok,
     style_dialogue: str = "",
     manuscript: str = "",
+    intent_md: str = "",
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     """수정안을 규칙으로 검사하고, 실패하면 지적형으로 남긴다."""
     log: list[dict[str, str]] = []
     kept: list[dict[str, Any]] = []
     for card in cards:
-        if _choice_hits(card.get("quote", "") + card.get("reason", ""), style_choice):
-            log.append({"action": "drop_card", "target": ",".join(card.get("tags") or []), "detail": "의도적 선택"})
+        tags = list(card.get("tags") or [])
+        quote = str(card.get("quote") or "")
+        reason_text = str(card.get("reason") or "")
+        if not card.get("intent_judged") and _author_will_covers(
+            quote, reason_text, style_choice=style_choice, intent_md=intent_md, tags=tags
+        ):
+            log.append({"action": "drop_card", "target": ",".join(tags), "detail": "기획의도·의도적 선택(키워드 보조)"})
             continue
+        if "pov" in tags:
+            detail = _pov_screen_detail(reason_text, str(card.get("reader_problem") or ""), quote)
+            if detail:
+                log.append({"action": "drop_card", "target": "pov", "detail": detail})
+                continue
         if card.get("form") != "suggest":
             kept.append(card)
             continue
         suggestion = str(card.get("suggestion") or "").strip()
-        original = str(card.get("quote") or "")
-        tags = set(card.get("tags") or [])
+        original = quote
+        tags_set = set(tags)
         reason = ""
         if not suggestion:
             reason = "수정안이 비어 있음"
@@ -510,7 +769,7 @@ def demote_cards(
             reason = _allowed_edit_problem(
                 original,
                 suggestion,
-                tags,
+                tags_set,
                 style_narration=style_narration,
                 style_dialogue=style_dialogue,
                 manuscript=manuscript,
@@ -518,9 +777,9 @@ def demote_cards(
         if not reason and suggestion and _ending(original) and _ending(suggestion) and _ending(original) != _ending(suggestion):
             if "문체" not in str(style_narration or "") or _ending(suggestion) not in str(style_narration):
                 reason = "종결이 원문과 다름"
-        if not reason and suggestion and "excess" not in tags and len(loose_norm(suggestion)) < len(loose_norm(original)) * LENGTH_DROP_RATIO:
+        if not reason and suggestion and "excess" not in tags_set and len(loose_norm(suggestion)) < len(loose_norm(original)) * LENGTH_DROP_RATIO:
             reason = "길이가 크게 줄음"
-        elif not reason and suggestion and "excess" not in tags and "grammar" not in tags and _change_ratio(original, suggestion) > LOCAL_CHANGE_RATIO:
+        elif not reason and suggestion and "excess" not in tags_set and "grammar" not in tags_set and _change_ratio(original, suggestion) > LOCAL_CHANGE_RATIO:
             reason = "바뀐 비율이 큼"
         elif not reason and suggestion:
             missing = [term for term in terms if term and term in original and term not in suggestion]
@@ -775,6 +1034,7 @@ def generate_literature_cards(
     choice = str(project.get("style_choice") or "")
     habit = str(project.get("style_habit") or "")
     narration = str(project.get("style_narration") or "")
+    intent_md = str(project.get("intent_md") or "")
     terms = [
         str(row["term"])
         for row in conn.execute(
@@ -787,6 +1047,7 @@ def generate_literature_cards(
         report.get("tasks") or [],
         style_choice=choice,
         style_habit=habit,
+        intent_md=intent_md,
     )
     settings = "\n".join(
         f"{label}: {str(project.get(key) or '').strip() or '(비어 있음)'}"
@@ -868,7 +1129,9 @@ def generate_literature_cards(
         for raw in parsed.get("cards") or []:
             if not isinstance(raw, dict):
                 continue
-            card = _normalize_model_card(raw, style_choice=choice, style_habit=habit)
+            card = _normalize_model_card(
+                raw, style_choice=choice, style_habit=habit, intent_md=intent_md
+            )
             if card is not None:
                 card["scene_id"] = block["scene_id"]
                 drafts.append(card)
@@ -915,7 +1178,9 @@ def generate_literature_cards(
     merged = merge_cards(attached)
     for card in merged:
         assign_priority(card, list(report.get("tasks") or []), habit)
-    screened, screen_log = screen_detected_cards(merged)
+    screened, screen_log = screen_detected_cards(
+        merged, intent_md=intent_md, style_choice=choice
+    )
     detect_log = [{"action": "detect_count", "target": str(len(merged)), "detail": "탐지 후보"}] + screen_log
     if is_sampling_locked_model(model):
         detect_log.append(
@@ -948,7 +1213,8 @@ def generate_literature_cards(
     )
     carry_open: list[dict[str, Any]] = []
     skip_keys: set[str] = set()
-    # ignored/applied 재생성 금지는 이전 성공 실행 전체에서 모은다.
+    fresh_cards = bool(options.get("fresh_cards"))
+    # ignored/applied 재생성 금지는 이전 성공 실행 전체에서 모은다(처음부터 다시 보기여도 유지).
     prior_ids = [
         int(row[0])
         for row in conn.execute(
@@ -982,8 +1248,8 @@ def generate_literature_cards(
             for item in (classified.get("log") or [])
             if item.get("action") == "carry_skip"
         )
-    # open 이어받기는 직전 성공 실행만
-    if prev_run_id:
+    # open 이어받기는 직전 성공 실행만. 처음부터 다시 보기면 건너뛴다.
+    if prev_run_id and not fresh_cards:
         classified = classify_previous_cards(assembled, load_previous_run_cards(conn, prev_run_id))
         carry_open = list(classified.get("carry_open") or [])
         for card in carry_open:
@@ -1000,23 +1266,83 @@ def generate_literature_cards(
                 "detail": f"open {len(carry_open)} / skip {len(skip_keys)}",
             }
         )
-    merged, screened, carry_log = apply_card_carry(
+    elif fresh_cards:
+        detect_log.append(
+            {
+                "action": "fresh_cards",
+                "target": "1",
+                "detail": "처음부터 다시 보기: open 이어받기 없음",
+            }
+        )
+    merged, screened, carry_direct, carry_log = apply_card_carry(
         merged, screened, carry_open=carry_open, skip_keys=skip_keys
     )
     detect_log.extend(carry_log)
-    detect_log[0] = {"action": "detect_count", "target": str(len(merged)), "detail": "탐지 후보(이어받기 반영)"}
+    # 바뀐 문단에서 새로 탐지한 카드만 선별. 그대로인 문단은 이어받기만.
+    if prev_run_id and not fresh_cards:
+        prev_scenes: list[dict[str, Any]] = []
+        for scene_row in conn.execute(
+            "SELECT * FROM feedback_run_scene WHERE run_id = ? ORDER BY ord, id",
+            (int(prev_run_id),),
+        ).fetchall():
+            scene = dict(scene_row)
+            raw_paragraphs = scene.get("paragraphs_json") or "[]"
+            scene["paragraphs"] = json.loads(raw_paragraphs) if isinstance(raw_paragraphs, str) else raw_paragraphs
+            prev_scenes.append(scene)
+        prev_paras = snapshot_paragraphs(prev_scenes)
+        curr_paras = [
+            {
+                "n": int(item.get("n") or 0),
+                "text": str(item.get("text") or ""),
+                "scene_id": int(item.get("scene_id") or 0),
+                "local": int(item.get("local") or 0),
+            }
+            for item in (assembled.get("paragraphs") or [])
+            if str(item.get("text") or "").strip()
+        ]
+        changed = changed_indexes(prev_paras, curr_paras)
+        changed_ns = {
+            int(curr_paras[i].get("n") or (i + 1))
+            for i in changed
+            if 0 <= i < len(curr_paras)
+        }
+        filtered_screened: list[dict[str, Any]] = []
+        for card in screened:
+            para = int(card.get("global_para") or card.get("para") or 0)
+            if para and para in changed_ns:
+                filtered_screened.append(card)
+            else:
+                detect_log.append(
+                    {
+                        "action": "drop_card",
+                        "target": ",".join(card.get("tags") or []),
+                        "detail": "문단 그대로라 새 탐지 선별 안 함(이어받기만)",
+                    }
+                )
+        screened = filtered_screened
+        detect_log.append(
+            {
+                "action": "select_changed_only",
+                "target": str(len(changed_ns)),
+                "detail": f"바뀐 문단 {len(changed_ns)}곳만 선별 후보 {len(screened)}",
+            }
+        )
+    detect_log[0] = {
+        "action": "detect_count",
+        "target": str(len(merged)),
+        "detail": f"탐지 후보(이어받기 직접 {len(carry_direct)})",
+    }
 
     select_schema = prompt_loader.load_json("literature/select_schema.json")
     select_template = prompt_loader.load_text("literature/select_prompt.txt")
     for index, card in enumerate(screened):
-        card["fix_id"] = str(index)
+        card["candidate_id"] = str(index)
     if screened:
         candidate_lines = []
         for card in screened:
             labels = ", ".join(TAG_LABELS.get(tag, tag) for tag in (card.get("tags") or []))
-            prefix = "이어받기 " if card.get("carried") else ""
             candidate_lines.append(
-                f"[{card['fix_id']}] {prefix}{labels}\n원문: {card.get('quote') or ''}\n이유: {card.get('reason') or ''}\n독자: {card.get('reader_problem') or ''}"
+                f"[{card['candidate_id']}] {labels}\n원문: {card.get('quote') or ''}\n이유: {card.get('reason') or ''}\n독자: {card.get('reader_problem') or ''}"
             )
         scene_summary = "\n".join(
             f"{item.get('scene_no', index + 1)}. {item.get('summary') or ''}"
@@ -1039,35 +1365,33 @@ def generate_literature_cards(
         _add_usage(params, "card_select", result, model)
         _check_cost(params, max_cost)
         parsed = result.get("parsed") if isinstance(result.get("parsed"), dict) else {}
-        kept_ids = {str(item.get("id")): item for item in (parsed.get("keep") or []) if isinstance(item, dict)}
-        drop_ids = {str(item.get("id")): str(item.get("reason") or "") for item in (parsed.get("drop") or []) if isinstance(item, dict)}
-        selected = []
-        for card in screened:
-            item = kept_ids.get(str(card.get("fix_id")))
-            if item is None:
-                reason = drop_ids.get(str(card.get("fix_id"))) or "작가가 손해를 보지 않음"
-                prefix = "선별(이어받기 탈락): " if card.get("carried") else "선별: "
-                detect_log.append(
-                    {
-                        "action": "drop_card",
-                        "target": ",".join(card.get("tags") or []),
-                        "detail": prefix + reason,
-                    }
-                )
-                continue
-            count = int(item.get("pattern_count") or 1)
-            if count > 1:
-                card["reason"] = (str(card.get("reason") or "") + f"\n같은 패턴 {count}곳").strip()
-            selected.append(card)
+        selected, select_log = resolve_select_cards(
+            screened,
+            parsed,
+            style_choice=choice,
+            intent_md=intent_md,
+        )
+        detect_log.extend(select_log)
         detect_log.append(
             {
                 "action": "select_count",
-                "target": str(len(selected)),
-                "detail": f"탐지 {len(merged)} → 기준 통과 {len(screened)} → 선별 {len(selected)}",
+                "target": str(len(selected) + len(carry_direct)),
+                "detail": (
+                    f"탐지 {len(merged)} → 기준 통과 {len(screened) + len(carry_direct)} → "
+                    f"선별 {len(selected)} + 이어받기 {len(carry_direct)}"
+                ),
             }
         )
     else:
         selected = []
+        detect_log.append(
+            {
+                "action": "select_count",
+                "target": str(len(carry_direct)),
+                "detail": f"탐지 {len(merged)} → 선별 후보 0 + 이어받기 {len(carry_direct)}",
+            }
+        )
+    selected = list(selected) + list(carry_direct)
     suggest_model = _model(options, "cards")
     suggest_schema = prompt_loader.load_json("literature/suggestion_schema.json")
     suggest_template = prompt_loader.load_text("literature/suggestion_prompt.txt")
@@ -1139,6 +1463,7 @@ def generate_literature_cards(
         meaning_ok=meaning_ok,
         style_dialogue=str(project.get("style_dialogue") or ""),
         manuscript="\n".join(str(row.get("text") or "") for row in (assembled.get("paragraphs") or [])),
+        intent_md=intent_md,
     )
     checked.sort(key=lambda card: (int(card.get("global_para") or 0), str(card.get("quote") or "")))
     return checked, detect_log + suggest_log + log

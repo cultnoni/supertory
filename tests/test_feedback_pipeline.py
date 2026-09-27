@@ -103,6 +103,7 @@ class PipelineFake:
         card_usage: dict | None = None,
     ) -> None:
         self.prompts: list[str] = []
+        self.kwargs: list[dict] = []
         self.consistency = consistency or {"facts": [], "issues": []}
         self.report = report or {
             "summary": "고정 리포트",
@@ -118,9 +119,10 @@ class PipelineFake:
         self.card_usage = card_usage or self.usage
         self._lock = threading.Lock()
 
-    def generate(self, prompt: str, **_kwargs):
+    def generate(self, prompt: str, **kwargs):
         with self._lock:
             self.prompts.append(prompt)
+            self.kwargs.append(kwargs)
         if "인물·설정·시간·수치에 관한 사실" in prompt:
             return FakeClaude()._as_result(
                 {"parsed": self.consistency, "usage": dict(self.usage)}
@@ -538,6 +540,68 @@ class PipelineFlowTests(unittest.TestCase):
         self.assertEqual(by_title.get("인용 실패 정합성"), "quote_invalid")
         self.assertEqual(by_title.get("인용 실패 약점"), "quote_invalid")
         self.assertTrue(all("reason" in row and "id" in row and "title" in row for row in dropped))
+
+    def test_prompt_cache_prefix_is_shared_across_stages(self) -> None:
+        fake = PipelineFake(
+            consistency=_default_consistency(),
+            report=_default_report(),
+        )
+        run_id = self._run(fake)
+        run = feedback_store.get_run(self.connection, run_id)
+        self.assertEqual(run["status"], "ok")
+        self.assertTrue(fake.kwargs)
+        # 정합성·리포트만 원고+설정집 캐시 접두를 공유한다. 카드는 구간 발췌만 쓴다.
+        stage_systems = []
+        for prompt, kwargs in zip(fake.prompts, fake.kwargs):
+            if "인물·설정·시간·수치에 관한 사실" in prompt or "피드백 리포트를 JSON" in prompt:
+                stage_systems.append(kwargs.get("system"))
+        self.assertEqual(len(stage_systems), 2)
+        for system in stage_systems:
+            self.assertIsInstance(system, list)
+            self.assertEqual(system[1].get("cache_control"), {"type": "ephemeral"})
+            body = system[1].get("text") or ""
+            self.assertIn("원고:", body)
+            self.assertIn("설정집:", body)
+            self.assertIn("정원이 손을 내밀었다", body)
+        prefixes = [system[1]["text"] for system in stage_systems]
+        self.assertEqual(len(set(prefixes)), 1)
+        stage_prompts = [
+            p
+            for p in fake.prompts
+            if "인물·설정·시간·수치에 관한 사실" in p or "피드백 리포트를 JSON" in p
+        ]
+        self.assertEqual(len(stage_prompts), 2)
+        for prompt in stage_prompts:
+            self.assertIn("원고는 메시지 앞부분에 있다", prompt)
+            self.assertNotIn("다섯 번째 문단", prompt)
+            self.assertIn("JSON 스키마", prompt)
+        # 카드 호출은 캐시 접두 없이 일반 시스템 문자열을 쓴다.
+        for prompt, kwargs in zip(fake.prompts, fake.kwargs):
+            if "[대상 구간]" in prompt or "suggestion_enabled:" in prompt:
+                self.assertIsInstance(kwargs.get("system"), str)
+        for kwargs in fake.kwargs:
+            self.assertNotIn("json_schema", kwargs)
+        usage = (run.get("params") or {}).get("usage") or {}
+        for key in (
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+            "cost_input_usd",
+            "cost_cache_write_usd",
+            "cost_cache_read_usd",
+            "cost_output_usd",
+            "parse_failures",
+        ):
+            self.assertIn(key, usage)
+        for stage in usage.get("stages") or []:
+            for key in (
+                "cache_creation_input_tokens",
+                "cache_read_input_tokens",
+                "cost_input_usd",
+                "cost_cache_write_usd",
+                "cost_cache_read_usd",
+                "cost_output_usd",
+            ):
+                self.assertIn(key, stage)
 
     def test_params_records_fake_mode_flag(self) -> None:
         fake = PipelineFake(

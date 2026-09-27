@@ -157,12 +157,44 @@ class CardCarryTests(unittest.TestCase):
                 "carried": True,
             }
         ]
-        merged2, screened2, log = apply_card_carry(merged, screened, carry_open=carry, skip_keys=skip)
+        merged2, screened2, carry_direct, log = apply_card_carry(
+            merged, screened, carry_open=carry, skip_keys=skip
+        )
         self.assertEqual(len(merged2), 1)
         self.assertEqual(merged2[0]["tags"], ["pov"])
-        self.assertEqual(len(screened2), 2)
-        self.assertTrue(any(item["action"] == "carry_into_select" for item in log))
+        self.assertEqual(len(screened2), 1)
+        self.assertEqual(screened2[0]["tags"], ["pov"])
+        self.assertEqual(len(carry_direct), 1)
+        self.assertEqual(carry_direct[0]["tags"], ["cliche"])
+        self.assertTrue(any(item["action"] == "carry_direct" for item in log))
         self.assertTrue(any(item["detail"] == "이전 ignored/applied 유지" for item in log))
+
+    def test_carry_blocks_same_slot_from_select(self) -> None:
+        carry = [
+            {
+                "quote": "같은 인용",
+                "original_text": "같은 인용 문단",
+                "tags": ["repeat"],
+                "reason": "z",
+                "carried": True,
+                "global_para": 3,
+            }
+        ]
+        screened = [
+            {
+                "quote": "같은 인용",
+                "original_text": "같은 인용 문단",
+                "tags": ["repeat"],
+                "reason": "새 탐지",
+                "global_para": 3,
+            }
+        ]
+        _, select_candidates, carry_direct, log = apply_card_carry(
+            screened, screened, carry_open=carry, skip_keys=set()
+        )
+        self.assertEqual(select_candidates, [])
+        self.assertEqual(len(carry_direct), 1)
+        self.assertTrue(any("재선별 안 함" in str(item.get("detail") or "") for item in log))
 
     def test_detect_select_temperature_when_unlocked(self) -> None:
         self.assertFalse(is_sampling_locked_model("claude-haiku-4-5-20251001"))
@@ -174,7 +206,10 @@ class CardCarryTests(unittest.TestCase):
         fake = FakeClaude(
             [
                 {"cards": []},
-                {"keep": [], "drop": []},
+                {
+                    "keep": [],
+                    "drop": [],
+                },
             ]
         )
         generate_literature_cards(
@@ -203,6 +238,68 @@ class CardCarryTests(unittest.TestCase):
         )
         temps = [kw.get("temperature") for kw in fake.kwargs]
         self.assertTrue(any(t == 0.0 for t in temps))
+
+    def test_unchanged_paragraph_new_detect_skipped_for_select(self) -> None:
+        """문단이 그대로면 새 탐지는 선별하지 않고 이어받기만 남긴다."""
+        pid, sid, assembled = self._project_with_text()
+        p1 = assembled["paragraphs"][0]["text"]
+        self._prev_run(
+            pid,
+            sid,
+            [
+                {
+                    "scene_id": sid,
+                    "kind": "style",
+                    "status": "open",
+                    "start_para": 1,
+                    "original_text": p1,
+                    "start_quote": p1[:40],
+                    "reason": "반복",
+                    "card_form": "note",
+                    "issue_tags_json": ["repeat"],
+                    "suggestion": None,
+                }
+            ],
+        )
+        from feedback_pipeline.literature_cards import load_previous_run_cards
+
+        prev_id = find_previous_literature_run(
+            self.connection, pid, pipeline="literature_short", exclude_run_id=0
+        )
+        classified = classify_previous_cards(assembled, load_previous_run_cards(self.connection, prev_id))
+        carry = list(classified["carry_open"] or [])
+        new_detect = [
+            {
+                "quote": "둘째 문단이다.",
+                "original_text": assembled["paragraphs"][1]["text"],
+                "tags": ["grammar"],
+                "reason": "새 비문",
+                "global_para": int(assembled["paragraphs"][1]["n"]),
+                "reader_problem": "독자가 문장을 다시 읽게 된다.",
+            }
+        ]
+        # 같은 문단 새 탐지(이어받기 슬롯) + 다른 문단 새 탐지
+        same_slot = [
+            {
+                "quote": p1[:20],
+                "original_text": p1,
+                "tags": ["repeat"],
+                "reason": "새 탐지 반복",
+                "global_para": int(assembled["paragraphs"][0]["n"]),
+                "reader_problem": "독자가 반복에 지친다.",
+            }
+        ]
+        _, select_cands, carry_direct, log = apply_card_carry(
+            same_slot + new_detect,
+            same_slot + new_detect,
+            carry_open=carry,
+            skip_keys=set(),
+        )
+        self.assertEqual(len(carry_direct), 1)
+        # apply_card_carry는 슬롯만 막고, 바뀐 문단 필터는 generate에서 한다.
+        self.assertTrue(any(c.get("tags") == ["grammar"] for c in select_cands))
+        self.assertFalse(any(c.get("tags") == ["repeat"] and not c.get("carried") for c in select_cands))
+        self.assertTrue(any("재선별 안 함" in str(item.get("detail") or "") for item in log))
 
     def test_changed_paragraph_not_carried(self) -> None:
         pid, sid, assembled = self._project_with_text()

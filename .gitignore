@@ -31,3 +31,6 @@ data/snapshots/
 tools/prompt_lab/manuscripts/
 tools/prompt_lab/results/*
 !tools/prompt_lab/results/.gitkeep
+
+# Private literary test manuscripts and run dumps (never commit)
+tests/manuscripts/private/

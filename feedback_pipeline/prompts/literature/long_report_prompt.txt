@@ -5,9 +5,9 @@ quotes 배열에 인용을 한 번만 두고, 진단·강점 evidence는 quote_i
 이전 단위(앞선 N장)만 단정. 이 장 안 장면 번호(N장면)는 과거 검증 대상이 아님.
 기획의도와의 거리(intent_gap)는 작품소개·기획의도만 근거로 쓴다.
 문체 1~4번(서술·문장·대화·어휘)은 원고 관찰 설명이지 목표가 아니다. 문체 1~4로 원고를 평가하거나 퇴고 과제를 만들지 않는다. 작가의 뜻으로 쓸 수 있는 문체 칸은 5번(의도적 선택)·6번(고치고 싶은 습관)뿐이다.
+버전 비교는 이 단계에서 하지 않는다. comparison.items는 빈 배열, reading_changed는 false.
 
 {{judge_rule}}
-{{comparison_rule}}
 
 설정집·이전 요약:
 {{settings}}
@@ -20,6 +20,3 @@ quotes 배열에 인용을 한 번만 두고, 진단·강점 evidence는 quote_i
 
 루브릭:
 {{rubric}}
-
-이전 리포트 요약:
-{{previous}}

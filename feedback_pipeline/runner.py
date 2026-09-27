@@ -25,7 +25,6 @@ from feedback_pipeline.checks import (
 )
 from feedback_pipeline.claude_client import (
     ClaudeError,
-    estimate_cost_usd,
     get_client,
     is_fake_mode,
 )
@@ -39,6 +38,11 @@ from feedback_pipeline.config import (
 )
 from feedback_pipeline.context import build_project_context, explanation_lens_for_project
 from feedback_pipeline.dup_blocks import dup_reason, find_dup_blocks, format_dup_findings
+from feedback_pipeline.literature_cache import (
+    build_cached_system,
+    cache_prefix,
+    with_schema_instruction,
+)
 from feedback_pipeline.paragraphs import (
     RangeHit,
     context_numbers,
@@ -115,31 +119,34 @@ def _add_usage(
     out = int(usage.get("output_tokens") or 0)
     cache_write = int(usage.get("cache_creation_input_tokens") or 0)
     cache_read = int(usage.get("cache_read_input_tokens") or 0)
+    parse_failures = int((result or {}).get("parse_failures") or 0)
     parts = estimate_cost_parts(
         model, inp, out, cache_write_tokens=cache_write, cache_read_tokens=cache_read
     )
     cost = float(parts["total_usd"])
     bucket = params.setdefault("usage", {})
     stages = bucket.setdefault("stages", [])
-    stages.append(
-        {
-            "stage": stage,
-            "model": model,
-            "input_tokens": inp,
-            "output_tokens": out,
-            "cache_creation_input_tokens": cache_write,
-            "cache_read_input_tokens": cache_read,
-            "cost_input_usd": parts["input_usd"],
-            "cost_cache_write_usd": parts["cache_write_usd"],
-            "cost_cache_read_usd": parts["cache_read_usd"],
-            "cost_output_usd": parts["output_usd"],
-            "cost_usd": round(cost, 6),
-        }
-    )
+    stage_row = {
+        "stage": stage,
+        "model": model,
+        "input_tokens": inp,
+        "output_tokens": out,
+        "cache_creation_input_tokens": cache_write,
+        "cache_read_input_tokens": cache_read,
+        "cost_input_usd": parts["input_usd"],
+        "cost_cache_write_usd": parts["cache_write_usd"],
+        "cost_cache_read_usd": parts["cache_read_usd"],
+        "cost_output_usd": parts["output_usd"],
+        "cost_usd": round(cost, 6),
+    }
+    if parse_failures:
+        stage_row["parse_failures"] = parse_failures
+    stages.append(stage_row)
     bucket["input_tokens"] = int(bucket.get("input_tokens") or 0) + inp
     bucket["output_tokens"] = int(bucket.get("output_tokens") or 0) + out
     bucket["cache_creation_input_tokens"] = int(bucket.get("cache_creation_input_tokens") or 0) + cache_write
     bucket["cache_read_input_tokens"] = int(bucket.get("cache_read_input_tokens") or 0) + cache_read
+    bucket["parse_failures"] = int(bucket.get("parse_failures") or 0) + parse_failures
     bucket["cost_input_usd"] = round(float(bucket.get("cost_input_usd") or 0) + parts["input_usd"], 6)
     bucket["cost_cache_write_usd"] = round(
         float(bucket.get("cost_cache_write_usd") or 0) + parts["cache_write_usd"], 6
@@ -365,16 +372,88 @@ def _project_for_checks(conn: sqlite3.Connection, project_id: int) -> dict[str, 
     return {"characters": people, "terms": []}
 
 
-def _invoke(claude, prompt: str, schema: dict[str, Any] | None, model: str) -> dict[str, Any]:
+def _invoke(
+    claude,
+    prompt: str,
+    schema: dict[str, Any] | None,
+    model: str,
+    *,
+    cached_prefix: str = "",
+) -> dict[str, Any]:
+    """공통 시스템 → 원고+설정집(캐시) → 단계 지시+스키마. structured outputs는 쓰지 않는다."""
+    common = prompt_loader.system_core()
+    prefix = str(cached_prefix or "").strip()
+    system: str | list = build_cached_system(prefix, common) if prefix else common
     return claude.generate(
-        prompt,
+        with_schema_instruction(prompt, schema),
         model=model,
-        system=prompt_loader.system_core(),
+        system=system,
         thinking="off",
-        json_schema=schema,
         max_tokens=4096,
         timeout=60.0,
     )
+
+
+def _merge_call_usage(parts: list[dict[str, Any]]) -> dict[str, int]:
+    totals = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+    }
+    for result in parts:
+        usage = (result or {}).get("usage") or {}
+        for key in totals:
+            totals[key] += int(usage.get(key) or 0)
+    return totals
+
+
+def _invoke_parsed(
+    claude,
+    prompt: str,
+    schema: dict[str, Any] | None,
+    model: str,
+    *,
+    cached_prefix: str = "",
+    label: str = "응답",
+) -> dict[str, Any]:
+    """JSON 객체 파싱. 실패하면 한 번 재요청하고, 그래도 실패하면 parse_failed를 남긴다."""
+    attempts: list[dict[str, Any]] = []
+    parse_failures = 0
+    last: dict[str, Any] | None = None
+    for _attempt in range(2):
+        result = _invoke(
+            claude, prompt, schema, model, cached_prefix=cached_prefix
+        )
+        attempts.append(result)
+        last = result
+        if isinstance(result.get("parsed"), dict):
+            break
+        parse_failures += 1
+    assert last is not None
+    out = dict(last)
+    out["usage"] = _merge_call_usage(attempts)
+    out["parse_failures"] = parse_failures
+    out["parse_failed"] = not isinstance(out.get("parsed"), dict)
+    if out["parse_failed"]:
+        out["error"] = f"{label} JSON 파싱 실패"
+    return out
+
+
+def _empty_usage() -> dict[str, Any]:
+    return {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cost_input_usd": 0.0,
+        "cost_cache_write_usd": 0.0,
+        "cost_cache_read_usd": 0.0,
+        "cost_output_usd": 0.0,
+        "cost_usd": 0.0,
+        "parse_failures": 0,
+        "stages": [],
+    }
 
 
 def _build_card_prompt(
@@ -560,28 +639,28 @@ def _apply_card_rules(card: dict[str, Any], paragraphs, project: dict[str, Any])
     return card
 
 
-def _generate_one_card(claude, prompt: str, model: str) -> dict[str, Any]:
-    last_error: Exception | None = None
-    last_text = ""
-    for _attempt in range(2):
-        try:
-            result = _invoke(claude, prompt, prompt_loader.CARD_JSON_SCHEMA, model)
-            last_text = str(result.get("text") or "")
-            parsed = result.get("parsed")
-            if isinstance(parsed, dict):
-                return result
-            last_error = ClaudeError("카드 JSON 파싱 실패", code="empty")
-        except ClaudeError as error:
-            last_error = error
-            last_text = str(error)
-    return {
-        "text": last_text,
-        "parsed": None,
-        "raw": last_text,
-        "usage": {"input_tokens": 0, "output_tokens": 0},
-        "parse_failed": True,
-        "error": str(last_error) if last_error else "카드 생성 실패",
-    }
+def _generate_one_card(
+    claude, prompt: str, model: str, *, cached_prefix: str = ""
+) -> dict[str, Any]:
+    result = _invoke_parsed(
+        claude,
+        prompt,
+        prompt_loader.CARD_JSON_SCHEMA,
+        model,
+        cached_prefix=cached_prefix,
+        label="카드",
+    )
+    if result.get("parse_failed"):
+        return {
+            "text": str(result.get("text") or ""),
+            "parsed": None,
+            "raw": str(result.get("text") or ""),
+            "usage": result.get("usage") or {"input_tokens": 0, "output_tokens": 0},
+            "parse_failures": int(result.get("parse_failures") or 0),
+            "parse_failed": True,
+            "error": str(result.get("error") or "카드 생성 실패"),
+        }
+    return result
 
 
 def run_feedback(
@@ -632,10 +711,7 @@ def run_feedback(
         params.setdefault(
             "progress", {"stage": "start", "done": 0, "total": 5}
         )
-        params.setdefault(
-            "usage",
-            {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "stages": []},
-        )
+        params.setdefault("usage", _empty_usage())
         params.setdefault("dropped", [])
         if "fake" not in params:
             params["fake"] = bool(is_fake_mode())
@@ -645,7 +721,7 @@ def run_feedback(
     else:
         params = {
             "progress": {"stage": "start", "done": 0, "total": 5},
-            "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "stages": []},
+            "usage": _empty_usage(),
             "dropped": [],
             "explanation_lens": lens,
             "fake": bool(is_fake_mode()),
@@ -674,6 +750,8 @@ def run_feedback(
     failed_cards = 0
     report_failed = False
     cost_stopped = False
+    # 실행 전체에서 캐시 앞부분을 글자 하나까지 고정한다.
+    shared_prefix = cache_prefix(format_paragraphs_text(paras), project_context)
 
     try:
         _raise_if_cancelled(cancel_event)
@@ -711,15 +789,21 @@ def run_feedback(
         _commit(conn, options)
         cons_prompt = prompt_loader.fill_template(
             prompt_loader.consistency_prompt(),
-            {
-                "project_context": project_context,
-                "paragraphs_text": format_paragraphs_text(paras),
-            },
+            {},
         )
-        cons_result = _invoke(caller, cons_prompt, prompt_loader.consistency_schema(), model)
+        cons_result = _invoke_parsed(
+            caller,
+            cons_prompt,
+            prompt_loader.consistency_schema(),
+            model,
+            cached_prefix=shared_prefix,
+            label="정합성",
+        )
         last_raw = str(cons_result.get("text") or "")
         _add_usage(params, "consistency", cons_result, model)
         _check_cost(params, max_cost)
+        if cons_result.get("parse_failed"):
+            raise ClaudeError("정합성 JSON 파싱 실패", code="parse")
         cons_parsed = cons_result.get("parsed")
         if not isinstance(cons_parsed, dict):
             cons_parsed = {}
@@ -750,14 +834,9 @@ def run_feedback(
         report_user = prompt_loader.fill_template(
             prompt_loader.report_prompt(),
             {
-                "project_context": project_context,
                 "rule_findings_text": findings,
                 "explanation_lens": lens,
                 "explanation_lens_text": lens_body,
-                "paragraphs_text": format_paragraphs_text(paras),
-                "report_schema": json.dumps(
-                    prompt_loader.report_schema(), ensure_ascii=False
-                ),
             },
         )
         params["report_prompt_findings"] = findings
@@ -766,7 +845,14 @@ def run_feedback(
         _commit(conn, options)
         _raise_if_cancelled(cancel_event)
         try:
-            report_result = _invoke(caller, report_user, prompt_loader.report_schema(), model)
+            report_result = _invoke_parsed(
+                caller,
+                report_user,
+                prompt_loader.report_schema(),
+                model,
+                cached_prefix=shared_prefix,
+                label="리포트",
+            )
         except Exception:
             report_failed = True
             raise
@@ -774,8 +860,8 @@ def run_feedback(
         _add_usage(params, "report", report_result, model)
         _check_cost(params, max_cost)
         report = report_result.get("parsed")
-        if not isinstance(report, dict):
-            raise ClaudeError("리포트 JSON 파싱 실패", code="empty")
+        if report_result.get("parse_failed") or not isinstance(report, dict):
+            raise ClaudeError("리포트 JSON 파싱 실패", code="parse")
         report, post_changes = apply_report_post(report)
         params["post_changes"] = post_changes
         for row in post_changes:
@@ -923,6 +1009,7 @@ def run_feedback(
 
         results: dict[int, dict[str, Any]] = {}
         if ai_jobs:
+            # 카드는 구간 발췌만 쓰므로 원고 전체 캐시 접두를 붙이지 않는다.
             workers = min(CARD_CONCURRENCY, len(ai_jobs))
             pending = list(ai_jobs)
             in_flight: dict[Any, tuple] = {}
@@ -1080,7 +1167,7 @@ def run_feedback(
         )
         _commit(conn, options)
         return run_id
-    except Exception:
+    except Exception as error:
         from feedback_pipeline.run_errors import public_failure
 
         row = conn.execute(
@@ -1088,7 +1175,8 @@ def run_feedback(
         ).fetchone()
         has_report = bool(row and row[0])
         status = "failed" if not has_report else "partial"
-        params = public_failure(params, cards=has_report)
+        parse = isinstance(error, ClaudeError) and getattr(error, "code", None) == "parse"
+        params = public_failure(params, cards=has_report, parse=parse)
         feedback_store.update_run(
             conn,
             run_id,

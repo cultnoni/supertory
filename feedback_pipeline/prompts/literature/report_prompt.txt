@@ -8,12 +8,12 @@
 강점은 루브릭 강점 후보의 인용을 유지한다.
 항목별 진단은 루브릭 판정을 독자가 읽게 다듬되 판정과 인용은 유지한다.
 우선 퇴고 과제는 작품 전체에 영향이 큰 것 3개만 적는다.
-{{comparison_rule}}
+버전 비교는 이 단계에서 하지 않는다. comparison.items는 빈 배열, reading_changed는 false로 둔다.
 교정 카드 개수는 적지 않는다.
 overview는 reader, editor, critic, judge다. reading은 body와 intent_gap이다.
 diagnoses는 루브릭의 key, verdict, intentional, note, evidence를 유지한다.
 strengths의 quote는 루브릭 인용을 한 글자도 바꾸지 않고 옮긴다.
-comparison은 reading_changed와 items(key, status, note)다. status는 resolved, partial, same, new다.
+comparison은 reading_changed와 items다. 이 단계에서는 items를 비운다.
 
 설정집:
 {{settings}}
@@ -26,6 +26,3 @@ comparison은 reading_changed와 items(key, status, note)다. status는 resolved
 
 루브릭:
 {{rubric}}
-
-이전 리포트:
-{{previous}}

@@ -10486,6 +10486,7 @@ function syncGenrePickerFromState() {
   syncGenreDisplayButtons();
   syncGenreLitRomanceFieldsUi();
 }
+let genrePersistTimer = null;
 function schedulePersistProjectGenre() {
   const projectId = liveProjectId();
   if (!projectId) return;
@@ -28878,9 +28879,7 @@ function returnToAiSelectList() {
     }
   } catch (_) { /* ignore */ }
   try {
-    if (typeof closeCharDebateModal === "function") {
-      closeCharDebateModal({ returnToList: false });
-    }
+    closeCharDebateModal({ returnToList: false });
   } catch (_) { /* ignore */ }
 
   if (typeof aiToolModalState !== "undefined") {
@@ -29130,6 +29129,10 @@ function isLiteraryLongForm() {
     && normalizeLiteraryForm(state.literaryForm) === "long";
 }
 
+function isMarkupFeedbackMode(value) {
+  return String(value || "") === "markupfeedback";
+}
+
 function isMidcheckMode(value) {
   return String(value || "") === "midcheck";
 }
@@ -29279,6 +29282,10 @@ function setupAiModePicker() {
     const value = optBtn.getAttribute("data-ai-mode-value") || "free";
     if (isMarkupFeedbackMode(value)) {
       openMarkupFeedbackChrome($("aiModePicker"));
+      return;
+    }
+    if (isMidcheckMode(value)) {
+      openMidcheckChrome($("aiModePicker"));
       return;
     }
     if (isComingSoonAiMode(value)) {
@@ -39699,6 +39706,49 @@ const charDebateState = {
   lines: [],
   busy: false,
 };
+
+/** 시뮬레이션 패널을 닫는다. (모달은 없고 소통방 캐릭터 탭 안의 시뮬레이션 창이다.) */
+function closeCharDebateModal({ returnToList = true } = {}) {
+  charDebateState.busy = false;
+  charDebateState.rawText = "";
+  charDebateState.lines = [];
+  charDebateState.scenario = "";
+  charDebateState.preset = "";
+  charDebateState.custom = "";
+  charDebateState.charactersInfo = [];
+  if ($("charDebateCustomScenario")) $("charDebateCustomScenario").value = "";
+  if ($("charDebateScript")) $("charDebateScript").innerHTML = "";
+  if ($("charDebateStatus")) {
+    $("charDebateStatus").textContent = "";
+    $("charDebateStatus").classList.add("hidden");
+  }
+  setCharDebateStep("pick");
+  closeToryChatCharacterAllModal();
+  if (charListMode === "sim") {
+    // 기능 플래그와 무관하게 시뮬레이션 창을 끄고 대화 목록 쪽으로 돌린다.
+    const canChat =
+      typeof isClusterFeatureVisible !== "function" || isClusterFeatureVisible("character_chat");
+    if (canChat) {
+      setCharListMode("chat");
+    } else {
+      charListMode = "chat";
+      document.querySelectorAll("[data-char-list-mode]").forEach((btn) => {
+        const on = btn.getAttribute("data-char-list-mode") === "chat";
+        btn.classList.toggle("is-active", on);
+        btn.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      $("toryChatCharacterChatPane")?.classList.remove("hidden");
+      $("toryChatCharacterSimPane")?.classList.add("hidden");
+      try { renderToryChatCharacterPicker(); } catch (_) { /* ignore */ }
+      try { syncToryChatPopupTitle(); } catch (_) { /* ignore */ }
+    }
+  }
+  if (!returnToList) return;
+  if (($("aiMode")?.value || "") !== "chardebate") return;
+  const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+  if (pane === "result") return;
+  try { returnToAiSelectList(); } catch (_) { /* ignore */ }
+}
 
 function charDebateScenarioText() {
   const custom = String($("charDebateCustomScenario")?.value || "").trim();
@@ -51300,7 +51350,7 @@ async function trashChapter(chapterId, chapterTitle = "") {
     state.scene = null;
     sceneDirty = false;
     if (openSceneId) {
-      try { removeEpisodeTab?.(openSceneId); } catch (_) { /* ignore */ }
+      try { closeEpisodeTab?.(openSceneId); } catch (_) { /* ignore */ }
     }
   }
   // Drop episode tabs for trashed scenes
@@ -86152,13 +86202,6 @@ function setupAmbientSound() {
       event.preventDefault();
       event.stopPropagation();
       pickCustomAmbientFile(add.getAttribute("data-ambient-add"));
-      return;
-    }
-    const acc = event.target?.closest?.("#ambientSoundPopup [data-ambient-acc], #adminAmbientTrackList [data-ambient-acc]");
-    if (acc) {
-      event.preventDefault();
-      event.stopPropagation();
-      toggleAmbientAccordion(acc);
       return;
     }
     const manage = event.target?.closest?.("#ambientSoundPopup [data-ambient-manage]");

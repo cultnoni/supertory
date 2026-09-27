@@ -353,6 +353,84 @@ class CompareStabilityTests(unittest.TestCase):
         self.assertEqual(by_key["implication"]["verdict"], "room")
         self.assertTrue(any(entry["action"] == "keep_verdict" for entry in log))
 
+    def test_missing_evidence_quote_marks_resolved(self) -> None:
+        previous_paragraphs = [
+            {"n": 1, "text": "나는 책을 뒤적였다.", "scene_id": 1, "local": 1},
+            {"n": 2, "text": "유수영은 초라해 보였다. 독자 여러분은 알고 있다.", "scene_id": 1, "local": 2},
+        ]
+        current_paragraphs = [
+            {"n": 1, "text": "나는 책을 뒤적였다.", "scene_id": 1, "local": 1},
+        ]
+        previous = {
+            "diagnoses": [
+                {
+                    "key": "pov",
+                    "verdict": "problem",
+                    "note": "3인칭 개입",
+                    "evidence": [{"quote": "유수영은 초라해 보였다. 독자 여러분은 알고 있다."}],
+                },
+            ]
+        }
+        report = {
+            "reading": {"body": "같다"},
+            "diagnoses": [
+                {
+                    "key": "pov",
+                    "verdict": "works",
+                    "note": "시점이 유지된다.",
+                    "evidence": [{"quote": "나는 책을 뒤적였다."}],
+                },
+            ],
+        }
+        cleaned, log = stabilize_comparison(report, previous, previous_paragraphs, current_paragraphs)
+        statuses = {item["key"]: item["status"] for item in cleaned["comparison"]["items"]}
+        self.assertEqual(statuses["pov"], "resolved")
+        self.assertTrue(
+            any("사라" in str(item.get("note") or "") for item in cleaned["comparison"]["items"] if item["key"] == "pov")
+        )
+
+    def test_partial_prior_quote_missing_marks_resolved(self) -> None:
+        """이전 근거 중 하나만 사라져도 이전 판정을 유지하지 않는다."""
+        previous_paragraphs = [
+            {"n": 1, "text": "나는 책을 뒤적였다.", "scene_id": 1, "local": 1},
+            {"n": 2, "text": "독자 여러분은 이미 알고 있겠지만, 그녀는 끝내 거울을 보지 못할 것이다.", "scene_id": 1, "local": 2},
+            {"n": 3, "text": "결국 이 이야기는 메시지를 전달하려는 작품이다.", "scene_id": 1, "local": 3},
+        ]
+        current_paragraphs = [
+            {"n": 1, "text": "나는 책을 뒤적였다.", "scene_id": 1, "local": 1},
+            {"n": 2, "text": "결국 이 이야기는 메시지를 전달하려는 작품이다.", "scene_id": 1, "local": 2},
+        ]
+        previous = {
+            "diagnoses": [
+                {
+                    "key": "pov",
+                    "verdict": "problem",
+                    "note": "3인칭 개입과 결말 설명",
+                    "evidence": [
+                        {"quote": "독자 여러분은 이미 알고 있겠지만, 그녀는 끝내 거울을 보지 못할 것이다."},
+                        {"quote": "결국 이 이야기는 메시지를 전달하려는 작품이다."},
+                    ],
+                },
+            ]
+        }
+        report = {
+            "reading": {"body": "같다"},
+            "diagnoses": [
+                {
+                    "key": "pov",
+                    "verdict": "works",
+                    "note": "시점이 유지된다.",
+                    "evidence": [{"quote": "나는 책을 뒤적였다."}],
+                },
+            ],
+        }
+        cleaned, _log = stabilize_comparison(report, previous, previous_paragraphs, current_paragraphs)
+        statuses = {item["key"]: item["status"] for item in cleaned["comparison"]["items"]}
+        by_key = {item["key"]: item for item in cleaned["diagnoses"]}
+        self.assertEqual(statuses["pov"], "resolved")
+        self.assertEqual(by_key["pov"]["verdict"], "works")
+        self.assertNotIn("끝내 거울", str(by_key["pov"].get("note") or ""))
+
 
 class ShapeTests(unittest.TestCase):
     def test_korean_scene_map_and_rubric_are_kept(self) -> None:
@@ -499,9 +577,15 @@ class DetectionRuleTests(unittest.TestCase):
 
     def test_generic_problem_and_missing_readings_are_dropped(self) -> None:
         cards = [
-            {"tags": ["pov"], "reader_problem": "가독성이 떨어진다", "readings": [], "quote": "그는 보았다."},
-            {"tags": ["ambiguity"], "reader_problem": "독자는 그것이 양산인지 신인지 알 수 없다.", "readings": ["양산"], "quote": "그것"},
-            {"tags": ["pov"], "reader_problem": "독자는 누가 아내를 내려다보는지 알 수 없다.", "readings": [], "quote": "그는 보았다."},
+            {"tags": ["pov"], "reader_problem": "가독성이 떨어진다", "readings": [], "quote": "그는 보았다.", "reason": "인칭 전환"},
+            {"tags": ["ambiguity"], "reader_problem": "독자는 그것이 양산인지 신인지 알 수 없다.", "readings": ["양산"], "quote": "그것", "reason": "모호"},
+            {
+                "tags": ["pov"],
+                "reader_problem": "독자는 누가 아내를 내려다보는지 알 수 없다.",
+                "readings": [],
+                "quote": "그는 보았다.",
+                "reason": "인칭 전환: 1인칭 서술에서 3인칭으로 바뀌었다.",
+            },
         ]
         kept, log = screen_detected_cards(cards)
         self.assertEqual(len(kept), 1)
@@ -544,6 +628,210 @@ class DetectionRuleTests(unittest.TestCase):
             manuscript="",
         )
         self.assertIn("내용어", added)
+
+    def test_unquoted_broadcast_speech_is_not_pov(self) -> None:
+        """작가 판정: TV 인터뷰 질문을 따옴표 없이 옮긴 것은 시점 이탈이 아니다."""
+        cards = [
+            {
+                "tags": ["pov"],
+                "quote": "그분 모습은 기억나세요? 그 애는 고개를 저었다.",
+                "reason": "시점 이탈: 인터뷰 질문이 따옴표 없이 서술문 사이에 삽입되어 있다.",
+                "reader_problem": "누가 한 말인지, 서술인지 대사인지 구분이 안 되어 순간적으로 문장을 다시 읽게 된다.",
+                "readings": [],
+            },
+            {
+                "tags": ["pov"],
+                "quote": "그분 모습은 기억나세요? 그 애는 고개를 저었다.",
+                "reason": "시점 이탈: (a) 인칭 전환 아님. 방송 인터뷰 질문임에도 따옴표 없이 삽입되어 있다.",
+                "reader_problem": "질문의 화자가 표시되지 않아 혼동된다.",
+                "readings": [],
+            },
+            {
+                "tags": ["pov"],
+                "quote": "유수영은 그 순간 자신이 얼마나 초라해 보이는지 깨닫지 못했다.",
+                "reason": "인칭 전환: 1인칭 회상인데 3인칭으로 지칭하며 외부 서술자가 개입한다.",
+                "reader_problem": "독자는 누가 서술하는지 헷갈려 몰입이 깨진다.",
+                "readings": [],
+            },
+        ]
+        kept, log = screen_detected_cards(cards)
+        self.assertEqual(len(kept), 1)
+        self.assertIn("유수영은", kept[0]["quote"])
+        self.assertEqual(sum(1 for item in log if item.get("target") == "pov"), 2)
+
+    def test_decision_ambiguity_drops_when_intent_alone_covers(self) -> None:
+        """작가 판정: 기획의도만으로도 결정 미제시 의미 모호 카드는 나오면 안 된다."""
+        from feedback_pipeline.literature_cards import resolve_select_cards
+
+        intent = (
+            "소설은 그녀가 어떤 결정을 내렸는지 끝내 말하지 않는다. "
+            "대신 마지막에 독자에게 질문을 돌려준다."
+        )
+        cards = [
+            {
+                "candidate_id": "0",
+                "tags": ["ambiguity"],
+                "quote": "그리고 나의 결정을 전했다. 교수는 고개를 끄덕였다.",
+                "reason": "의미 모호: 재건 여부나 방식에 대한 결정 내용이 이 문장에서 밝혀지지 않는다.",
+                "reader_problem": "독자는 화자가 무엇을 선택했는지 몰라 이후 전개를 정확히 그릴 수 없다.",
+                "readings": ["재건을 하기로 했다", "재건을 하지 않기로 했다"],
+            },
+        ]
+        # 모델이 matches_author_intent를 주면 그 판정을 따른다.
+        selected, log = resolve_select_cards(
+            cards,
+            {
+                "keep": [],
+                "drop": [
+                    {
+                        "id": "0",
+                        "reason": "기획의도",
+                        "matches_author_intent": True,
+                        "author_intent_basis": "소설은 그녀가 어떤 결정을 내렸는지 끝내 말하지 않는다.",
+                    }
+                ],
+            },
+            intent_md=intent,
+        )
+        self.assertEqual(selected, [])
+        self.assertTrue(any("모델" in str(item.get("detail") or "") for item in log))
+        # 모델 판정이 없으면 키워드 보조로도 걸러진다.
+        selected2, log2 = resolve_select_cards(
+            cards,
+            {"keep": [{"id": "0", "pattern_count": 1}], "drop": []},
+            intent_md=intent,
+        )
+        self.assertEqual(selected2, [])
+        self.assertTrue(any("키워드" in str(item.get("detail") or "") for item in log2))
+
+    def test_fake_intent_drops_repeat_on_other_manuscript(self) -> None:
+        """빈처식 가짜 기획의도: 자책 반복을 의도하면 반복 표현 카드가 걸러진다."""
+        from feedback_pipeline.literature_cards import resolve_select_cards
+
+        intent = "화자의 자책을 반복해서 보여준다."
+        cards = [
+            {
+                "candidate_id": "0",
+                "tags": ["repeat"],
+                "quote": "나는 자책했다. 또 자책했다. 다시 자책했다.",
+                "reason": "반복 표현: 자책이 짧은 구간에 세 번 이어진다.",
+                "reader_problem": "같은 말이 겹쳐 자책의 밀도가 떨어진다.",
+            },
+            {
+                "candidate_id": "1",
+                "tags": ["grammar"],
+                "quote": "문이 열리며 바람이 방을 가로질렀다 소리가 났다.",
+                "reason": "비문: 주술 호응이 깨졌다.",
+                "reader_problem": "문장 성분이 이어지지 않아 의미를 다시 읽게 된다.",
+            },
+        ]
+        selected, log = resolve_select_cards(
+            cards,
+            {
+                "keep": [
+                    {
+                        "id": "1",
+                        "pattern_count": 1,
+                        "matches_author_intent": False,
+                        "author_intent_basis": "",
+                    }
+                ],
+                "drop": [
+                    {
+                        "id": "0",
+                        "reason": "의도",
+                        "matches_author_intent": True,
+                        "author_intent_basis": "화자의 자책을 반복해서 보여준다.",
+                    }
+                ],
+            },
+            intent_md=intent,
+        )
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0]["tags"], ["grammar"])
+        self.assertTrue(any(item.get("target") == "repeat" for item in log))
+
+    def test_intent_repeat_word_different_target_keeps_card(self) -> None:
+        """기획의도에 '반복'이 있어도 다른 대상이면 정당한 반복 카드가 살아남는다."""
+        from feedback_pipeline.literature_cards import resolve_select_cards, _author_will_covers
+
+        intent = "같은 표현의 풍경을 반복해서 쌓는다."
+        card = {
+            "candidate_id": "0",
+            "tags": ["repeat"],
+            "quote": "나는 자책했다. 또 자책했다. 다시 자책했다.",
+            "reason": "반복 표현: 자책이 짧은 구간에 세 번 이어진다.",
+            "reader_problem": "같은 말이 겹쳐 자책의 밀도가 떨어진다.",
+        }
+        # 키워드만 보면 '반복'+내용어 한 겹침으로 오탐할 수 있다.
+        self.assertTrue(
+            _author_will_covers(
+                card["quote"],
+                card["reason"],
+                style_choice="",
+                intent_md=intent,
+                tags=["repeat"],
+            )
+        )
+        # 모델이 false로 판정하면 키워드 보조를 건너뛰고 남긴다.
+        selected, log = resolve_select_cards(
+            [card],
+            {
+                "keep": [
+                    {
+                        "id": "0",
+                        "pattern_count": 1,
+                        "matches_author_intent": False,
+                        "author_intent_basis": "",
+                    }
+                ],
+                "drop": [],
+            },
+            intent_md=intent,
+        )
+        self.assertEqual(len(selected), 1)
+        self.assertTrue(selected[0].get("intent_judged"))
+        self.assertFalse(any(item.get("action") == "drop_card" for item in log))
+
+    def test_word_triple_is_not_pov(self) -> None:
+        cards = [
+            {
+                "tags": ["pov"],
+                "quote": "세희의 목소리가 멀어질수록 나는 손, 손, 손만 내려다보았다.",
+                "reason": "시점 이탈: 세희라는 이름이 갑자기 등장한다.",
+                "reader_problem": "독자는 세희가 누구인지 혼동한다.",
+                "readings": [],
+            },
+        ]
+        kept, log = screen_detected_cards(cards)
+        self.assertEqual(kept, [])
+        self.assertTrue(any("반복" in str(item.get("detail") or "") for item in log))
+
+    def test_style_dialogue_prompt_notes_unquoted_speech(self) -> None:
+        text = prompt_loader.load_text("literature/style_prompt.txt")
+        self.assertIn("따옴표 있는 대화", text)
+        self.assertIn("따옴표 없이 옮긴 발화", text)
+
+    def test_author_will_helpers_are_manuscript_agnostic(self) -> None:
+        from feedback_pipeline.literature_cards import _author_will_covers, _pov_screen_detail
+
+        self.assertTrue(
+            _author_will_covers(
+                "나는 자책했다. 또 자책했다.",
+                "반복 표현: 자책 반복",
+                style_choice="",
+                intent_md="화자의 자책을 반복해서 보여준다.",
+                tags=["repeat"],
+            )
+        )
+        self.assertIn(
+            "따옴표",
+            _pov_screen_detail(
+                "인터뷰 질문이 따옴표 없이 삽입되어 있다.",
+                "누가 말인지 헷갈린다.",
+                "그분 모습은 기억나세요? 그 애는 고개를 저었다.",
+            ),
+        )
 
 
 class CacheAndReuseTests(unittest.TestCase):
@@ -632,6 +920,29 @@ class CacheAndReuseTests(unittest.TestCase):
             )
             connection.commit()
             quote = "그는 푸른 눈을 깜빡였다."
+            full_rubric = {
+                "items": [
+                    {
+                        "key": key,
+                        "verdict": "works",
+                        "note": f"{key} 판정",
+                        "evidence": [{"quote": quote, "para": 1}],
+                    }
+                    for key in (
+                        "opening",
+                        "pov",
+                        "scene_summary",
+                        "character",
+                        "motif",
+                        "implication",
+                        "ending",
+                        "economy",
+                        "style",
+                        "title",
+                    )
+                ],
+                "strengths": [],
+            }
             claude = FakeClaude([
                 {
                     "scenes": [{"id": 1, "start_para": 1, "end_para": 1, "pov": "그", "summary": "눈", "mode": "scene"}],
@@ -639,7 +950,7 @@ class CacheAndReuseTests(unittest.TestCase):
                     "last_sentence": quote,
                     "motifs": [],
                 },
-                {"items": [], "strengths": []},
+                full_rubric,
                 {
                     "overview": {"reader": "몰입", "editor": "단정", "critic": "눈", "judge": ""},
                     "reading": {"body": "눈에 관한 이야기입니다.", "intent_gap": ""},

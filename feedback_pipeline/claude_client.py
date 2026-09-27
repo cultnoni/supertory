@@ -889,6 +889,18 @@ def _paras_from_prompt(prompt: str) -> list[tuple[int, str]]:
     return out
 
 
+def _prompt_with_cached_system(prompt: str, system: Any) -> str:
+    """유저 지시 + 캐시된 시스템 앞부분(원고)을 합쳐 가짜 응답이 문단을 읽게 한다."""
+    parts = [str(prompt or "")]
+    if isinstance(system, list):
+        for block in system:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text") or ""))
+    elif isinstance(system, str) and system.strip():
+        parts.append(system)
+    return "\n".join(parts)
+
+
 def _quote_slice(text: str, head: bool = True, width: int = 12) -> str:
     body = str(text or "").strip() or " "
     n = min(max(1, width), len(body))
@@ -1215,10 +1227,11 @@ class UiFakeClaude(FakeClaude):
             self.prompts.append(prompt)
             self.kwargs.append(kwargs)
         text = str(prompt or "")
+        source = _prompt_with_cached_system(text, kwargs.get("system"))
         if "인물·설정·시간·수치에 관한 사실" in text:
-            return self._as_result(self._consistency(text))
+            return self._as_result(self._consistency(source))
         if "피드백 리포트를 JSON" in text:
-            return self._as_result(self._report(text))
+            return self._as_result(self._report(source))
         if "첨삭 카드 1장" in text:
             if self.delay:
                 time.sleep(self.delay)

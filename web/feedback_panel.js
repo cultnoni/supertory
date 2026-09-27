@@ -2846,6 +2846,11 @@
 
   function analysisRequestBody(sceneId, lens) {
     const body = { scene_id: sceneId, explanation_lens: lens || null };
+    const panel = panelEl();
+    const fresh = panel && panel.querySelector("[data-role='fb-fresh-cards']");
+    if (fresh && fresh.checked) {
+      body.fresh_cards = true;
+    }
     if (stateBox.midcheckMode) {
       body.pipeline = "literature_midcheck";
       body.mode = "midcheck";

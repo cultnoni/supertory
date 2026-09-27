@@ -37940,6 +37940,20 @@ html[data-ui-scheme="dark"] .translation-pass-tab.is-active {
   color: var(--muted);
   white-space: normal;
 }
+.fb-fresh-cards {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+.fb-fresh-hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
 .fb-tabs {
   flex: 0 0 auto;
   display: flex;

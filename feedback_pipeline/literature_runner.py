@@ -758,12 +758,6 @@ def run_literature_short(
     cancelled()
 
     previous = _previous_report(conn, project_id, run_id)
-    comparison_rule = (
-        "이전 리포트가 있다. comparison에 이전 진단마다 resolved, partial, same, new 중 하나를 적어라. "
-        "토리가 읽은 이 작품이 달라졌으면 reading_changed를 true로 하라."
-        if previous
-        else "이전 리포트가 없다. comparison.items는 빈 배열, reading_changed는 false로 하라."
-    )
     judge_rule = (
         "심사위원을 overview.judge에 짧게 쓴다. 좋은 점 하나, 결정적 약점 하나, "
         "본심에 올린다면 이유와 당선작이 되려면 필요한 것을 말한다. "
@@ -784,12 +778,10 @@ def run_literature_short(
             prompt_loader.load_text("literature/report_prompt.txt"),
             {
                 "judge_rule": judge_rule,
-                "comparison_rule": comparison_rule,
                 "settings": stage_settings_note,
                 "contest": contest,
                 "scene_map": json.dumps(scene_map, ensure_ascii=False),
                 "rubric": json.dumps(rubric, ensure_ascii=False),
-                "previous": _previous_brief(previous),
             },
         )
         if MANUSCRIPT_MARK in report_prompt:

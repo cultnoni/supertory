@@ -485,6 +485,8 @@ def _start_run(
     }
     if lens:
         options["explanation_lens"] = lens
+    if body.get("fresh_cards"):
+        options["fresh_cards"] = True
     event = _cancel_event(run_id)
     event.clear()
     worker = threading.Thread(

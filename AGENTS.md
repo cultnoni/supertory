@@ -63,6 +63,10 @@ python -m unittest tests.test_schema -v
 
 # Quick JS syntax check after large app.js edits
 node --check web/app.js
+
+# Undefined identifier check (ESLint no-undef; also via unittest)
+npm run lint:web
+python -m unittest tests.test_web_js_undef -v
 ```
 
 Windows: `start_supertory.bat` (uses a fixed local Python path in that file).
@@ -196,7 +200,7 @@ Many UX prefs use `localStorage` keys prefixed `supertory.` (theme, ink, viewer,
 3. New settings main view → HTML + JS open/close + hide peers + CSS  
 4. Viewer color/style → apply and clear CSS vars per mode  
 5. `python -m unittest discover -s tests -v` (or targeted tests)  
-6. `node --check web/app.js` if `app.js` changed  
+6. Front-end JS changed → `npm run lint:web` (or `python -m unittest tests.test_web_js_undef`) and `node --check web/app.js`  
 7. Manual smoke: open scene, settings box, viewer mode if touched  
 
 ---

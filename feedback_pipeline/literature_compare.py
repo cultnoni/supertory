@@ -56,6 +56,27 @@ def _quotes(item: dict[str, Any]) -> list[str]:
     return found
 
 
+def _quotes_exist_in_paragraphs(item: dict[str, Any], paragraphs: list[dict[str, Any]]) -> bool:
+    """진단 근거 인용이 현재 원고 문단에 하나라도 있으면 True. 없으면 False."""
+    quotes = _quotes(item)
+    if not quotes:
+        return False
+    body = "\n".join(str(row.get("text") or "") for row in paragraphs)
+    return any(quote_in_text(quote, body) for quote in quotes)
+
+
+def _prior_evidence_missing(prior: dict[str, Any], paragraphs: list[dict[str, Any]]) -> bool:
+    """이전 판정의 근거 인용이 현재 원고에 하나라도 없으면 True.
+
+    흔들림 방지(이전 판정 유지)는 근거 인용이 모두 남아 있을 때만 적용한다.
+    """
+    quotes = _quotes(prior)
+    if not quotes:
+        return False
+    body = "\n".join(str(row.get("text") or "") for row in paragraphs)
+    return any(not quote_in_text(quote, body) for quote in quotes)
+
+
 def _quote_indexes(item: dict[str, Any], paragraphs: list[dict[str, Any]]) -> list[list[int]]:
     found = []
     for quote in _quotes(item):
@@ -117,7 +138,11 @@ def stabilize_comparison(
     previous_paragraphs: list[dict[str, Any]],
     current_paragraphs: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
-    """근거 문단이 그대로면 이전 판정을 유지한다."""
+    """근거 문단이 그대로면 이전 판정을 유지한다.
+
+    근거 인용이 현재 원고에 없으면 그 진단을 빼고, 이전 problem의 근거가
+    사라졌으면 resolved로 표시한다.
+    """
     log: list[dict[str, str]] = []
     cleaned = dict(report or {})
     if not previous:
@@ -130,8 +155,28 @@ def stabilize_comparison(
     seen: set[str] = set()
     for item in current_items:
         key = str(item.get("key") or "").strip()
+        if not _quotes_exist_in_paragraphs(item, current_paragraphs):
+            log.append(
+                {
+                    "action": "drop_quote",
+                    "target": key or "diagnosis",
+                    "detail": "근거 인용이 현재 원고에 없음",
+                }
+            )
+            prior = prev_items.get(key)
+            if prior is not None and _prior_evidence_missing(prior, current_paragraphs):
+                seen.add(key)
+                comparison.append(
+                    {
+                        "key": key,
+                        "status": "resolved",
+                        "note": "이전 근거의 인용이 원고에서 사라졌습니다.",
+                    }
+                )
+            continue
         prior = prev_items.get(key)
-        touches = _only_changed(item, current_paragraphs, changed)
+        prior_missing = bool(prior) and _prior_evidence_missing(prior, current_paragraphs)
+        touches = _only_changed(item, current_paragraphs, changed) or prior_missing
         if prior is None:
             if touches:
                 comparison.append(
@@ -148,6 +193,27 @@ def stabilize_comparison(
                 )
             continue
         seen.add(key)
+        if prior_missing and str(prior.get("verdict") or "") in {"problem", "room"}:
+            verdict = str(item.get("verdict") or "")
+            if verdict == "works":
+                comparison.append(
+                    {
+                        "key": key,
+                        "status": "resolved",
+                        "note": "이전 근거의 인용이 원고에서 사라졌습니다.",
+                    }
+                )
+                kept.append(item)
+                continue
+            comparison.append(
+                {
+                    "key": key,
+                    "status": "partial",
+                    "note": "이전 근거는 사라졌고 새 근거로 다시 판정했습니다.",
+                }
+            )
+            kept.append(item)
+            continue
         if not touches:
             shift = _evidence_shift(item, current_paragraphs, changed)
             if shift == "partial":
@@ -191,9 +257,31 @@ def stabilize_comparison(
     for key, prior in prev_items.items():
         if key in seen:
             continue
-        if _only_changed(prior, current_paragraphs, changed):
-            comparison.append({"key": key, "status": "resolved", "note": str(prior.get("note") or "")})
+        if _prior_evidence_missing(prior, current_paragraphs) or _only_changed(prior, current_paragraphs, changed):
+            comparison.append(
+                {
+                    "key": key,
+                    "status": "resolved",
+                    "note": "이전 근거의 인용이 원고에서 사라졌거나 해당 문단이 바뀌었습니다.",
+                }
+            )
         else:
+            if not _quotes_exist_in_paragraphs(prior, current_paragraphs):
+                log.append(
+                    {
+                        "action": "drop_quote",
+                        "target": key,
+                        "detail": "유지하려던 이전 진단의 근거 인용이 현재 원고에 없음",
+                    }
+                )
+                comparison.append(
+                    {
+                        "key": key,
+                        "status": "resolved",
+                        "note": "이전 근거의 인용이 원고에서 사라졌습니다.",
+                    }
+                )
+                continue
             comparison.append({"key": key, "status": "same", "note": "근거 문단이 그대로입니다."})
             kept.append(dict(prior))
             log.append(

@@ -790,11 +790,6 @@ def run_literature_long(
     cancelled()
 
     previous = _previous_unit_report(conn, project_id, run_id, unit)
-    comparison_rule = (
-        "이전 리포트가 있다. comparison에 이전 진단마다 resolved, partial, same, new 중 하나를 적어라."
-        if previous
-        else "이전 리포트가 없다. comparison.items는 빈 배열, reading_changed는 false."
-    )
     judge_rule = (
         "심사위원을 overview.judge에 짧게 쓴다. 당선 확률은 쓰지 않는다."
         if contest_on and first_unit
@@ -819,20 +814,10 @@ def run_literature_long(
                 prompt_loader.load_text("literature/long_report_prompt.txt"),
                 {
                     "judge_rule": judge_rule,
-                    "comparison_rule": comparison_rule,
                     "settings": "설정집·이전 요약은 메시지 앞부분에 있다.",
                     "contest": contest,
                     "scene_map": json.dumps({"scene_map": scene_map, "chapter_work": chapter_work}, ensure_ascii=False),
                     "rubric": json.dumps(rubric, ensure_ascii=False),
-                    "previous": json.dumps(
-                        {
-                            "reading": (previous or {}).get("reading"),
-                            "diagnoses": (previous or {}).get("diagnoses"),
-                        },
-                        ensure_ascii=False,
-                    )
-                    if previous
-                    else "(없음)",
                 },
             ),
             prompt_loader.load_json("literature/long_report_schema.json"),

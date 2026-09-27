@@ -2,7 +2,7 @@
 아래 원고를 읽고 피드백 리포트를 JSON 하나로 작성하세요. 설명, 마크다운, 코드펜스는 쓰지 마세요.
 
 [프로젝트 정보]
-{{project_context}}
+설정집은 메시지 앞부분에 있다.
 
 [기계 검사 결과 - 이미 확인된 사실]
 {{rule_findings_text}}
@@ -63,7 +63,4 @@
 19. summary에는 [기계 검사 결과]의 확실한 항목과 impact 4 이상인 약점만 언급합니다. impact 3 이하이거나 certainty가 maybe인 내용은 summary에 쓰지 않습니다.
 
 [원고]
-{{paragraphs_text}}
-
-[출력 형식 - 아래 JSON 스키마를 따릅니다]
-{{report_schema}}
+원고는 메시지 앞부분에 있다.
