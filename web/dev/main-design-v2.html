@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>메인 화면 시안 · 2차</title>
+  <link rel="icon" type="image/png" href="/icon.png">
+  <link rel="stylesheet" href="/fonts/pretendard.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;500;600&display=swap">
+  <style>
+    /* ───────────── 시안 페이지 (스위처) · 라이트 전용 ───────────── */
+    :root {
+      --sw-bg: #f2f3f4; --sw-ink: #23272b; --sw-ink2: #636a71; --sw-line: #dfe2e6;
+      --sw-chip: #e6e9ec; --sw-active: #ffffff; --sw-focus: #3b6f9a;
+      --serif: "Noto Serif KR", "KoPub Batang", "KoPubBatang", "바탕", Batang, serif;
+      --sans: "Pretendard", "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+      color-scheme: light only;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--sw-bg); color: var(--sw-ink); font-family: var(--sans);
+      -webkit-font-smoothing: antialiased; overflow: hidden;
+      display: flex; flex-direction: column; height: 100vh; height: 100dvh;
+    }
+    button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+    a { color: inherit; }
+    :focus-visible { outline: 2px solid var(--sw-focus); outline-offset: 2px; border-radius: 6px; }
+    svg.ic { display: block; flex: none; }
+    .num { font-variant-numeric: tabular-nums; }
+
+    .switcher { flex: none; min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--sw-line); position: relative; z-index: 5; background: var(--sw-bg); }
+    .sw-title { font-size: 14px; font-weight: 650; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+    .sw-title img { width: 22px; height: 22px; }
+    .sw-title a { font-weight: 450; font-size: 12.5px; color: var(--sw-ink2); text-decoration: none; }
+    .sw-title a:hover { color: var(--sw-ink); text-decoration: underline; }
+    .sw-seg { display: inline-flex; background: var(--sw-chip); border-radius: 10px; padding: 3px; gap: 2px; }
+    .sw-seg button { font-size: 13px; padding: 6px 12px; border-radius: 8px; color: var(--sw-ink2); white-space: nowrap; }
+    .sw-seg button[aria-pressed="true"] { background: var(--sw-active); color: var(--sw-ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+    .sw-seg b { font-weight: 700; margin-right: 4px; opacity: .55; }
+    .sw-label { font-size: 11.5px; color: var(--sw-ink2); margin-right: -6px; white-space: nowrap; }
+    .sw-tagline { font-size: 12.5px; color: var(--sw-ink2); margin: 0 0 0 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .sw-info { position: relative; }
+    .sw-info > button { font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--sw-line); border-radius: 8px; color: var(--sw-ink2); white-space: nowrap; }
+    .sw-pop { position: absolute; right: 0; top: calc(100% + 8px); width: 360px; background: var(--sw-active); border: 1px solid var(--sw-line); border-radius: 12px; padding: 16px; box-shadow: 0 12px 32px rgba(0,0,0,.12); font-size: 13px; line-height: 1.6; }
+    .sw-pop[hidden] { display: none; }
+    .sw-pop h3 { margin: 0 0 6px; font-size: 14px; }
+    .sw-pop p { margin: 0 0 10px; color: var(--sw-ink2); }
+    .sw-pop dl { margin: 0; display: grid; grid-template-columns: 64px 1fr; gap: 6px 10px; }
+    .sw-pop dt { color: var(--sw-ink2); }
+    .sw-pop dd { margin: 0; }
+    .swatches { display: flex; gap: 6px; margin: 4px 0 12px; }
+    .swatches span { width: 28px; height: 28px; border-radius: 7px; border: 1px solid rgba(0,0,0,.1); }
+
+    .stage { flex: 1; min-height: 0; position: relative; }
+    body[data-view="write"] .v-home { display: none !important; }
+    body[data-view="home"] .v-write { display: none !important; }
+
+    /* ═════════════ 공통 골격 ═════════════ */
+    .cv {
+      --s-outline: #aab2bb; --s-idea: #a99ac8; --s-draft: #d2a456; --s-rev: #6f92c6; --s-done: #4f9b7d;
+      --paper: #ffffff;
+      --paper-ink: #2a2f35;
+      --radius: 14px;
+      position: absolute; inset: 0; overflow: hidden;
+      display: grid;
+      grid-template-columns: 272px minmax(0,1fr) 304px;
+      grid-template-rows: 44px minmax(0,1fr);
+      background: var(--bg); color: var(--ink);
+      font-family: var(--sans);
+    }
+    .ms p { margin: 0; word-break: keep-all; overflow-wrap: break-word; }
+
+    .cv-top { grid-column: 1 / -1; display: grid; grid-template-columns: 272px minmax(0,1fr) 304px; gap: 8px; align-items: center; }
+    .cv-workbtn { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px; border-radius: 10px; font-size: 13.5px; font-weight: 600; max-width: 100%; white-space: nowrap; }
+    .cv-workbtn:hover { background: rgba(31,36,41,.05); }
+    .cv-workbtn img { width: 26px; height: 26px; }
+    .cv-workbtn .chev { color: var(--ink3); }
+    .cv-cmd { justify-self: center; width: min(520px, 100%); height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); color: var(--ink3); font-size: 13px; white-space: nowrap; overflow: hidden; }
+    .cv-cmd kbd { margin-left: auto; font-family: var(--sans); font-size: 11px; padding: 2px 6px; border-radius: 5px; background: var(--sunk); border: 1px solid var(--line); color: var(--ink2); }
+    .cv-top-right { display: flex; justify-content: flex-end; gap: 2px; }
+    .cv-ibtn { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; color: var(--ink2); }
+    .cv-ibtn:hover { background: rgba(31,36,41,.06); color: var(--ink); }
+
+    .cv-seg { display: flex; background: var(--sunk); border-radius: 9px; padding: 3px; gap: 2px; }
+    .cv-seg button { flex: 1; font-size: 12.5px; padding: 6px 8px; border-radius: 7px; color: var(--ink2); }
+    .cv-seg button.on { background: var(--paper); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(31,36,41,.08); }
+
+    /* 바인더 */
+    .cv-binder { display: flex; flex-direction: column; gap: 14px; padding: 12px; overflow: auto; min-height: 0; background: var(--panel); }
+    .cv-part { background: var(--sunk); border-radius: 10px; padding: 12px; }
+    .cv-part-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; font-weight: 600; }
+    .cv-part-top span { font-weight: 450; font-size: 11.5px; color: var(--ink3); }
+    .cv-part-sub { font-size: 11.5px; color: var(--ink2); margin: 2px 0 10px; }
+    .cv-stack { display: flex; gap: 3px; height: 6px; }
+    .cv-stack i { border-radius: 3px; }
+    .cv-eps { display: flex; flex-direction: column; gap: 1px; }
+    .cv-ep { display: grid; grid-template-columns: 8px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; font-size: 13.5px; color: var(--ink2); width: 100%; text-align: left; }
+    .cv-ep:hover { background: var(--sunk); }
+    .cv-ep .d { width: 8px; height: 8px; border-radius: 50%; }
+    .cv-ep .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cv-ep .k { font-size: 11.5px; color: var(--ink3); }
+    .cv-ep.on { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+    .cv-ep.on .k { color: var(--accent); font-weight: 450; }
+    .cv-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--ink3); padding: 0 4px; }
+    .cv-legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .cv-legend i { width: 6px; height: 6px; border-radius: 50%; }
+    .cv-group-label { font-size: 11.5px; color: var(--ink3); padding: 0 4px; display: flex; justify-content: space-between; }
+    .cv-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .cv-tile { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 10px; border-radius: 10px; border: 1px solid var(--line); font-size: 12.5px; text-align: left; color: var(--ink2); background: var(--panel); }
+    .cv-tile:hover { border-color: var(--ink3); color: var(--ink); }
+    .cv-tile span { font-size: 11px; color: var(--ink3); }
+    .cv-tile strong { font-weight: 600; color: var(--ink); }
+
+    /* 가운데 */
+    .cv-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); position: relative; }
+    .cv-main > * { min-width: 0; }
+    .cv-tabs { flex: none; display: flex; align-items: flex-end; gap: 2px; padding: 6px 8px 0; background: var(--sunk); border-bottom: 1px solid var(--line); }
+    .cv-tab { font-size: 12.5px; padding: 7px 12px; border-radius: 9px 9px 0 0; color: var(--ink2); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+    .cv-tab.on { background: var(--panel); color: var(--ink); font-weight: 600; margin-bottom: -1px; border: 1px solid var(--line); border-bottom: 0; }
+    .cv-tab .x { color: var(--ink3); }
+    .cv-bars { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; }
+    .cv-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+    .cv-tgroup { display: flex; gap: 1px; }
+    .cv-tbtn { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 6px 9px; border-radius: 8px; color: var(--ink2); white-space: nowrap; }
+    .cv-tbtn:hover { background: var(--sunk); color: var(--ink); }
+    .cv-toolbar i.div { width: 1px; height: 18px; background: var(--line); margin: 0 6px; }
+    .cv-pn { margin-left: auto; display: flex; gap: 4px; }
+    .cv-pn button { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; color: var(--ink2); padding: 5px 8px; border-radius: 7px; border: 1px solid var(--line); white-space: nowrap; }
+    .cv-pn button:hover { color: var(--ink); border-color: var(--ink3); }
+    .cv-fmt { display: flex; align-items: center; gap: 1px; padding: 3px; border-radius: 10px; background: var(--sunk); font-size: 12.5px; color: var(--ink2); overflow: hidden; white-space: nowrap; }
+    .cv-fmt button { padding: 4px 9px; border-radius: 7px; display: inline-flex; align-items: center; gap: 4px; }
+    .cv-fmt button:hover { background: var(--paper); color: var(--ink); }
+    .cv-fmt i.div { width: 1px; height: 14px; background: var(--line); margin: 0 4px; flex: none; }
+
+    /* 원고 영역: 책상(desk) + 종이(paper) */
+    .cv-desk { flex: 1; min-height: 0; overflow: auto; background: var(--desk); padding: 28px 28px 72px; transition: background .2s; }
+    .cv-paper {
+      position: relative; max-width: 760px; margin: 0 auto;
+      background: var(--paper); color: var(--paper-ink);
+      padding: 52px 72px 80px;
+      border-radius: 4px;
+      box-shadow: 0 1px 2px rgba(31,36,41,.06), 0 8px 28px rgba(31,36,41,.07);
+      transition: box-shadow .2s, background .2s;
+    }
+    .cv-crumb { font-size: 12px; color: var(--ink3); }
+    .cv-title { font-size: 22px; font-weight: 650; letter-spacing: -.015em; margin: 6px 0 12px; }
+    .cv-stepper { display: flex; align-items: center; overflow-x: auto; scrollbar-width: none; padding-bottom: 22px; margin-bottom: 30px; border-bottom: 1px solid var(--line); }
+    .cv-step { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink3); padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+    .cv-step .dot { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--line); display: grid; place-items: center; flex: none; }
+    .cv-step.past { color: var(--ink2); }
+    .cv-step.past .dot { background: var(--ink3); border-color: var(--ink3); color: #fff; }
+    .cv-step.now { background: #f8eedb; color: #7a5a1d; font-weight: 600; }
+    .cv-step.now .dot { border-color: var(--s-draft); background: var(--s-draft); box-shadow: 0 0 0 3px rgba(210,164,86,.2); }
+    .cv-step-line { width: 14px; height: 1.5px; background: var(--line); flex: none; }
+    .cv-paper .ms p { font-size: 16.5px; line-height: 1.9; margin-bottom: 1em; letter-spacing: -.003em; }
+    .cv-caret { display: inline-block; width: 2px; height: 1.15em; vertical-align: -0.2em; background: var(--accent); margin-left: 1px; animation: blink 1.1s steps(1) infinite; }
+    .cv-paper-foot { display: none; }
+    .cv-paper-next { display: none; }
+
+    .cv-foot { flex: none; display: flex; align-items: center; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink3); white-space: nowrap; overflow: hidden; background: var(--panel); }
+    .cv-foot strong { color: var(--ink); font-weight: 600; }
+    .cv-goal { display: inline-flex; align-items: center; gap: 8px; }
+    .cv-goal .bar { width: 110px; height: 6px; border-radius: 6px; background: var(--sunk); border: 1px solid var(--line); overflow: hidden; }
+    .cv-goal .bar i { display: block; width: 66%; height: 100%; background: var(--accent); }
+    .cv-foot .sv { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--accent); }
+
+    /* SuperTORY */
+    .cv-tori { display: flex; flex-direction: column; gap: 12px; padding: 12px; overflow: auto; min-height: 0; background: var(--panel); }
+    .cv-tori-head { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 650; }
+    .cv-tori-head img { width: 24px; height: 24px; }
+    .cv-acorn { margin-left: auto; font-size: 11.5px; font-weight: 500; color: #7a5a1d; background: #f8eedb; padding: 3px 8px; border-radius: 999px; }
+    .cv-box { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--panel); }
+    .cv-box h4 { margin: 0 0 8px; font-size: 12px; color: var(--ink3); font-weight: 500; display: flex; justify-content: space-between; }
+    .cv-timer { display: flex; align-items: center; gap: 12px; }
+    .cv-timer strong { font-size: 28px; font-weight: 600; letter-spacing: -.02em; }
+    .cv-timer button { margin-left: auto; font-size: 12.5px; padding: 7px 12px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); display: inline-flex; gap: 6px; align-items: center; }
+    .cv-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .cv-two div { background: var(--sunk); border-radius: 8px; padding: 8px 10px; }
+    .cv-two strong { display: block; font-size: 15px; font-weight: 600; }
+    .cv-two span { font-size: 11px; color: var(--ink3); }
+    .cv-check { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 12.5px; line-height: 1.55; color: var(--ink2); }
+    .cv-check:first-of-type { border-top: 0; padding-top: 2px; }
+    .cv-check q { quotes: "‘" "’"; color: var(--ink); }
+    .cv-tag { font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 5px; height: fit-content; margin-top: 1px; white-space: nowrap; }
+    .cv-tag.sent { background: #e6edf7; color: #3f5f8d; }
+    .cv-tag.bait { background: #f6eedf; color: #85642a; }
+    .cv-tag.spell { background: #f5e7e7; color: #8f4f4f; }
+    .cv-ask { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 9px 9px 9px 12px; border: 1px solid var(--line); border-radius: 12px; font-size: 13px; color: var(--ink3); background: var(--sunk); }
+    .cv-ask button { margin-left: auto; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: var(--accent); color: var(--accent-ink); }
+    .cv-tori-pill { display: none; }
+
+    /* 시작 화면 */
+    .cv-home { flex: 1; min-height: 0; overflow: auto; padding: 30px 32px 48px; }
+    .cv-home h1 { font-size: 22px; font-weight: 650; margin: 0 0 4px; letter-spacing: -.015em; }
+    .cv-home .lead { font-size: 13px; color: var(--ink2); margin: 0 0 26px; }
+    .cv-home h3 { font-size: 12.5px; color: var(--ink3); font-weight: 500; margin: 26px 0 10px; }
+    .cv-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+    .cv-wcard { text-align: left; border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; background: var(--paper); }
+    .cv-wcard:hover { border-color: var(--ink3); box-shadow: 0 6px 18px rgba(31,36,41,.06); }
+    .cv-wcard .g { font-size: 11px; color: var(--ink2); background: var(--sunk); padding: 2px 7px; border-radius: 5px; align-self: flex-start; }
+    .cv-wcard strong { font-size: 15px; font-weight: 650; }
+    .cv-wcard span { font-size: 12px; color: var(--ink3); }
+    .cv-wcard.cur { border-color: var(--accent-line); background: linear-gradient(var(--accent-soft), var(--paper) 70%); }
+    .cv-qa { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+    .cv-qa button { display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 14px; border-radius: 12px; background: var(--sunk); font-size: 13.5px; font-weight: 600; }
+    .cv-qa button:hover { filter: brightness(.98); }
+    .cv-qa .ico { width: 34px; height: 34px; border-radius: 9px; background: var(--paper); display: grid; place-items: center; color: var(--accent); flex: none; border: 1px solid var(--line); }
+    .cv-qa small { display: block; font-size: 12px; font-weight: 400; color: var(--ink3); margin-top: 2px; }
+    .cv-tips { margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--ink2); line-height: 1.6; }
+    .cv-tips li { padding: 9px 0; border-top: 1px solid var(--line); }
+    .cv-tips li:first-child { border-top: 0; }
+
+    /* ═════════════ V1 · 섬 ═════════════
+       둥근 패널이 쿨 그레이 캔버스 위에 떠 있음 · 도구 라벨 노출 · 이끼색 강조 */
+    .cv[data-variant="1"] {
+      --bg: #e8eaed; --panel: #fafbfb; --sunk: #f0f2f4; --desk: #eceef1;
+      --ink: #22272c; --ink2: #5b636b; --ink3: #8a9199; --line: #e0e3e7;
+      --accent: #2f7566; --accent-soft: #e2eee9; --accent-line: #bedad0; --accent-ink: #f2f7f5;
+      gap: 8px; padding: 6px 8px 8px;
+    }
+    .cv[data-variant="1"] .cv-binder,
+    .cv[data-variant="1"] .cv-main,
+    .cv[data-variant="1"] .cv-tori { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+    .cv[data-variant="1"] .cv-tori { overflow: auto; }
+    .cv[data-variant="1"] .cv-bars { border-bottom: 1px solid var(--line); }
+    .cv[data-variant="1"] .cv-paper { border-radius: 6px; }
+    .cv[data-variant="1"] .cv-title { font-size: 23px; }
+
+    /* ═════════════ V2 · 선 ═════════════
+       여백·모서리 없이 1px 선으로만 · 따뜻한 오프화이트 · 명조 본문 · 쪽 단위 */
+    .cv[data-variant="2"] {
+      --bg: #f5f5f3; --panel: #f5f5f3; --sunk: #ebebe8; --desk: #e8e8e5;
+      --ink: #24262a; --ink2: #5a5d63; --ink3: #8a8d93; --line: #dcdcd8;
+      --accent: #3b5f84; --accent-soft: #e3eaf1; --accent-line: #bccbdb; --accent-ink: #f3f7fa;
+      --paper-ink: #262a2f;
+      --radius: 4px;
+      grid-template-rows: 48px minmax(0,1fr);
+      grid-template-columns: 264px minmax(0,1fr) 296px;
+    }
+    .cv[data-variant="2"] .cv-top { border-bottom: 1px solid var(--line); padding: 0 8px; grid-template-columns: 264px minmax(0,1fr) 296px; }
+    .cv[data-variant="2"] .cv-cmd { border-radius: 6px; background: var(--paper); }
+    .cv[data-variant="2"] .cv-binder { border-right: 1px solid var(--line); }
+    .cv[data-variant="2"] .cv-tori { border-left: 1px solid var(--line); }
+    .cv[data-variant="2"] .cv-seg,
+    .cv[data-variant="2"] .cv-seg button { border-radius: 6px; }
+    .cv[data-variant="2"] .cv-part { background: var(--paper); border: 1px solid var(--line); border-radius: 6px; }
+    .cv[data-variant="2"] .cv-tile,
+    .cv[data-variant="2"] .cv-box { background: var(--paper); border-radius: 6px; }
+    .cv[data-variant="2"] .cv-ep { border-radius: 4px; }
+    .cv[data-variant="2"] .cv-ep.on { background: var(--paper); box-shadow: inset 2px 0 0 var(--accent); }
+    .cv[data-variant="2"] .cv-tabs { background: var(--panel); padding: 0 8px; }
+    .cv[data-variant="2"] .cv-tab { border-radius: 0; border-bottom: 2px solid transparent; }
+    .cv[data-variant="2"] .cv-tab.on { background: transparent; border: 0; border-bottom: 2px solid var(--accent); margin-bottom: -1px; }
+    .cv[data-variant="2"] .cv-bars { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+    .cv[data-variant="2"] .cv-toolbar { flex-wrap: nowrap; }
+    .cv[data-variant="2"] .cv-tbtn span { display: none; }
+    .cv[data-variant="2"] .cv-tbtn { padding: 7px; border-radius: 6px; }
+    .cv[data-variant="2"] .cv-fmt { background: transparent; border-left: 1px solid var(--line); border-radius: 0; padding-left: 10px; }
+    .cv[data-variant="2"] .cv-fmt button { border-radius: 5px; }
+    .cv[data-variant="2"] .cv-fmt button:hover { background: var(--sunk); }
+    .cv[data-variant="2"] .cv-pn { display: none; }
+    .cv[data-variant="2"] .cv-desk { padding: 36px 28px 80px; }
+    .cv[data-variant="2"] .cv-paper {
+      max-width: 720px; min-height: 1018px; border-radius: 2px;
+      padding: 76px 84px 96px;
+      box-shadow: 0 0 0 1px rgba(31,36,41,.05), 0 2px 4px rgba(31,36,41,.05), 0 12px 32px rgba(31,36,41,.06);
+    }
+    .cv[data-variant="2"] .cv-paper-next { display: block; margin-top: 24px; min-height: 260px; }
+    .cv[data-variant="2"] .cv-head { text-align: center; }
+    .cv[data-variant="2"] .cv-crumb { letter-spacing: .04em; }
+    .cv[data-variant="2"] .cv-title { font-family: var(--serif); font-weight: 500; font-size: 26px; letter-spacing: -.01em; margin: 10px 0 14px; }
+    .cv[data-variant="2"] .cv-stepper { justify-content: center; border-bottom: 0; padding-bottom: 0; margin-bottom: 44px; }
+    .cv[data-variant="2"] .cv-step.now { background: var(--accent-soft); color: var(--accent); }
+    .cv[data-variant="2"] .cv-step.now .dot { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px rgba(59,95,132,.18); }
+    .cv[data-variant="2"] .cv-paper .ms p { font-family: var(--serif); font-size: 17px; line-height: 1.95; text-indent: 1em; margin-bottom: .85em; letter-spacing: 0; }
+    .cv[data-variant="2"] .cv-paper .ms p.dlg { text-indent: 0; }
+    .cv[data-variant="2"] .cv-paper-foot { display: block; position: absolute; left: 0; right: 0; bottom: 36px; text-align: center; font-size: 11.5px; color: var(--ink3); }
+    .cv[data-variant="2"] .cv-foot { background: var(--panel); }
+    .cv[data-variant="2"] .cv-goal .bar { border-radius: 2px; }
+    .cv[data-variant="2"] .cv-timer button,
+    .cv[data-variant="2"] .cv-ask,
+    .cv[data-variant="2"] .cv-ask button,
+    .cv[data-variant="2"] .cv-two div,
+    .cv[data-variant="2"] .cv-wcard,
+    .cv[data-variant="2"] .cv-qa button,
+    .cv[data-variant="2"] .cv-qa .ico { border-radius: 6px; }
+    .cv[data-variant="2"] .cv-home { background: var(--desk); }
+    .cv[data-variant="2"] .cv-home-in { max-width: 860px; margin: 0 auto; background: var(--paper); border-radius: 2px; padding: 36px 40px 40px; box-shadow: 0 0 0 1px rgba(31,36,41,.05), 0 12px 32px rgba(31,36,41,.06); }
+    .cv[data-variant="2"] .cv-home h1 { font-family: var(--serif); font-weight: 500; font-size: 26px; }
+
+    /* ═════════════ V3 · 캔버스 ═════════════
+       크롬 최소화 · 도구는 하단 떠 있는 막대 · SuperTORY는 우하단 접힌 카드 · 본문이 넓게 */
+    .cv[data-variant="3"] {
+      --bg: #f3f4f6; --panel: #ffffff; --sunk: #f1f2f4; --desk: #f3f4f6;
+      --ink: #1f2328; --ink2: #5c6269; --ink3: #8d939a; --line: #e4e6ea;
+      --accent: #5b5f9e; --accent-soft: #e8e9f5; --accent-line: #cdd0ea; --accent-ink: #f5f5fb;
+      --radius: 18px;
+      grid-template-columns: 248px minmax(0,1fr);
+      grid-template-rows: 48px minmax(0,1fr);
+      gap: 0 10px; padding: 4px 10px 10px;
+    }
+    .cv[data-variant="3"] .cv-top { grid-template-columns: 248px minmax(0,1fr) auto; gap: 10px; }
+    .cv[data-variant="3"] .cv-cmd { justify-self: start; width: min(440px, 100%); background: transparent; border-color: transparent; }
+    .cv[data-variant="3"] .cv-cmd:hover { background: var(--panel); border-color: var(--line); }
+    .cv[data-variant="3"] .cv-binder { background: transparent; padding: 8px 4px 8px 0; gap: 12px; }
+    .cv[data-variant="3"] .cv-binder .cv-seg { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+    .cv[data-variant="3"] .cv-binder .cv-seg button { border-radius: 9px; }
+    .cv[data-variant="3"] .cv-seg button.on { background: var(--accent-soft); color: var(--accent); box-shadow: none; }
+    .cv[data-variant="3"] .cv-part { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+    .cv[data-variant="3"] .cv-ep { padding: 8px 12px; border-radius: 10px; }
+    .cv[data-variant="3"] .cv-ep:hover { background: var(--panel); }
+    .cv[data-variant="3"] .cv-tile { border-radius: 14px; }
+    .cv[data-variant="3"] .cv-main { background: transparent; }
+    .cv[data-variant="3"] .cv-tabs { background: transparent; border: 0; padding: 6px 0 10px; gap: 6px; }
+    .cv[data-variant="3"] .cv-tab { border-radius: 999px; padding: 6px 12px; border: 1px solid transparent; }
+    .cv[data-variant="3"] .cv-tab.on { background: var(--panel); border: 1px solid var(--line); margin: 0; }
+    .cv[data-variant="3"] .cv-bars { display: contents; }
+    .cv[data-variant="3"] .cv-toolbar {
+      position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%); z-index: 2;
+      flex-wrap: nowrap; gap: 2px; padding: 6px;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+      box-shadow: 0 10px 30px rgba(31,35,40,.10), 0 1px 2px rgba(31,35,40,.05);
+    }
+    .cv[data-variant="3"] .cv-tbtn { padding: 8px; border-radius: 999px; }
+    .cv[data-variant="3"] .cv-tbtn span { display: none; }
+    .cv[data-variant="3"] .cv-toolbar i.div { margin: 0 4px; }
+    .cv[data-variant="3"] .cv-pn { display: none; }
+    .cv[data-variant="3"] .cv-fmt {
+      position: absolute; left: 50%; top: 52px; transform: translateX(-50%); z-index: 2;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 12px; max-width: calc(100% - 20px);
+      opacity: .55; transition: opacity .15s;
+    }
+    .cv[data-variant="3"] .cv-main:hover .cv-fmt, .cv[data-variant="3"] .cv-fmt:focus-within { opacity: 1; }
+    .cv[data-variant="3"] .cv-fmt button:hover { background: var(--sunk); }
+    .cv[data-variant="3"] .cv-desk { padding: 50px 0 110px; border-radius: var(--radius); }
+    .cv[data-variant="3"]:has(.cv-tori:not(.folded)) .cv-desk { padding-right: 316px; }
+    .cv[data-variant="3"] .cv-paper {
+      max-width: 740px; border-radius: var(--radius); padding: 60px 80px 88px;
+      box-shadow: 0 1px 2px rgba(31,35,40,.05), 0 14px 40px rgba(31,35,40,.07);
+    }
+    .cv[data-variant="3"] .cv-head { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; gap: 0 16px; }
+    .cv[data-variant="3"] .cv-crumb { grid-column: 1 / -1; }
+    .cv[data-variant="3"] .cv-title { font-size: 25px; margin-bottom: 0; }
+    .cv[data-variant="3"] .cv-stepper { grid-column: 1 / -1; border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 32px; margin-top: 14px; }
+    .cv[data-variant="3"] .cv-step { font-size: 11.5px; padding: 3px 9px; }
+    .cv[data-variant="3"] .cv-step.now { background: var(--accent-soft); color: var(--accent); }
+    .cv[data-variant="3"] .cv-step.now .dot { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px rgba(91,95,158,.16); }
+    .cv[data-variant="3"] .cv-paper .ms p { font-size: 17px; line-height: 1.92; }
+    .cv[data-variant="3"] .cv-foot { background: transparent; border: 0; padding: 6px 6px 0; }
+    /* V3: SuperTORY 패널 → 우하단 접힌 카드 */
+    .cv[data-variant="3"] .cv-tori {
+      position: absolute; right: 10px; bottom: 44px; width: 300px; max-height: calc(100% - 110px); z-index: 3;
+      border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+      box-shadow: 0 16px 44px rgba(31,35,40,.12), 0 1px 2px rgba(31,35,40,.05);
+      padding: 0; gap: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0,1fr);
+    }
+    .cv[data-variant="3"] .cv-tori-pill {
+      display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 12px; font-size: 13px; font-weight: 600; width: 100%; text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+    .cv[data-variant="3"] .cv-tori-pill img { width: 22px; height: 22px; }
+    .cv[data-variant="3"] .cv-tori-pill .cnt { font-size: 11.5px; font-weight: 500; color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 999px; }
+    .cv[data-variant="3"] .cv-tori-pill .chev { margin-left: auto; color: var(--ink3); transition: transform .2s; }
+    .cv[data-variant="3"] .cv-tori-body { display: flex; flex-direction: column; gap: 10px; padding: 12px; overflow: auto; min-height: 0; }
+    .cv[data-variant="3"] .cv-tori-head { display: none; }
+    .cv[data-variant="3"] .cv-box { border-radius: 14px; }
+    .cv[data-variant="3"] .cv-ask { border-radius: 14px; }
+    .cv[data-variant="3"] .cv-tori.folded { width: auto; max-height: none; }
+    .cv[data-variant="3"] .cv-tori.folded .cv-tori-pill { border-bottom: 0; padding-right: 14px; }
+    .cv[data-variant="3"] .cv-tori.folded .cv-tori-pill .chev { transform: rotate(180deg); }
+    .cv[data-variant="3"] .cv-tori.folded .cv-tori-body { display: none; }
+    .cv[data-variant="3"] .cv-home { background: var(--panel); border-radius: var(--radius); border: 1px solid var(--line); }
+    .cv[data-variant="3"] .cv-qa button, .cv[data-variant="3"] .cv-wcard { border-radius: 16px; }
+
+    /* ═════════════ 본문 처리: 종이 / 평면 ═════════════
+       종이(paper): 회색 책상 위 흰 종이, 그림자 있음
+       평면(flat): 책상과 종이가 한 면, 그림자·테두리 없음 · 본문이 패널에 바로 놓임 */
+    .cv[data-body="flat"] .cv-desk { background: var(--panel); }
+    .cv[data-body="flat"] .cv-paper { background: transparent; box-shadow: none; border-radius: 0; min-height: 0; }
+    .cv[data-body="flat"] .cv-paper-next { display: none; }
+    .cv[data-body="flat"] .cv-paper-foot { display: none; }
+    .cv[data-body="flat"] .cv-paper .ms p { color: var(--paper-ink); }
+
+    .cv[data-variant="1"][data-body="flat"] .cv-desk { padding: 26px 28px 72px; }
+    .cv[data-variant="1"][data-body="flat"] .cv-paper { padding: 16px 40px 80px; max-width: 800px; }
+
+    .cv[data-variant="2"][data-body="flat"] .cv-desk { background: var(--panel); padding: 28px 28px 80px; }
+    .cv[data-variant="2"][data-body="flat"] .cv-paper { padding: 28px 56px 80px; max-width: 760px; }
+    .cv[data-variant="2"][data-body="flat"] .cv-stepper { margin-bottom: 36px; }
+    .cv[data-variant="2"][data-body="flat"] .cv-home { background: var(--panel); }
+    .cv[data-variant="2"][data-body="flat"] .cv-home-in { box-shadow: none; background: transparent; padding: 0; }
+
+    .cv[data-variant="3"][data-body="flat"] .cv-desk { background: var(--panel); border: 1px solid var(--line); padding: 56px 0 110px; }
+    .cv[data-variant="3"][data-body="flat"] .cv-paper { padding: 24px 80px 88px; }
+
+    @keyframes blink { 50% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .cv-caret { animation: none; } .cv-desk, .cv-paper { transition: none; } }
+
+    /* ───────────── 좁은 화면 ───────────── */
+    @media (max-width: 1180px) {
+      .cv[data-variant="1"], .cv[data-variant="2"] { grid-template-columns: 252px minmax(0,1fr); }
+      .cv[data-variant="1"] .cv-tori, .cv[data-variant="2"] .cv-tori { display: none; }
+      .cv[data-variant="1"] .cv-top, .cv[data-variant="2"] .cv-top { grid-template-columns: 252px minmax(0,1fr) auto; }
+      .cv-tbtn span { display: none; }
+      .cv-paper { padding: 48px 48px 72px; }
+    }
+    @media (max-width: 860px) {
+      .switcher { flex-wrap: wrap; padding: 10px 16px; gap: 8px; }
+      .sw-tagline { display: none; }
+      .cv, .cv[data-variant="1"], .cv[data-variant="2"], .cv[data-variant="3"] { grid-template-columns: minmax(0,1fr); padding: 6px; }
+      .cv[data-variant="2"] { padding: 0; }
+      .cv .cv-binder { display: none; }
+      .cv .cv-top, .cv[data-variant="2"] .cv-top, .cv[data-variant="3"] .cv-top { grid-template-columns: minmax(0,1fr) auto; }
+      .cv-cmd { display: none; }
+      .cv-pn { display: none; }
+      .cv-desk, .cv[data-variant="2"] .cv-desk { padding: 16px 10px 48px; }
+      .cv[data-variant="3"] .cv-desk, .cv[data-variant="3"][data-body="flat"] .cv-desk { padding: 16px 0 100px; }
+      .cv-paper, .cv[data-variant="2"] .cv-paper, .cv[data-variant="3"] .cv-paper,
+      .cv[data-variant="1"][data-body="flat"] .cv-paper, .cv[data-variant="2"][data-body="flat"] .cv-paper, .cv[data-variant="3"][data-body="flat"] .cv-paper { padding: 36px 20px 56px; border-radius: 6px; min-height: 0; }
+      .cv[data-variant="2"] .cv-paper-next { display: none; }
+      .cv[data-variant="2"] .cv-fmt { display: none; }
+      .cv[data-variant="3"] .cv-fmt { display: none; }
+      .cv[data-variant="3"] .cv-tori { width: calc(100% - 20px); }
+      .cv[data-variant="3"]:has(.cv-tori:not(.folded)) .cv-desk { padding-right: 0; }
+      .cv-home { padding: 20px 16px 40px; }
+      .cv[data-variant="2"] .cv-home-in { padding: 24px 20px; }
+    }
+  </style>
+</head>
+<body data-variant="1" data-view="write">
+
+  <div class="switcher">
+    <div class="sw-title"><img src="/assets/tori-mascot.png" alt="">메인 화면 시안 2차 <a href="/dev/main-design-c-variations.html">← C 변형 시안</a></div>
+    <div class="sw-seg" role="group" aria-label="시안 선택">
+      <button type="button" data-set-variant="1" aria-pressed="true"><b>V1</b>섬</button>
+      <button type="button" data-set-variant="2" aria-pressed="false"><b>V2</b>선</button>
+      <button type="button" data-set-variant="3" aria-pressed="false"><b>V3</b>캔버스</button>
+    </div>
+    <span class="sw-label">본문</span>
+    <div class="sw-seg" role="group" aria-label="본문 처리">
+      <button type="button" data-set-body="paper" aria-pressed="true">종이</button>
+      <button type="button" data-set-body="flat" aria-pressed="false">평면</button>
+    </div>
+    <div class="sw-seg" role="group" aria-label="화면 선택">
+      <button type="button" data-set-view="write" aria-pressed="true">집필 화면</button>
+      <button type="button" data-set-view="home" aria-pressed="false">시작 화면</button>
+    </div>
+    <p class="sw-tagline" id="swTagline"></p>
+    <div class="sw-info">
+      <button type="button" id="swInfoBtn" aria-expanded="false" aria-controls="swPop">시안 설명</button>
+      <div class="sw-pop" id="swPop" hidden></div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <section class="cv" id="cv" data-variant="1" data-body="paper" aria-label="메인 화면 시안">
+      <header class="cv-top">
+        <button class="cv-workbtn" type="button"><img src="/assets/tori-mascot.png" alt="">달빛 서고의 사서<i class="chev" data-ic="chevDown" data-s="14"></i></button>
+        <div class="cv-cmd"><i data-ic="search" data-s="15"></i>회차·인물·설정 검색 또는 명령<kbd>Ctrl K</kbd></div>
+        <div class="cv-top-right">
+          <button class="cv-ibtn" type="button" title="새 글쓰기 · 가져오기 · 내보내기"><i data-ic="bookPlus" data-s="17"></i></button>
+          <button class="cv-ibtn" type="button" title="테마"><i data-ic="sun" data-s="17"></i></button>
+          <button class="cv-ibtn" type="button" title="배경음"><i data-ic="headphones" data-s="17"></i></button>
+          <button class="cv-ibtn" type="button" title="설정"><i data-ic="settings" data-s="17"></i></button>
+        </div>
+      </header>
+
+      <aside class="cv-binder" aria-label="바인더">
+        <div class="cv-seg"><button class="on" type="button">본문</button><button type="button">설정집</button></div>
+        <div class="cv-part">
+          <div class="cv-part-top">1부 · 봄의 문<span>1권</span></div>
+          <div class="cv-part-sub">5화 중 2화 완성 · <span class="num">19,494</span>자</div>
+          <div class="cv-stack" data-render="stack"></div>
+        </div>
+        <div class="cv-eps" data-render="eps"></div>
+        <div class="cv-legend">
+          <span><i style="background:var(--s-idea)"></i>구상</span>
+          <span><i style="background:var(--s-draft)"></i>초고</span>
+          <span><i style="background:var(--s-rev)"></i>수정</span>
+          <span><i style="background:var(--s-done)"></i>완성</span>
+        </div>
+        <div class="cv-group-label"><span>설정집 바로가기</span><span>전체 ›</span></div>
+        <div class="cv-tiles">
+          <button class="cv-tile" type="button"><i data-ic="users" data-s="16"></i><strong>캐릭터</strong><span>12명</span></button>
+          <button class="cv-tile" type="button"><i data-ic="globe" data-s="16"></i><strong>세계관</strong><span>4개 문서</span></button>
+          <button class="cv-tile" type="button"><i data-ic="link" data-s="16"></i><strong>떡밥 모음</strong><span>7개 · 2개 회수</span></button>
+          <button class="cv-tile" type="button"><i data-ic="bulb" data-s="16"></i><strong>생각수첩</strong><span>23장</span></button>
+        </div>
+      </aside>
+
+      <main class="cv-main">
+        <div class="cv-tabs v-write">
+          <span class="cv-tab on">4화 첫 번째 대출자 <span class="x">×</span></span>
+          <span class="cv-tab">윤서 · 캐릭터 <span class="x">×</span></span>
+          <span class="cv-tab">+</span>
+        </div>
+        <div class="cv-bars v-write">
+          <div class="cv-toolbar">
+            <div class="cv-tgroup">
+              <button class="cv-tbtn" type="button" title="작가메모"><i data-ic="note" data-s="15"></i><span>메모</span></button>
+              <button class="cv-tbtn" type="button" title="등장인물"><i data-ic="users" data-s="15"></i><span>인물</span></button>
+              <button class="cv-tbtn" type="button" title="참고자료"><i data-ic="link" data-s="15"></i><span>자료</span></button>
+              <button class="cv-tbtn" type="button" title="북마크"><i data-ic="bookmark" data-s="15"></i><span>북마크</span></button>
+            </div>
+            <i class="div"></i>
+            <div class="cv-tgroup">
+              <button class="cv-tbtn" type="button" title="분석"><i data-ic="chart" data-s="15"></i><span>분석</span></button>
+              <button class="cv-tbtn" type="button" title="비교"><i data-ic="compare" data-s="15"></i><span>비교</span></button>
+              <button class="cv-tbtn" type="button" title="검색"><i data-ic="search" data-s="15"></i><span>검색</span></button>
+            </div>
+            <i class="div"></i>
+            <div class="cv-tgroup">
+              <button class="cv-tbtn" type="button" title="뷰어"><i data-ic="eye" data-s="15"></i><span>뷰어</span></button>
+              <button class="cv-tbtn" type="button" title="분할"><i data-ic="columns" data-s="15"></i><span>분할</span></button>
+              <button class="cv-tbtn" type="button" title="확장"><i data-ic="expand" data-s="15"></i><span>확장</span></button>
+            </div>
+            <div class="cv-pn"><button type="button"><i data-ic="chevLeft" data-s="14"></i>3화</button><button type="button">5화<i data-ic="chevRight" data-s="14"></i></button></div>
+          </div>
+          <div class="cv-fmt" aria-label="서식">
+            <button type="button" title="되돌리기"><i data-ic="undo" data-s="14"></i></button>
+            <button type="button" title="다시 실행"><i data-ic="redo" data-s="14"></i></button><i class="div"></i>
+            <button type="button">본문 <i data-ic="chevDown" data-s="12"></i></button>
+            <button type="button" data-font-label>Pretendard <i data-ic="chevDown" data-s="12"></i></button>
+            <button type="button" data-size-label>16.5</button>
+            <button type="button" data-lh-label>1.9</button><i class="div"></i>
+            <button type="button"><b>B</b></button><button type="button"><i style="font-style:italic">I</i></button><button type="button"><u>U</u></button><button type="button"><s>S</s></button><i class="div"></i>
+            <button type="button" title="정렬"><i data-ic="align" data-s="14"></i></button>
+          </div>
+        </div>
+        <div class="cv-desk v-write">
+          <article class="cv-paper">
+            <div class="cv-head">
+              <div class="cv-crumb">1권 › 1부 봄의 문 › 4화</div>
+              <h1 class="cv-title">첫 번째 대출자</h1>
+            </div>
+            <div class="cv-stepper" aria-label="진행 단계" data-render="stepper"></div>
+            <div class="ms" data-render="ms"></div>
+            <div class="cv-paper-foot">— 1 —</div>
+          </article>
+          <article class="cv-paper cv-paper-next" aria-hidden="true"><div class="cv-paper-foot">— 2 —</div></article>
+        </div>
+        <footer class="cv-foot v-write">
+          <span><strong class="num">3,284</strong>자</span>
+          <span>공백 제외 <span class="num">2,561</span></span>
+          <span>단어 <span class="num">712</span></span>
+          <span class="cv-goal">목표 <span class="num">5,000</span><span class="bar"><i></i></span>66%</span>
+          <span class="sv"><i data-ic="check" data-s="14"></i>자동 저장됨</span>
+        </footer>
+
+        <div class="cv-home v-home">
+          <div class="cv-home-in">
+            <h1>안녕하세요, 작가님</h1>
+            <p class="lead">10월 14일 수요일 · 이번 주에 <span class="num">8,420</span>자를 썼어요.</p>
+            <h3>최근 작품</h3>
+            <div class="cv-cards" data-render="cards"></div>
+            <h3>새로 시작하기</h3>
+            <div class="cv-qa">
+              <button type="button"><span class="ico"><i data-ic="pen" data-s="17"></i></span><span>새 글쓰기<small>빈 작품을 만들어요</small></span></button>
+              <button type="button"><span class="ico"><i data-ic="fileIn" data-s="17"></i></span><span>문서 가져오기<small>원고·초고 파일을 작품으로</small></span></button>
+              <button type="button"><span class="ico"><i data-ic="fileCheck" data-s="17"></i></span><span>교정본 가져오기<small>토리가 회차를 찾아 비교해요</small></span></button>
+            </div>
+            <h3>알아두면 유용한 팁</h3>
+            <ul class="cv-tips">
+              <li>쓰는 글은 이 기기에 자동으로 저장돼요. 인터넷이 끊겨도 원고는 그대로예요.</li>
+              <li>본문에서 마우스 오른쪽을 누르면 사전·떡밥·메모를 바로 추가할 수 있어요.</li>
+              <li>글이 막히면 오른쪽 SuperTORY에게 다음 장면을 함께 고민해 달라고 해 보세요.</li>
+            </ul>
+          </div>
+        </div>
+      </main>
+
+      <aside class="cv-tori" id="cvTori" aria-label="SuperTORY">
+        <button class="cv-tori-pill" id="toriPill" type="button" aria-expanded="false"><img src="/assets/tori-mascot.png" alt="">SuperTORY<span class="cnt">체크 3건</span><i class="chev" data-ic="chevDown" data-s="15"></i></button>
+        <div class="cv-tori-body">
+          <div class="cv-tori-head"><img src="/assets/tori-mascot.png" alt="">SuperTORY<span class="cv-acorn">도토리 <span class="num">128</span></span></div>
+          <div class="cv-seg v-write"><button class="on" type="button">체크</button><button type="button">대화</button><button type="button">기록</button></div>
+          <div class="cv-box v-write">
+            <h4>집중 타이머<span>오늘 3회째</span></h4>
+            <div class="cv-timer"><strong class="num">25:00</strong><button type="button"><i data-ic="play" data-s="13"></i>시작</button></div>
+            <div class="cv-two">
+              <div><strong class="num">1,904자</strong><span>오늘 쓴 글자</span></div>
+              <div><strong class="num">1시간 12분</strong><span>오늘 쓴 시간</span></div>
+            </div>
+          </div>
+          <div class="cv-box v-write">
+            <h4>실시간 토리 체크<span>3건</span></h4>
+            <div class="cv-check"><span class="cv-tag sent">문장</span><div><q>들려 있는 것을 보았다</q> — 동사가 길게 이어져요.</div></div>
+            <div class="cv-check"><span class="cv-tag bait">떡밥</span><div>젖은 책 — 아직 회수 계획이 없어요.</div></div>
+            <div class="cv-check"><span class="cv-tag spell">맞춤법</span><div>이 회차는 고칠 곳이 없어요.</div></div>
+          </div>
+          <div class="cv-box v-home">
+            <h4>공지</h4>
+            <div class="cv-check"><span class="cv-tag sent">업데이트</span><div>새 버전이 나오면 설정 › 정보에서 업데이트할 수 있어요.</div></div>
+          </div>
+          <div class="cv-box v-home">
+            <h4>이번 주 기록</h4>
+            <div class="cv-two" style="margin-top:0">
+              <div><strong class="num">8,420자</strong><span>쓴 글자</span></div>
+              <div><strong class="num">4일</strong><span>연속 집필</span></div>
+            </div>
+          </div>
+          <div class="cv-ask">토리에게 물어보기…<button type="button" title="보내기"><i data-ic="send" data-s="15"></i></button></div>
+        </div>
+      </aside>
+    </section>
+  </div>
+
+  <script>
+    (function () {
+      var ICONS = {
+        search: '<circle cx="11" cy="11" r="7.5"/><path d="m20.5 20.5-4.2-4.2"/>',
+        bookPlus: '<path d="M12 7v6"/><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="M9 10h6"/>',
+        sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+        headphones: '<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>',
+        settings: '<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/>',
+        plus: '<path d="M5 12h14M12 5v14"/>',
+        users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+        globe: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/>',
+        link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+        bulb: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6M10 22h4"/>',
+        align: '<path d="M21 6H3M15 12H3M17 18H3"/>',
+        undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+        redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
+        check: '<path d="M20 6 9 17l-5-5"/>',
+        pen: '<path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+        fileIn: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M12 11v6M9 14l3 3 3-3"/>',
+        fileCheck: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m9 15 2 2 4-4"/>',
+        note: '<path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/>',
+        bookmark: '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>',
+        chart: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9M13 17V5M8 17v-3"/>',
+        eye: '<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>',
+        columns: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/>',
+        expand: '<path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>',
+        compare: '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7M11 18H8a2 2 0 0 1-2-2V9"/>',
+        send: '<path d="M14.5 21.7a.5.5 0 0 0 .94-.03l6.5-19a.5.5 0 0 0-.64-.63l-19 6.5a.5.5 0 0 0-.03.93l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.93"/>',
+        play: '<path d="M6 3l14 9-14 9z"/>',
+        chevDown: '<path d="m6 9 6 6 6-6"/>',
+        chevRight: '<path d="m9 18 6-6-6-6"/>',
+        chevLeft: '<path d="m15 18-6-6 6-6"/>'
+      };
+      function ic(name, size) {
+        var s = size || 18;
+        return '<svg class="ic" viewBox="0 0 24 24" width="' + s + '" height="' + s + '" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + (ICONS[name] || "") + "</svg>";
+      }
+      function esc(t) { return String(t).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+      function fmt(n) { return n.toLocaleString("ko-KR"); }
+
+      var STATUS = {
+        outline: { label: "개요", color: "var(--s-outline)" },
+        idea: { label: "구상", color: "var(--s-idea)" },
+        draft: { label: "초고", color: "var(--s-draft)" },
+        rev: { label: "수정", color: "var(--s-rev)" },
+        done: { label: "완성", color: "var(--s-done)" }
+      };
+      var EPISODES = [
+        { n: 1, title: "비가 그친 다음 날", chars: 5412, st: "done" },
+        { n: 2, title: "서고의 열쇠", chars: 5108, st: "done" },
+        { n: 3, title: "잃어버린 목차", chars: 4870, st: "rev" },
+        { n: 4, title: "첫 번째 대출자", chars: 3284, st: "draft", current: true },
+        { n: 5, title: "반납 기한", chars: 820, st: "idea" }
+      ];
+      var WORKS = [
+        { title: "달빛 서고의 사서", genre: "판타지", meta: "1권 · 4화 · 18,624자", when: "3분 전", stack: ["done", "done", "rev", "draft", "idea"], current: true },
+        { title: "소금의 계절", genre: "일반문학", meta: "단편 · 32,150자", when: "어제", stack: ["rev"] },
+        { title: "오후 네 시의 탐정", genre: "미스터리", meta: "2권 · 21화 · 104,880자", when: "10월 9일", stack: ["done", "done", "done", "done", "rev", "draft"] }
+      ];
+      var MS = [
+        { t: "비는 새벽 무렵에야 그쳤다. 서고의 창문마다 맺힌 물방울이 아침 햇빛을 받아 조금씩 말라 가는 동안, 윤서는 대출 장부를 펼쳐 놓고 한 줄도 쓰지 못한 채 앉아 있었다." },
+        { t: "장부의 첫 장은 비어 있었다. 이 서고가 문을 연 지 백 년이 넘었다는데, 단 한 사람도 책을 빌려 간 적이 없다는 뜻이었다." },
+        { t: "“정말 아무도 없었어요?”", dlg: true },
+        { t: "윤서가 묻자 관장은 안경을 벗어 소매에 닦았다. “빌려 갈 수 있는 사람이 없었던 거지. 여기 책들은 주인을 고르거든.”" },
+        { t: "그때 문에 달린 종이 울렸다. 바람도 불지 않는 아침이었다. 윤서는 고개를 들었고, 문간에 서 있는 낯선 소년의 손에 젖은 책 한 권이 들려 있는 것을 보았다." },
+        { t: "소년은 책을 내밀며 말했다. “이거, 반납하러 왔는데요.”", caret: true }
+      ];
+
+      var R = {
+        stack: function () {
+          var total = EPISODES.reduce(function (a, e) { return a + e.chars; }, 0);
+          return EPISODES.map(function (e) {
+            return '<i title="' + e.n + "화 · " + STATUS[e.st].label + '" style="flex:' + Math.max(e.chars / total, 0.04) + ";background:" + STATUS[e.st].color + '"></i>';
+          }).join("");
+        },
+        eps: function () {
+          return EPISODES.map(function (e) {
+            return '<button type="button" class="cv-ep' + (e.current ? " on" : "") + '"><span class="d" style="background:' + STATUS[e.st].color + '" title="' + STATUS[e.st].label + '"></span><span class="t">' + e.n + "화 " + esc(e.title) + '</span><span class="k num">' + fmt(e.chars) + "</span></button>";
+          }).join("") + '<button type="button" class="cv-ep" style="color:var(--ink3)"><span>' + ic("plus", 12) + "</span><span>새 회차</span><span></span></button>";
+        },
+        stepper: function () {
+          var order = ["outline", "idea", "draft", "rev", "done"];
+          var now = order.indexOf("draft");
+          return order.map(function (k, i) {
+            var cls = i < now ? "past" : i === now ? "now" : "";
+            var dot = i < now ? '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' : "";
+            return (i ? '<span class="cv-step-line"></span>' : "") + '<button type="button" class="cv-step ' + cls + '"><span class="dot">' + dot + "</span>" + STATUS[k].label + "</button>";
+          }).join("");
+        },
+        cards: function () {
+          return WORKS.map(function (w) {
+            var stack = w.stack.map(function (s) { return '<i style="flex:1;background:' + STATUS[s].color + '"></i>'; }).join("");
+            return '<button type="button" class="cv-wcard' + (w.current ? " cur" : "") + '"><span class="g">' + esc(w.genre) + "</span><strong>" + esc(w.title) + "</strong><span>" + esc(w.meta) + '</span><div class="cv-stack">' + stack + "</div><span>" + (w.current ? "이어 쓰기 · " : "") + esc(w.when) + " 수정</span></button>";
+          }).join("");
+        },
+        ms: function () {
+          return MS.map(function (p) {
+            var caret = p.caret ? '<span class="cv-caret" aria-hidden="true"></span>' : "";
+            return "<p" + (p.dlg ? ' class="dlg"' : "") + ">" + esc(p.t) + caret + "</p>";
+          }).join("");
+        }
+      };
+      document.querySelectorAll("[data-render]").forEach(function (el) {
+        var fn = R[el.getAttribute("data-render")];
+        if (fn) el.innerHTML = fn();
+      });
+      document.querySelectorAll("i[data-ic]").forEach(function (el) {
+        var tmp = document.createElement("span");
+        tmp.innerHTML = ic(el.getAttribute("data-ic"), Number(el.getAttribute("data-s")) || 18);
+        var svg = tmp.firstChild;
+        if (el.classList.contains("chev")) svg.classList.add("chev");
+        el.replaceWith(svg);
+      });
+
+      var INFO = {
+        "1": {
+          name: "V1 · 섬",
+          tag: "둥근 패널이 캔버스 위에 떠 있는 구성 · 도구 이름을 그대로 보여 줌",
+          desc: "C의 세 패널 구성을 유지하고 색과 간격만 다듬었습니다. 캔버스는 중성 쿨 그레이, 패널은 아주 연한 흰색이라 경계가 눈에 띄지 않고도 구분됩니다. 도구 이름을 숨기지 않아 처음 쓰는 분도 헤매지 않습니다.",
+          sw: ["#e8eaed", "#fafbfb", "#eceef1", "#ffffff", "#2f7566"],
+          type: "전체 Pretendard · 본문 16.5px / 1.9",
+          point: "종이(흰색)와 책상(연회색) 명도 차를 작게 둬서 장시간 봐도 눈부심이 없음 · 강조색은 저채도 이끼색",
+          font: "Pretendard", size: "16.5", lh: "1.9"
+        },
+        "2": {
+          name: "V2 · 선",
+          tag: "여백·모서리 없이 1px 선으로만 나눈 편집자형 · 명조 본문 · 쪽 단위",
+          desc: "패널 사이 여백과 둥근 모서리를 걷어 내고 가는 선 하나로만 나눴습니다. 도구와 서식은 한 줄에 모아 원고 위 공간을 넓혔고, 종이는 실제 쪽처럼 이어지며 쪽 번호가 붙습니다. 본문은 명조로 인쇄 원고 느낌입니다.",
+          sw: ["#f5f5f3", "#e8e8e5", "#ffffff", "#262a2f", "#3b5f84"],
+          type: "제목·본문 Noto Serif KR 17px / 1.95 · UI Pretendard",
+          point: "따뜻한 오프화이트 바탕으로 푸른 기 없는 화면 · 강조색은 잉크 블루 · 명조 1.95 행간으로 긴 글이 덜 지침",
+          font: "바탕", size: "17", lh: "1.95"
+        },
+        "3": {
+          name: "V3 · 캔버스",
+          tag: "크롬을 최소화한 집중형 · 도구는 하단 떠 있는 막대 · 토리는 접힌 카드",
+          desc: "원고가 화면의 주인입니다. 13개 도구는 하단 중앙의 떠 있는 막대로, 서식 막대는 손을 올릴 때만 선명해집니다. SuperTORY 패널은 우하단 카드로 접혀 있어 필요할 때만 펼칩니다. 바인더는 틀 없이 캔버스 위에 바로 놓입니다.",
+          sw: ["#f3f4f6", "#ffffff", "#f1f2f4", "#1f2328", "#5b5f9e"],
+          type: "전체 Pretendard · 본문 17px / 1.92",
+          point: "주변 요소가 흐려져 시선이 원고에만 머무름 · 18px 둥근 모서리와 넓은 간격 · 강조색은 저채도 인디고",
+          font: "Pretendard", size: "17", lh: "1.92"
+        }
+      };
+      var BODY_TAG = { paper: "종이: 연회색 책상 위 흰 종이", flat: "평면: 본문이 패널에 바로 놓임" };
+
+      var cv = document.getElementById("cv");
+      var tagline = document.getElementById("swTagline");
+      var pop = document.getElementById("swPop");
+      var infoBtn = document.getElementById("swInfoBtn");
+      var fontLabel = document.querySelector("[data-font-label]");
+      var sizeLabel = document.querySelector("[data-size-label]");
+      var lhLabel = document.querySelector("[data-lh-label]");
+      var tori = document.getElementById("cvTori");
+      var toriPill = document.getElementById("toriPill");
+
+      function renderInfo() {
+        var k = cv.getAttribute("data-variant"), b = cv.getAttribute("data-body");
+        var d = INFO[k];
+        tagline.textContent = d.tag + " · " + BODY_TAG[b];
+        pop.innerHTML = "<h3>" + esc(d.name) + "</h3><p>" + esc(d.desc) + '</p><div class="swatches">' +
+          d.sw.map(function (c) { return '<span title="' + c + '" style="background:' + c + '"></span>'; }).join("") +
+          "</div><dl><dt>글꼴</dt><dd>" + esc(d.type) + "</dd><dt>본문</dt><dd>" + esc(BODY_TAG[b]) + "</dd><dt>편안함</dt><dd>" + esc(d.point) + "</dd></dl>";
+      }
+      function setVariant(k) {
+        if (!INFO[k]) k = "1";
+        cv.setAttribute("data-variant", k);
+        document.body.setAttribute("data-variant", k);
+        document.querySelectorAll("[data-set-variant]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-set-variant") === k)); });
+        var d = INFO[k];
+        if (k === "3" && !tori.dataset.touched) { tori.classList.add("folded"); toriPill.setAttribute("aria-expanded", "false"); }
+        fontLabel.firstChild.nodeValue = d.font + " ";
+        sizeLabel.textContent = d.size;
+        lhLabel.textContent = d.lh;
+        renderInfo();
+        save();
+      }
+      function setBody(b) {
+        if (b !== "flat") b = "paper";
+        cv.setAttribute("data-body", b);
+        document.querySelectorAll("[data-set-body]").forEach(function (x) { x.setAttribute("aria-pressed", String(x.getAttribute("data-set-body") === b)); });
+        renderInfo();
+        save();
+      }
+      function setView(v) {
+        if (v !== "home") v = "write";
+        document.body.setAttribute("data-view", v);
+        document.querySelectorAll("[data-set-view]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-set-view") === v)); });
+        save();
+      }
+      function save() {
+        var k = cv.getAttribute("data-variant"), b = cv.getAttribute("data-body"), v = document.body.getAttribute("data-view");
+        try { history.replaceState(null, "", "#v" + k + "-" + b + (v === "home" ? "-home" : "")); } catch (e) {}
+        try { localStorage.setItem("supertory.designV2", k + "|" + b + "|" + v); } catch (e) {}
+      }
+      document.querySelectorAll("[data-set-variant]").forEach(function (b) {
+        b.addEventListener("click", function () { setVariant(b.getAttribute("data-set-variant")); });
+      });
+      document.querySelectorAll("[data-set-body]").forEach(function (b) {
+        b.addEventListener("click", function () { setBody(b.getAttribute("data-set-body")); });
+      });
+      document.querySelectorAll("[data-set-view]").forEach(function (b) {
+        b.addEventListener("click", function () { setView(b.getAttribute("data-set-view")); });
+      });
+      toriPill.addEventListener("click", function () {
+        tori.dataset.touched = "1";
+        var folded = tori.classList.toggle("folded");
+        toriPill.setAttribute("aria-expanded", String(!folded));
+      });
+      infoBtn.addEventListener("click", function () {
+        var open = pop.hidden;
+        pop.hidden = !open;
+        infoBtn.setAttribute("aria-expanded", String(open));
+      });
+      document.addEventListener("click", function (e) {
+        if (!pop.hidden && !e.target.closest(".sw-info")) { pop.hidden = true; infoBtn.setAttribute("aria-expanded", "false"); }
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+        if (e.key === "1" || e.key === "2" || e.key === "3") setVariant(e.key);
+        if (e.key === "p" || e.key === "P") setBody("paper");
+        if (e.key === "f" || e.key === "F") setBody("flat");
+        if (e.key === "Escape") { pop.hidden = true; infoBtn.setAttribute("aria-expanded", "false"); }
+      });
+
+      var m = /^#v([123])(?:-(paper|flat))?(-home)?$/.exec(location.hash || "");
+      var initK = "1", initB = "paper", initV = "write";
+      if (m) { initK = m[1]; initB = m[2] || "paper"; initV = m[3] ? "home" : "write"; }
+      else {
+        try {
+          var st = (localStorage.getItem("supertory.designV2") || "").split("|");
+          if (st[0]) { initK = st[0]; initB = st[1] || "paper"; initV = st[2] || "write"; }
+        } catch (e) {}
+      }
+      setVariant(initK);
+      setBody(initB);
+      setView(initV);
+    })();
+  </script>
+</body>
+</html>
