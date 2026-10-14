@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="only light">
+  <title>SuperTory · Design v3</title>
+  <link rel="stylesheet" href="../fonts/pretendard.css">
+  <link rel="stylesheet" href="main-design-v3.css">
+  <script src="main-design-v3.js" defer></script>
+</head>
+<body>
+  <div class="loading" id="loading" role="status">SuperTory</div>
+  <div class="preview" id="preview" hidden>
+    <header class="preview-bar">
+      <div class="preview-brand"><span class="brand-mark" aria-hidden="true">S<span>t.</span></span><div><strong>SuperTory</strong><span data-i18n="designV3.preview"></span></div></div>
+      <nav class="design-switch" data-i18n-aria-label="designV3.chooseDesign">
+        <button type="button" data-design="studio" aria-pressed="true"><span class="design-letter">A</span><span data-i18n="designV3.studio"></span></button>
+        <button type="button" data-design="editorial" aria-pressed="false"><span class="design-letter">B</span><span data-i18n="designV3.editorial"></span></button>
+        <button type="button" data-design="focus" aria-pressed="false"><span class="design-letter">C</span><span data-i18n="designV3.focus"></span></button>
+      </nav>
+      <div class="surface-switch" role="group" data-i18n-aria-label="designV3.chooseSurface">
+        <button type="button" data-surface="paper" aria-pressed="true"><span data-icon="paper"></span><span data-i18n="designV3.paper"></span></button>
+        <button type="button" data-surface="flat" aria-pressed="false"><span data-icon="flat"></span><span data-i18n="designV3.flat"></span></button>
+      </div>
+      <div class="preview-actions">
+        <button type="button" class="compare-toggle" id="compareToggle" aria-expanded="false" data-i18n-aria-label="designV3.compare"><span data-icon="grid"></span><span data-i18n="designV3.compare"></span></button>
+        <select id="language" data-i18n-aria-label="designV3.language"><option value="ko">한국어</option><option value="en">English</option><option value="es">Español</option></select>
+      </div>
+    </header>
+    <div class="design-caption"><div><span class="caption-dot" aria-hidden="true"></span><strong id="designName"></strong><span id="designDescription"></span></div><span class="preview-only" data-i18n="designV3.sampleNotice"></span></div>
+    <main class="workspace" id="workspace" data-design="studio" data-surface="paper" data-inspector="open" data-nav="open"></main>
+    <section class="comparison" id="comparison" hidden data-i18n-aria-label="designV3.compare"></section>
+    <footer class="preview-foot"><span data-i18n="designV3.lightNote"></span><span data-i18n="designV3.shortcutHint"></span></footer>
+  </div>
+  <noscript><p>SuperTory · JavaScript</p></noscript>
+</body>
+</html>
