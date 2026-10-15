@@ -34,3 +34,8 @@ tools/prompt_lab/results/*
 
 # Private literary test manuscripts and run dumps (never commit)
 tests/manuscripts/private/
+
+# One-off tool output (i18n extraction reports, cleanup dumps, test logs)
+i18n_extract_output/
+report_clean.txt
+*.tests.log

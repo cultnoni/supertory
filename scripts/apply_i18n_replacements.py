@@ -9,11 +9,11 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 KO_PATH = ROOT / "web" / "locales" / "ko.json"
 APP_JS = ROOT / "web" / "app.js"
 INDEX_HTML = ROOT / "web" / "index.html"
-HELPER = ROOT / "i18n_helper.js"
+HELPER = Path(__file__).resolve().parent / "i18n_helper.js"
 BATCH = 200
 SENTINEL = "/* ==== i18n helper (do not duplicate) ===="
 
