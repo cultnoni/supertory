@@ -27,6 +27,7 @@ import time
 import unicodedata
 import uuid
 import webbrowser
+from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from email.parser import BytesParser
@@ -161,40 +162,42 @@ _load_dotenv_files()
 
 
 ROOT = _resolve_root()
-SCHEMA_PATH = ROOT / "db" / "001_initial_schema.sql"
-MIGRATION_002_PATH = ROOT / "db" / "002_project_purpose.sql"
-MIGRATION_003_PATH = ROOT / "db" / "003_project_package.sql"
-MIGRATION_004_PATH = ROOT / "db" / "004_scene_illustration.sql"
-MIGRATION_005_PATH = ROOT / "db" / "005_scene_reference_links.sql"
-MIGRATION_006_PATH = ROOT / "db" / "006_scene_goal_metric.sql"
-MIGRATION_007_PATH = ROOT / "db" / "007_idea_bank.sql"
-MIGRATION_008_PATH = ROOT / "db" / "008_project_worldbuilding.sql"
-MIGRATION_009_PATH = ROOT / "db" / "009_project_logline.sql"
-MIGRATION_010_PATH = ROOT / "db" / "010_project_genre.sql"
-MIGRATION_011_PATH = ROOT / "db" / "011_project_intro_intent.sql"
-MIGRATION_012_PATH = ROOT / "db" / "012_project_keywords.sql"
-MIGRATION_013_PATH = ROOT / "db" / "013_writing_log.sql"
-MIGRATION_014_PATH = ROOT / "db" / "014_writing_first_met.sql"
-MIGRATION_015_PATH = ROOT / "db" / "015_character_strengths_weaknesses.sql"
-MIGRATION_016_PATH = ROOT / "db" / "016_scene_parent.sql"
-MIGRATION_017_PATH = ROOT / "db" / "017_project_list_order.sql"
-MIGRATION_018_PATH = ROOT / "db" / "018_tory_priority.sql"
-MIGRATION_019_PATH = ROOT / "db" / "019_project_index.sql"
-MIGRATION_020_PATH = ROOT / "db" / "020_project_index_queue.sql"
-MIGRATION_021_PATH = ROOT / "db" / "021_chapter_parent_scene.sql"
-MIGRATION_022_PATH = ROOT / "db" / "022_outline_summary.sql"
-MIGRATION_023_PATH = ROOT / "db" / "023_bait.sql"
-MIGRATION_024_PATH = ROOT / "db" / "024_character_portrait.sql"
-MIGRATION_025_PATH = ROOT / "db" / "025_success_pattern_profile.sql"
-MIGRATION_026_PATH = ROOT / "db" / "026_linked_success_profile.sql"
-MIGRATION_027_PATH = ROOT / "db" / "027_writing_track_modes.sql"
-MIGRATION_028_PATH = ROOT / "db" / "028_folder_tree_parallel.sql"
-MIGRATION_029_PATH = ROOT / "db" / "029_folder_color_pin.sql"
-MIGRATION_030_PATH = ROOT / "db" / "030_folder_action_log.sql"
-MIGRATION_031_PATH = ROOT / "db" / "031_folder_bookmark.sql"
-MIGRATION_032_PATH = ROOT / "db" / "032_writing_include_phone.sql"
-MIGRATION_033_PATH = ROOT / "db" / "033_idea_note_pin.sql"
-MIGRATION_034_PATH = ROOT / "db" / "034_folder_color_bright.sql"
+DB_DIR = ROOT / "db"
+SCHEMA_PATH = DB_DIR / "001_initial_schema.sql"
+_MIGRATION_FILE_RE = re.compile(r"(\d{3})_.+")
+
+
+def _discover_migration_files() -> dict[int, dict[str, Path]]:
+    """Map schema version -> {suffix: path} for db/NNN_name.sql|py.
+
+    db/ ships with the frozen build (see supertory-server.spec), so adding a
+    migration file is all it takes for initialise_database() to pick it up.
+    """
+    found: dict[int, dict[str, Path]] = {}
+    for path in sorted(DB_DIR.glob("*")):
+        if path.suffix not in {".sql", ".py"}:
+            continue
+        match = _MIGRATION_FILE_RE.fullmatch(path.stem)
+        if match is None:
+            continue
+        found.setdefault(int(match.group(1)), {})[path.suffix] = path
+    return found
+
+
+MIGRATION_FILES = _discover_migration_files()
+LATEST_SCHEMA_VERSION = max(MIGRATION_FILES, default=1)
+
+
+def migration_path(version: int) -> Path:
+    """Python migration wins when a version ships both (092 has .py and .sql)."""
+    files = MIGRATION_FILES.get(int(version)) or {}
+    path = files.get(".py") or files.get(".sql")
+    if path is None:
+        raise RuntimeError(f"마이그레이션 파일을 찾을 수 없습니다: {version}")
+    return path
+
+
+# Versions whose apply step below is more than "run the .sql" keep a named path.
 MIGRATION_035_PATH = ROOT / "db" / "035_virtual_reader_personas.py"
 MIGRATION_036_PATH = ROOT / "db" / "036_update_romance_roppan_personas.py"
 MIGRATION_037_PATH = ROOT / "db" / "037_glump_diagnosis_log.py"
@@ -207,64 +210,16 @@ MIGRATION_043_PATH = ROOT / "db" / "043_glump_interrogation.py"
 MIGRATION_044_PATH = ROOT / "db" / "044_add_two_personas.py"
 MIGRATION_045_PATH = ROOT / "db" / "045_add_high_fantasy_adventurer.py"
 MIGRATION_046_PATH = ROOT / "db" / "046_reorder_reader_personas.py"
-MIGRATION_047_PATH = ROOT / "db" / "047_scene_reader_comments_started.sql"
-MIGRATION_048_PATH = ROOT / "db" / "048_tracked_facts.sql"
-MIGRATION_049_PATH = ROOT / "db" / "049_import_delimiter_config.sql"
-MIGRATION_050_PATH = ROOT / "db" / "050_character_tori_analysis.sql"
-MIGRATION_051_PATH = ROOT / "db" / "051_world_tori_analysis.sql"
-MIGRATION_052_PATH = ROOT / "db" / "052_reader_debate.sql"
 MIGRATION_053_PATH = ROOT / "db" / "053_recompute_highlight_episode_order.py"
-MIGRATION_054_PATH = ROOT / "db" / "054_scene_reader_comments.sql"
-MIGRATION_055_PATH = ROOT / "db" / "055_gitsi_rooms.sql"
-MIGRATION_056_PATH = ROOT / "db" / "056_gitsi_room_default.sql"
-MIGRATION_057_PATH = ROOT / "db" / "057_project_cluster.sql"
-MIGRATION_058_PATH = ROOT / "db" / "058_project_genre_detail.sql"
-MIGRATION_059_PATH = ROOT / "db" / "059_user_ambient_tracks.sql"
-MIGRATION_060_PATH = ROOT / "db" / "060_ambient_track_overrides.sql"
-MIGRATION_061_PATH = ROOT / "db" / "061_translation_jobs.sql"
-MIGRATION_062_PATH = ROOT / "db" / "062_translation_proper_nouns_origin.sql"
-MIGRATION_063_PATH = ROOT / "db" / "063_translation_pipeline.sql"
-MIGRATION_064_PATH = ROOT / "db" / "064_translation_word_context_cache.sql"
-MIGRATION_065_PATH = ROOT / "db" / "065_project_content_rating.sql"
-MIGRATION_066_PATH = ROOT / "db" / "066_user_ambient_tracks_custom_category.sql"
-MIGRATION_067_PATH = ROOT / "db" / "067_translation_segment_manual_review.sql"
-MIGRATION_068_PATH = ROOT / "db" / "068_translation_job_chapter_range.sql"
-MIGRATION_069_PATH = ROOT / "db" / "069_translation_segment_polish_proposal.sql"
-MIGRATION_070_PATH = ROOT / "db" / "070_translation_word_lookup_cache.sql"
 MIGRATION_071_PATH = ROOT / "db" / "071_character_role_nullable.py"
-MIGRATION_072_PATH = ROOT / "db" / "072_character_trait_history.sql"
-MIGRATION_073_PATH = ROOT / "db" / "073_item.sql"
 MIGRATION_074_PATH = ROOT / "db" / "074_trait_history_applied.sql"
-MIGRATION_075_PATH = ROOT / "db" / "075_character_relations.sql"
 MIGRATION_076_PATH = ROOT / "db" / "076_character_relations_label_unique.sql"
 MIGRATION_077_PATH = ROOT / "db" / "077_trait_history_scene_nullable.sql"
-MIGRATION_078_PATH = ROOT / "db" / "078_translation_proper_noun_suppressions.sql"
-MIGRATION_079_PATH = ROOT / "db" / "079_project_completion_guide.sql"
 MIGRATION_080_PATH = ROOT / "db" / "080_scene_reader_comment_batches.sql"
 MIGRATION_081_PATH = ROOT / "db" / "081_update_reader_personas_v2.py"
 MIGRATION_082_PATH = ROOT / "db" / "082_open_threads_resolved.sql"
-MIGRATION_083_PATH = ROOT / "db" / "083_linked_success_profile_fk.sql"
-MIGRATION_084_PATH = ROOT / "db" / "084_success_pattern_chapter_notes.sql"
 MIGRATION_085_PATH = ROOT / "db" / "085_character_custom_roles.py"
-MIGRATION_086_PATH = ROOT / "db" / "086_project_tory_check.sql"
-MIGRATION_087_PATH = ROOT / "db" / "087_character_canvas_groups.sql"
-MIGRATION_088_PATH = ROOT / "db" / "088_scene_character_mentions.sql"
-MIGRATION_089_PATH = ROOT / "db" / "089_custom_dictionary_terms.sql"
-MIGRATION_090_PATH = ROOT / "db" / "090_translation_proper_nouns_dictionary_type.sql"
-MIGRATION_091_PATH = ROOT / "db" / "091_project_reader_favorites.sql"
 MIGRATION_092_PATH = ROOT / "db" / "092_migrate_urban_main_to_fantasy_male.py"
-MIGRATION_093_PATH = ROOT / "db" / "093_project_romance_axes.sql"
-MIGRATION_094_PATH = ROOT / "db" / "094_feedback_run.sql"
-MIGRATION_095_PATH = ROOT / "db" / "095_feedback_card_title.sql"
-MIGRATION_096_PATH = ROOT / "db" / "096_feedback_card_comment.sql"
-MIGRATION_097_PATH = ROOT / "db" / "097_project_literary_form.sql"
-MIGRATION_098_PATH = ROOT / "db" / "098_tory_notification.sql"
-MIGRATION_099_PATH = ROOT / "db" / "099_literary_short_report.sql"
-MIGRATION_100_PATH = ROOT / "db" / "100_literary_card_fields.sql"
-MIGRATION_101_PATH = ROOT / "db" / "101_literary_long_foundation.sql"
-MIGRATION_102_PATH = ROOT / "db" / "102_literary_summary_bundle.sql"
-MIGRATION_103_PATH = ROOT / "db" / "103_literary_pending_reclaim.sql"
-MIGRATION_104_PATH = ROOT / "db" / "104_literary_unit_work.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1835,212 +1790,14 @@ def initialise_database() -> None:
         }
         if 1 not in applied:
             raise RuntimeError("지원하지 않는 SuperTory 데이터베이스 버전입니다.")
-        if 2 not in applied:
-            connection.executescript(MIGRATION_002_PATH.read_text(encoding="utf-8"))
-        if 3 not in applied:
-            connection.executescript(MIGRATION_003_PATH.read_text(encoding="utf-8"))
-        if 4 not in applied:
-            connection.executescript(MIGRATION_004_PATH.read_text(encoding="utf-8"))
-        if 5 not in applied:
-            connection.executescript(MIGRATION_005_PATH.read_text(encoding="utf-8"))
-        if 6 not in applied:
-            connection.executescript(MIGRATION_006_PATH.read_text(encoding="utf-8"))
-        if 7 not in applied:
-            connection.executescript(MIGRATION_007_PATH.read_text(encoding="utf-8"))
-        if 8 not in applied:
-            connection.executescript(MIGRATION_008_PATH.read_text(encoding="utf-8"))
-        if 9 not in applied:
-            connection.executescript(MIGRATION_009_PATH.read_text(encoding="utf-8"))
-        if 10 not in applied:
-            connection.executescript(MIGRATION_010_PATH.read_text(encoding="utf-8"))
-        if 11 not in applied:
-            connection.executescript(MIGRATION_011_PATH.read_text(encoding="utf-8"))
-        if 12 not in applied:
-            connection.executescript(MIGRATION_012_PATH.read_text(encoding="utf-8"))
-        if 13 not in applied:
-            connection.executescript(MIGRATION_013_PATH.read_text(encoding="utf-8"))
-        if 14 not in applied:
-            connection.executescript(MIGRATION_014_PATH.read_text(encoding="utf-8"))
-        if 15 not in applied:
-            connection.executescript(MIGRATION_015_PATH.read_text(encoding="utf-8"))
-        if 16 not in applied:
-            connection.executescript(MIGRATION_016_PATH.read_text(encoding="utf-8"))
-        if 17 not in applied:
-            connection.executescript(MIGRATION_017_PATH.read_text(encoding="utf-8"))
-        if 18 not in applied:
-            connection.executescript(MIGRATION_018_PATH.read_text(encoding="utf-8"))
-        if 19 not in applied:
-            connection.executescript(MIGRATION_019_PATH.read_text(encoding="utf-8"))
-        if 20 not in applied:
-            connection.executescript(MIGRATION_020_PATH.read_text(encoding="utf-8"))
-        if 21 not in applied:
-            connection.executescript(MIGRATION_021_PATH.read_text(encoding="utf-8"))
-        if 22 not in applied:
-            connection.executescript(MIGRATION_022_PATH.read_text(encoding="utf-8"))
-        if 23 not in applied:
-            connection.executescript(MIGRATION_023_PATH.read_text(encoding="utf-8"))
-        if 24 not in applied:
-            connection.executescript(MIGRATION_024_PATH.read_text(encoding="utf-8"))
-        if 25 not in applied:
-            connection.executescript(MIGRATION_025_PATH.read_text(encoding="utf-8"))
-        if 26 not in applied:
-            connection.executescript(MIGRATION_026_PATH.read_text(encoding="utf-8"))
-        if 27 not in applied:
-            connection.executescript(MIGRATION_027_PATH.read_text(encoding="utf-8"))
-        if 28 not in applied:
-            connection.executescript(MIGRATION_028_PATH.read_text(encoding="utf-8"))
-        if 29 not in applied:
-            connection.executescript(MIGRATION_029_PATH.read_text(encoding="utf-8"))
-        if 30 not in applied:
-            connection.executescript(MIGRATION_030_PATH.read_text(encoding="utf-8"))
-        if 31 not in applied:
-            connection.executescript(MIGRATION_031_PATH.read_text(encoding="utf-8"))
-        if 32 not in applied:
-            connection.executescript(MIGRATION_032_PATH.read_text(encoding="utf-8"))
-        if 33 not in applied:
-            connection.executescript(MIGRATION_033_PATH.read_text(encoding="utf-8"))
-        if 34 not in applied:
-            connection.executescript(MIGRATION_034_PATH.read_text(encoding="utf-8"))
-        if 35 not in applied:
-            apply_migration_035(connection)
-        if 36 not in applied:
-            apply_migration_036(connection)
-        if 37 not in applied:
-            apply_migration_037(connection)
-        if 38 not in applied:
-            apply_migration_038(connection)
-        if 39 not in applied:
-            apply_migration_039(connection)
-        if 40 not in applied:
-            apply_migration_040(connection)
-        if 41 not in applied:
-            apply_migration_041(connection)
-        if 42 not in applied:
-            apply_migration_042(connection)
-        if 43 not in applied:
-            apply_migration_043(connection)
-        if 44 not in applied:
-            apply_migration_044(connection)
-        if 45 not in applied:
-            apply_migration_045(connection)
-        if 46 not in applied:
-            apply_migration_046(connection)
-        if 47 not in applied:
-            connection.executescript(MIGRATION_047_PATH.read_text(encoding="utf-8"))
-        if 48 not in applied:
-            connection.executescript(MIGRATION_048_PATH.read_text(encoding="utf-8"))
-        if 49 not in applied:
-            connection.executescript(MIGRATION_049_PATH.read_text(encoding="utf-8"))
-        if 50 not in applied:
-            connection.executescript(MIGRATION_050_PATH.read_text(encoding="utf-8"))
-        if 51 not in applied:
-            connection.executescript(MIGRATION_051_PATH.read_text(encoding="utf-8"))
-        if 52 not in applied:
-            connection.executescript(MIGRATION_052_PATH.read_text(encoding="utf-8"))
-        if 53 not in applied:
-            apply_migration_053(connection)
-        if 54 not in applied:
-            connection.executescript(MIGRATION_054_PATH.read_text(encoding="utf-8"))
-        if 55 not in applied:
-            connection.executescript(MIGRATION_055_PATH.read_text(encoding="utf-8"))
-        if 56 not in applied:
-            connection.executescript(MIGRATION_056_PATH.read_text(encoding="utf-8"))
-        if 57 not in applied:
-            connection.executescript(MIGRATION_057_PATH.read_text(encoding="utf-8"))
-        if 58 not in applied:
-            connection.executescript(MIGRATION_058_PATH.read_text(encoding="utf-8"))
-        if 59 not in applied:
-            connection.executescript(MIGRATION_059_PATH.read_text(encoding="utf-8"))
-        if 60 not in applied:
-            connection.executescript(MIGRATION_060_PATH.read_text(encoding="utf-8"))
-        if 61 not in applied:
-            connection.executescript(MIGRATION_061_PATH.read_text(encoding="utf-8"))
-        if 62 not in applied:
-            connection.executescript(MIGRATION_062_PATH.read_text(encoding="utf-8"))
-        if 63 not in applied:
-            connection.executescript(MIGRATION_063_PATH.read_text(encoding="utf-8"))
-        if 64 not in applied:
-            connection.executescript(MIGRATION_064_PATH.read_text(encoding="utf-8"))
-        if 65 not in applied:
-            connection.executescript(MIGRATION_065_PATH.read_text(encoding="utf-8"))
-        if 66 not in applied:
-            connection.executescript(MIGRATION_066_PATH.read_text(encoding="utf-8"))
-        if 67 not in applied:
-            connection.executescript(MIGRATION_067_PATH.read_text(encoding="utf-8"))
-        if 68 not in applied:
-            connection.executescript(MIGRATION_068_PATH.read_text(encoding="utf-8"))
-        if 69 not in applied:
-            connection.executescript(MIGRATION_069_PATH.read_text(encoding="utf-8"))
-        if 70 not in applied:
-            connection.executescript(MIGRATION_070_PATH.read_text(encoding="utf-8"))
-        if 71 not in applied:
-            apply_migration_071(connection)
-        if 72 not in applied:
-            connection.executescript(MIGRATION_072_PATH.read_text(encoding="utf-8"))
-        if 73 not in applied:
-            connection.executescript(MIGRATION_073_PATH.read_text(encoding="utf-8"))
-        if 74 not in applied:
-            apply_migration_074(connection)
-        if 75 not in applied:
-            connection.executescript(MIGRATION_075_PATH.read_text(encoding="utf-8"))
-        if 76 not in applied:
-            apply_migration_076(connection)
-        if 77 not in applied:
-            apply_migration_077(connection)
-        if 78 not in applied:
-            connection.executescript(MIGRATION_078_PATH.read_text(encoding="utf-8"))
-        if 79 not in applied:
-            connection.executescript(MIGRATION_079_PATH.read_text(encoding="utf-8"))
-        if 80 not in applied:
-            apply_migration_080(connection)
-        if 81 not in applied:
-            apply_migration_081(connection)
-        if 82 not in applied:
-            apply_migration_082(connection)
-        if 83 not in applied:
-            connection.executescript(MIGRATION_083_PATH.read_text(encoding="utf-8"))
-        if 84 not in applied:
-            connection.executescript(MIGRATION_084_PATH.read_text(encoding="utf-8"))
-        if 85 not in applied:
-            apply_migration_085(connection)
-        if 86 not in applied:
-            connection.executescript(MIGRATION_086_PATH.read_text(encoding="utf-8"))
-        if 87 not in applied:
-            connection.executescript(MIGRATION_087_PATH.read_text(encoding="utf-8"))
-        if 88 not in applied:
-            connection.executescript(MIGRATION_088_PATH.read_text(encoding="utf-8"))
-        if 89 not in applied:
-            connection.executescript(MIGRATION_089_PATH.read_text(encoding="utf-8"))
-        if 90 not in applied:
-            connection.executescript(MIGRATION_090_PATH.read_text(encoding="utf-8"))
-        if 91 not in applied:
-            connection.executescript(MIGRATION_091_PATH.read_text(encoding="utf-8"))
-        if 92 not in applied:
-            apply_migration_092(connection)
-        if 93 not in applied:
-            connection.executescript(MIGRATION_093_PATH.read_text(encoding="utf-8"))
-        if 94 not in applied:
-            connection.executescript(MIGRATION_094_PATH.read_text(encoding="utf-8"))
-        if 95 not in applied:
-            connection.executescript(MIGRATION_095_PATH.read_text(encoding="utf-8"))
-        if 96 not in applied:
-            connection.executescript(MIGRATION_096_PATH.read_text(encoding="utf-8"))
-        if 97 not in applied:
-            connection.executescript(MIGRATION_097_PATH.read_text(encoding="utf-8"))
-        if 98 not in applied:
-            connection.executescript(MIGRATION_098_PATH.read_text(encoding="utf-8"))
-        if 99 not in applied:
-            connection.executescript(MIGRATION_099_PATH.read_text(encoding="utf-8"))
-        if 100 not in applied:
-            connection.executescript(MIGRATION_100_PATH.read_text(encoding="utf-8"))
-        if 101 not in applied:
-            connection.executescript(MIGRATION_101_PATH.read_text(encoding="utf-8"))
-        if 102 not in applied:
-            connection.executescript(MIGRATION_102_PATH.read_text(encoding="utf-8"))
-        if 103 not in applied:
-            connection.executescript(MIGRATION_103_PATH.read_text(encoding="utf-8"))
-        if 104 not in applied:
-            connection.executescript(MIGRATION_104_PATH.read_text(encoding="utf-8"))
+        for version in range(2, LATEST_SCHEMA_VERSION + 1):
+            if version in applied:
+                continue
+            custom = MIGRATION_OVERRIDES.get(version)
+            if custom is not None:
+                custom(connection)
+                continue
+            connection.executescript(migration_path(version).read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -2698,6 +2455,34 @@ def apply_migration_077(connection: sqlite3.Connection) -> None:
     if char_exists is None or item_exists is None:
         return
     connection.executescript(MIGRATION_077_PATH.read_text(encoding="utf-8"))
+
+
+# Versions that need more than "run db/NNN_*.sql". Everything else is applied
+# generically by initialise_database() straight from the db/ folder.
+MIGRATION_OVERRIDES: dict[int, Callable[[sqlite3.Connection], None]] = {
+    35: apply_migration_035,
+    36: apply_migration_036,
+    37: apply_migration_037,
+    38: apply_migration_038,
+    39: apply_migration_039,
+    40: apply_migration_040,
+    41: apply_migration_041,
+    42: apply_migration_042,
+    43: apply_migration_043,
+    44: apply_migration_044,
+    45: apply_migration_045,
+    46: apply_migration_046,
+    53: apply_migration_053,
+    71: apply_migration_071,
+    74: apply_migration_074,
+    76: apply_migration_076,
+    77: apply_migration_077,
+    80: apply_migration_080,
+    81: apply_migration_081,
+    82: apply_migration_082,
+    85: apply_migration_085,
+    92: apply_migration_092,
+}
 
 
 def ensure_trait_history_scene_nullable(connection: sqlite3.Connection) -> None:
