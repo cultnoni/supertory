@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import app
+from routes import glump_api
 import gemini_client
 
 
@@ -88,36 +89,36 @@ class GlumpDiagnosisTests(unittest.TestCase):
             )
 
     def test_rule_table_without_gemini(self) -> None:
-        perfectionism = app.diagnose_glump("perfectionism")
+        perfectionism = glump_api.diagnose_glump("perfectionism")
         self.assertEqual(perfectionism["recommended_tool"], "ten_min_sprint")
         self.assertNotIn("show_rest_choice", perfectionism)
 
-        self_doubt = app.diagnose_glump("self_doubt")
+        self_doubt = glump_api.diagnose_glump("self_doubt")
         self.assertEqual(self_doubt["recommended_tool"], "mental_vitamin")
 
-        burnout = app.diagnose_glump("burnout")
+        burnout = glump_api.diagnose_glump("burnout")
         self.assertIsNone(burnout["recommended_tool"])
         self.assertTrue(burnout["show_rest_choice"])
         self.assertIn("300자", burnout["message"])
 
-        blocked = app.diagnose_glump("block", "event")
+        blocked = glump_api.diagnose_glump("block", "event")
         self.assertEqual(blocked["recommended_tool"], "wildcard_spark")
         self.assertEqual(blocked["q2_answer"], "event")
 
         with self.assertRaises(ValueError) as raised:
-            app.diagnose_glump("block")
+            glump_api.diagnose_glump("block")
         self.assertEqual(str(raised.exception), "다음 질문에 답해주세요")
 
         self.assertEqual(
-            app.diagnose_glump("block", "sentence_struggle")["recommended_tool"],
+            glump_api.diagnose_glump("block", "sentence_struggle")["recommended_tool"],
             "fill_blank_game",
         )
         self.assertEqual(
-            app.diagnose_glump("block", "start")["recommended_tool"],
+            glump_api.diagnose_glump("block", "start")["recommended_tool"],
             "lucky_sentence",
         )
         self.assertEqual(
-            app.diagnose_glump("block", "together")["recommended_tool"],
+            glump_api.diagnose_glump("block", "together")["recommended_tool"],
             "pingpong_relay",
         )
 

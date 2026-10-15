@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import app
+from routes import glump_api
 import gemini_client
 
 COLORS_JSON = json.dumps(
@@ -285,25 +286,25 @@ class GlumpDiversionTests(unittest.TestCase):
 
     def test_prompts_reuse_tory_core(self) -> None:
         core = app.SuperToryHandler._tory_core_identity_system_prompt()
-        color_sys, color_user = app._mood_color_prompt("로맨스 판타지", "리아", "이름: 리아")
+        color_sys, color_user = glump_api._mood_color_prompt("로맨스 판타지", "리아", "이름: 리아")
         self.assertTrue(color_sys.startswith("[Tory Core Identity]"))
         self.assertIn(core, color_sys)
         self.assertIn("퍼스널컬러", color_user)
         self.assertIn("성격", color_user)
         self.assertIn("외모", color_user)
         self.assertNotIn("이 작품의 분위기", color_user)
-        play_sys, play_user = app._mood_playlist_prompt("로맨스 판타지", "리아", "이름: 리아")
+        play_sys, play_user = glump_api._mood_playlist_prompt("로맨스 판타지", "리아", "이름: 리아")
         self.assertIn(core, play_sys)
         self.assertIn("실제 존재하는 노래", play_user)
-        word_sys, word_user = app._word_list_prompt("로맨스 판타지")
+        word_sys, word_user = glump_api._word_list_prompt("로맨스 판타지")
         self.assertIn(core, word_sys)
         self.assertIn("한국어 단어 10개", word_user)
-        sentence_sys, sentence_user = app._sentence_list_prompt("로맨스 판타지")
+        sentence_sys, sentence_user = glump_api._sentence_list_prompt("로맨스 판타지")
         self.assertIn(core, sentence_sys)
         self.assertIn("문장집", sentence_user)
         self.assertIn("세상에 이런 일이", sentence_user)
         self.assertIn("wit", sentence_user)
-        tarot_sys, tarot_user = app._character_tarot_prompt(
+        tarot_sys, tarot_user = glump_api._character_tarot_prompt(
             "로맨스 판타지",
             "리아",
             "이름: 리아",
@@ -323,7 +324,7 @@ class GlumpDiversionTests(unittest.TestCase):
         self.assertIn("상투어", tarot_user)
         self.assertIn("16번 탑", tarot_sys)
         self.assertNotIn("[Core Identity]\n당신은 '", tarot_sys)
-        name_sys, name_user = app._naming_shop_prompt("로맨스 판타지")
+        name_sys, name_user = glump_api._naming_shop_prompt("로맨스 판타지")
         self.assertTrue(name_sys.startswith("[Tory Core Identity]"))
         self.assertIn(core, name_sys)
         self.assertIn("동양풍 인명", name_user)
@@ -416,7 +417,7 @@ class GlumpDiversionTests(unittest.TestCase):
         self.assertIn("작품", str(data.get("error") or data))
 
     def test_sentence_list_parser_bounds(self) -> None:
-        sentences = app._parse_sentence_list(SENTENCES_JSON)
+        sentences = glump_api._parse_sentence_list(SENTENCES_JSON)
         self.assertEqual(len(sentences), 10)
         self.assertEqual(sentences[3]["kind"], "fact")
         korean = json.dumps(
@@ -434,7 +435,7 @@ class GlumpDiversionTests(unittest.TestCase):
             },
             ensure_ascii=False,
         )
-        parsed = app._parse_sentence_list(korean)
+        parsed = glump_api._parse_sentence_list(korean)
         self.assertEqual(len(parsed), 8)
         self.assertEqual(parsed[0]["kind"], "novel")
         self.assertEqual(parsed[1]["kind"], "quote")
@@ -443,13 +444,13 @@ class GlumpDiversionTests(unittest.TestCase):
             ensure_ascii=False,
         )
         with self.assertRaises(ValueError):
-            app._parse_sentence_list(same_kind)
+            glump_api._parse_sentence_list(same_kind)
         with self.assertRaises(ValueError):
-            app._parse_sentence_list('{"sentences": []}')
+            glump_api._parse_sentence_list('{"sentences": []}')
 
     def test_mood_board_empty_key_is_not_500(self) -> None:
         pid = self._make_project()
-        with patch.object(app, "_pexels_api_key", return_value=""):
+        with patch.object(glump_api, "_pexels_api_key", return_value=""):
             status, data = self.request(
                 "POST",
                 "/api/glump/mood-board",
@@ -457,7 +458,7 @@ class GlumpDiversionTests(unittest.TestCase):
             )
         self.assertEqual(status, 400, data)
         self.assertNotEqual(status, 500)
-        self.assertEqual(data.get("error"), app.MOOD_BOARD_EMPTY_KEY_MSG)
+        self.assertEqual(data.get("error"), glump_api.MOOD_BOARD_EMPTY_KEY_MSG)
         self.assertEqual(self._log_count(pid, "mood_board"), 0)
 
     def test_mood_board_fetches_photos(self) -> None:
@@ -482,7 +483,7 @@ class GlumpDiversionTests(unittest.TestCase):
             def __exit__(self, *args: object) -> None:
                 return None
 
-        with patch.object(app, "_pexels_api_key", return_value="test-key"):
+        with patch.object(glump_api, "_pexels_api_key", return_value="test-key"):
             with patch("urllib.request.urlopen", return_value=_FakeResponse()):
                 status, data = self.request(
                     "POST",
@@ -577,7 +578,7 @@ class GlumpDiversionTests(unittest.TestCase):
         self.assertEqual(self._log_count(pid, "character_tarot"), 0)
 
     def test_character_tarot_parser_bounds(self) -> None:
-        cards = app._parse_character_tarot(TAROT_JSON)
+        cards = glump_api._parse_character_tarot(TAROT_JSON)
         self.assertEqual(len(cards), 3)
         two = json.dumps(
             {
@@ -588,9 +589,9 @@ class GlumpDiversionTests(unittest.TestCase):
             },
             ensure_ascii=False,
         )
-        self.assertEqual(len(app._parse_character_tarot(two)), 2)
+        self.assertEqual(len(glump_api._parse_character_tarot(two)), 2)
         with self.assertRaises(ValueError):
-            app._parse_character_tarot('{"cards": [{"name": "탑", "meaning": "하나"}]}')
+            glump_api._parse_character_tarot('{"cards": [{"name": "탑", "meaning": "하나"}]}')
 
     def test_character_tarot_rejects_invalid_style_and_card_selection(self) -> None:
         pid = self._make_project()
@@ -612,9 +613,9 @@ class GlumpDiversionTests(unittest.TestCase):
         self.assertEqual(self._log_count(pid, "character_tarot"), 0)
 
     def test_naming_shop_endpoint_and_parser(self) -> None:
-        groups = app._parse_naming_shop(NAMING_JSON)
+        groups = glump_api._parse_naming_shop(NAMING_JSON)
         self.assertEqual(len(groups), 7)
-        self.assertEqual([item["category"] for item in groups], list(app.NAMING_SHOP_CATEGORIES))
+        self.assertEqual([item["category"] for item in groups], list(glump_api.NAMING_SHOP_CATEGORIES))
         self.assertEqual(groups[0]["items"][0]["name"], "서린")
         self.assertEqual(groups[6]["category"], "무협 용어")
         self.assertEqual(groups[6]["items"][0]["name"], "청운문")
@@ -629,7 +630,7 @@ class GlumpDiversionTests(unittest.TestCase):
         self.assertIn("[Tory Core Identity]", str(self.calls[-1]["system"]))
         self.assertIn("저작권", self.calls[-1]["prompt"])
         with self.assertRaises(ValueError):
-            app._parse_naming_shop('{"groups": []}')
+            glump_api._parse_naming_shop('{"groups": []}')
 
     def test_ui_has_five_diversion_cards(self) -> None:
         root = Path(__file__).resolve().parents[1]

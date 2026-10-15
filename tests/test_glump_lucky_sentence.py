@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 import app
+from routes import glump_api
 import gemini_client
 
 SAMPLE_EPISODE = (
@@ -116,7 +117,7 @@ class GlumpLuckySentenceTests(unittest.TestCase):
             self.assertIn("glump_lucky_draws", tables)
 
     def test_prompt_reuses_tory_core(self) -> None:
-        system, user = app._lucky_sentence_prompt("로맨스 판타지", SAMPLE_EPISODE)
+        system, user = glump_api._lucky_sentence_prompt("로맨스 판타지", SAMPLE_EPISODE)
         core = app.SuperToryHandler._tory_core_identity_system_prompt()
         self.assertTrue(system.startswith("[Tory Core Identity]"))
         self.assertIn(core, system)

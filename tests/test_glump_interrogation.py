@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 import app
+from routes import glump_api
 import gemini_client
 
 SAMPLE_EPISODE = (
@@ -144,7 +145,7 @@ class GlumpInterrogationTests(unittest.TestCase):
             self.assertIn("glump_interrogation_sessions", tables)
 
     def test_prompt_reuses_tory_core_and_json_contract(self) -> None:
-        system, user = app._interrogation_questions_prompt(
+        system, user = glump_api._interrogation_questions_prompt(
             "로맨스 판타지",
             SAMPLE_EPISODE,
             "리아",
@@ -158,7 +159,7 @@ class GlumpInterrogationTests(unittest.TestCase):
         self.assertIn("여주는 연회장", system)
         self.assertIn("추궁할 날카로운 질문", user)
         self.assertIn('"questions"', user)
-        cards_system, cards_user = app._interrogation_summary_prompt(
+        cards_system, cards_user = glump_api._interrogation_summary_prompt(
             [{"question": "도망칠 거야?", "answer": "아니."}]
         )
         self.assertIn(core, cards_system)

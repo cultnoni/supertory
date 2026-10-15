@@ -50,6 +50,8 @@ hiddenimports = [
     "proof_pipeline",
     "feedback_store",
     "feedback_api",
+    "routes",
+    "routes.glump_api",
     "feedback_pipeline",
     "feedback_pipeline.cli",
     "feedback_pipeline.claude_client",

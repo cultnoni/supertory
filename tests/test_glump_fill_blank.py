@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 import app
+from routes import glump_api
 import gemini_client
 
 SAMPLE_EPISODE = (
@@ -118,7 +119,7 @@ class GlumpFillBlankTests(unittest.TestCase):
             self.assertIn("glump_fill_blank_sessions", tables)
 
     def test_prompt_reuses_tory_core_and_json_contract(self) -> None:
-        system, user = app._fill_blank_skeleton_prompt(
+        system, user = glump_api._fill_blank_skeleton_prompt(
             "로맨스 판타지", SAMPLE_EPISODE, "이름: 서윤 / 말투: 짧게 끊어 말한다"
         )
         core = app.SuperToryHandler._tory_core_identity_system_prompt()
@@ -134,7 +135,7 @@ class GlumpFillBlankTests(unittest.TestCase):
         self.assertIn("설정집", user)
 
     def test_assemble_joins_in_order(self) -> None:
-        text = app._assemble_fill_blank_text(
+        text = glump_api._assemble_fill_blank_text(
             SAMPLE_SEGMENTS,
             {
                 "b1": "문이 열리며 남주가 들어왔다.",
@@ -150,7 +151,7 @@ class GlumpFillBlankTests(unittest.TestCase):
 
     def test_assemble_rejects_empty_blank(self) -> None:
         with self.assertRaises(ValueError) as ctx:
-            app._assemble_fill_blank_text(
+            glump_api._assemble_fill_blank_text(
                 SAMPLE_SEGMENTS, {"b1": "동작", "b2": "", "b3": "반응"}
             )
         self.assertEqual(str(ctx.exception), "모든 빈칸을 채워주세요")

@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 import app
+from routes import glump_api
 import gemini_client
 
 
@@ -50,7 +51,7 @@ class GlumpMentalVitaminTests(unittest.TestCase):
         self.calls: list[object] = []
         self._orig_generate = gemini_client.generate_text
         self._orig_configured = gemini_client.is_configured
-        self._orig_schedule = app.schedule_glump_highlight_analysis
+        self._orig_schedule = glump_api.schedule_glump_highlight_analysis
 
         def _fake(prompt: str, *, system: str | None = None, **kwargs: object) -> str:
             self.calls.append({"prompt": prompt, "system": system})
@@ -60,14 +61,14 @@ class GlumpMentalVitaminTests(unittest.TestCase):
         gemini_client.is_configured = lambda: True  # type: ignore[method-assign]
 
         def _sync(scene_id: int, content: str) -> None:
-            app.maybe_extract_glump_highlights(scene_id, content)
+            glump_api.maybe_extract_glump_highlights(scene_id, content)
 
-        app.schedule_glump_highlight_analysis = _sync
+        glump_api.schedule_glump_highlight_analysis = _sync
 
     def tearDown(self) -> None:
         gemini_client.generate_text = self._orig_generate  # type: ignore[method-assign]
         gemini_client.is_configured = self._orig_configured  # type: ignore[method-assign]
-        app.schedule_glump_highlight_analysis = self._orig_schedule
+        glump_api.schedule_glump_highlight_analysis = self._orig_schedule
         self.server.shutdown()
         self.thread.join()
         self.server.server_close()
@@ -146,7 +147,7 @@ class GlumpMentalVitaminTests(unittest.TestCase):
             self.assertIn("glump_highlight_progress", tables)
 
     def test_prompt_reuses_tory_core_and_json_contract(self) -> None:
-        system, user = app._highlight_extraction_prompt("숨소리가 죽었다.")
+        system, user = glump_api._highlight_extraction_prompt("숨소리가 죽었다.")
         core = app.SuperToryHandler._tory_core_identity_system_prompt()
         self.assertEqual(system, core)
         self.assertIn("[Task Instruction]", user)
@@ -158,8 +159,8 @@ class GlumpMentalVitaminTests(unittest.TestCase):
         self.assertIn("빈 배열", user)
 
     def test_parse_empty_and_partial(self) -> None:
-        self.assertEqual(app._parse_highlight_moments("[]"), [])
-        parsed = app._parse_highlight_moments(_moments_json(SAMPLE_MOMENTS[:1]))
+        self.assertEqual(glump_api._parse_highlight_moments("[]"), [])
+        parsed = glump_api._parse_highlight_moments(_moments_json(SAMPLE_MOMENTS[:1]))
         self.assertEqual(len(parsed), 1)
         self.assertEqual(parsed[0]["type"], "dialogue")
 

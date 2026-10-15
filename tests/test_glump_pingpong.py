@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 import app
+from routes import glump_api
 import gemini_client
 
 SAMPLE_EPISODE = (
@@ -121,7 +122,7 @@ class GlumpPingpongTests(unittest.TestCase):
             self.assertIn("glump_pingpong_sessions", tables)
 
     def test_prompt_reuses_tory_core_not_reader(self) -> None:
-        system, user = app._pingpong_turn_prompt(
+        system, user = glump_api._pingpong_turn_prompt(
             "로맨스 판타지",
             SAMPLE_EPISODE,
             "이름: 서윤 / 말투: 짧게 끊어 말한다",
@@ -138,8 +139,8 @@ class GlumpPingpongTests(unittest.TestCase):
 
     def test_clip_reply_over_200(self) -> None:
         long = "다음이 다가왔다. " * 40
-        clipped = app._clip_pingpong_reply(long)
-        self.assertLessEqual(len(clipped), app.PINGPONG_REPLY_MAX)
+        clipped = glump_api._clip_pingpong_reply(long)
+        self.assertLessEqual(len(clipped), glump_api.PINGPONG_REPLY_MAX)
         self.assertTrue(clipped)
 
     def test_short_episode_is_400(self) -> None:
@@ -183,7 +184,7 @@ class GlumpPingpongTests(unittest.TestCase):
             self.assertEqual(status, 200, data)
             text = str(data.get("tori_text") or "")
             self.assertTrue(text)
-            self.assertLessEqual(len(text), app.PINGPONG_REPLY_MAX)
+            self.assertLessEqual(len(text), glump_api.PINGPONG_REPLY_MAX)
             self.assertFalse(data.get("checkin"))
             tori.append(text)
             self.assertEqual(data.get("total_turns"), (i + 1) * 2)

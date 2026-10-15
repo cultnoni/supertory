@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import app
+from routes import glump_api
 import gemini_client
 
 
@@ -199,7 +200,7 @@ class GlumpBurnoutActivitiesTests(unittest.TestCase):
         return [row["tool_id"] for row in rows]
 
     def test_burnout_diagnosis_still_offers_rest_choice(self) -> None:
-        burnout = app.diagnose_glump("burnout")
+        burnout = glump_api.diagnose_glump("burnout")
         self.assertIsNone(burnout["recommended_tool"])
         self.assertTrue(burnout["show_rest_choice"])
         self.assertIn("300자", burnout["message"])
@@ -213,7 +214,7 @@ class GlumpBurnoutActivitiesTests(unittest.TestCase):
         self.assertTrue(data.get("show_rest_choice"))
 
     def test_mood_color_prompt_and_parser(self) -> None:
-        system, user = app._mood_color_prompt("로맨스 판타지", "리아", "이름: 리아")
+        system, user = glump_api._mood_color_prompt("로맨스 판타지", "리아", "이름: 리아")
         core = app.SuperToryHandler._tory_core_identity_system_prompt()
         self.assertTrue(system.startswith("[Tory Core Identity]"))
         self.assertIn(core, system)
@@ -223,40 +224,40 @@ class GlumpBurnoutActivitiesTests(unittest.TestCase):
         self.assertIn("외모", user)
         self.assertNotIn("이 작품의 분위기", user)
         self.assertIn('"colors"', user)
-        colors = app._parse_mood_colors(COLORS_JSON)
+        colors = glump_api._parse_mood_colors(COLORS_JSON)
         self.assertEqual(len(colors), 3)
         self.assertEqual(colors[2]["hex"], "#C97A8A")
-        self.assertEqual(app._normalise_hex_color("#abc"), "#AABBCC")
+        self.assertEqual(glump_api._normalise_hex_color("#abc"), "#AABBCC")
         with self.assertRaises(ValueError):
-            app._parse_mood_colors("{}")
+            glump_api._parse_mood_colors("{}")
 
     def test_mood_playlist_prompt_forbids_real_songs(self) -> None:
-        system, user = app._mood_playlist_prompt("로맨스 판타지", "리아", "이름: 리아")
+        system, user = glump_api._mood_playlist_prompt("로맨스 판타지", "리아", "이름: 리아")
         core = app.SuperToryHandler._tory_core_identity_system_prompt()
         self.assertIn(core, system)
         self.assertIn("실제 존재하는 노래", user)
         self.assertIn("가수", user)
-        playlist = app._parse_mood_playlist(PLAYLIST_JSON)
+        playlist = glump_api._parse_mood_playlist(PLAYLIST_JSON)
         self.assertEqual(playlist["playlist_title"], "기둥 뒤에서 듣는 밤")
         self.assertEqual(len(playlist["tracks"]), 5)
         with self.assertRaises(ValueError):
-            app._parse_mood_playlist('{"playlist_title": "x", "tracks": []}')
+            glump_api._parse_mood_playlist('{"playlist_title": "x", "tracks": []}')
 
     def test_word_list_prompt_and_parser(self) -> None:
-        system, user = app._word_list_prompt("로맨스 판타지")
+        system, user = glump_api._word_list_prompt("로맨스 판타지")
         core = app.SuperToryHandler._tory_core_identity_system_prompt()
         self.assertIn(core, system)
         self.assertIn("10개", user)
-        words = app._parse_word_list(WORDS_JSON)
+        words = glump_api._parse_word_list(WORDS_JSON)
         self.assertEqual(len(words), 10)
         self.assertEqual(words[0]["word"], "잠행")
 
     def test_sentence_list_prompt_and_parser(self) -> None:
-        system, user = app._sentence_list_prompt("로맨스 판타지")
+        system, user = glump_api._sentence_list_prompt("로맨스 판타지")
         core = app.SuperToryHandler._tory_core_identity_system_prompt()
         self.assertIn(core, system)
         self.assertIn("문장집", user)
-        sentences = app._parse_sentence_list(SENTENCES_JSON)
+        sentences = glump_api._parse_sentence_list(SENTENCES_JSON)
         self.assertEqual(len(sentences), 10)
         self.assertEqual(sentences[0]["kind"], "novel")
         self.assertEqual(sentences[2]["kind"], "wit")
@@ -304,7 +305,7 @@ class GlumpBurnoutActivitiesTests(unittest.TestCase):
 
     def test_mood_board_empty_pexels_key_is_400_not_500(self) -> None:
         pid = self._make_project()
-        with patch.object(app, "_pexels_api_key", return_value=""):
+        with patch.object(glump_api, "_pexels_api_key", return_value=""):
             status, data = self.request(
                 "POST",
                 "/api/glump/mood-board",
@@ -312,7 +313,7 @@ class GlumpBurnoutActivitiesTests(unittest.TestCase):
             )
         self.assertEqual(status, 400, data)
         self.assertNotEqual(status, 500)
-        self.assertEqual(data.get("error"), app.MOOD_BOARD_EMPTY_KEY_MSG)
+        self.assertEqual(data.get("error"), glump_api.MOOD_BOARD_EMPTY_KEY_MSG)
         self.assertEqual(self.calls, [])
         self.assertEqual(self._logged_tools(pid), [])
 
@@ -339,7 +340,7 @@ class GlumpBurnoutActivitiesTests(unittest.TestCase):
             self.assertIn("api.pexels.com", request.full_url)
             return _FakeHttpResponse(fake_payload)
 
-        with patch.object(app, "_pexels_api_key", return_value="test-pexels-key"):
+        with patch.object(glump_api, "_pexels_api_key", return_value="test-pexels-key"):
             with patch("urllib.request.urlopen", side_effect=_fake_urlopen):
                 status, data = self.request(
                     "POST",

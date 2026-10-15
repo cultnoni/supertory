@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 import app
+from routes import glump_api
 import gemini_client
 
 
@@ -112,7 +113,7 @@ class GlumpWildcardSparkTests(unittest.TestCase):
             self.assertIn("glump_tool_logs", tables)
 
     def test_prompt_reuses_tory_core_and_adds_task(self) -> None:
-        system, user = app._wildcard_spark_prompt(
+        system, user = glump_api._wildcard_spark_prompt(
             "로맨스 판타지", SAMPLE_EPISODE, "클라이맥스"
         )
         core = app.SuperToryHandler._tory_core_identity_system_prompt()
