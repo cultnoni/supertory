@@ -261,7 +261,7 @@
 
     <link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
     <link rel="stylesheet" href="/styles.css?v=1.4.262">
-    <link rel="stylesheet" href="/island.css?v=29">
+    <link rel="stylesheet" href="/island.css?v=30">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -4082,6 +4082,10 @@
                 <button type="button" class="isl-btn" id="islTimerToggle"><svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M7 4v16l13-8z"/></svg><span id="islTimerLabel" data-i18n="island.시작">시작</span></button>
               </div>
               <p class="isl-today-line" id="islTodayLine"></p>
+              <div class="isl-today-stats">
+                <div><strong id="islTodayChars">0</strong><span data-i18n="island.오늘_쓴_글자">오늘 쓴 글자</span></div>
+                <div><strong id="islTodayTime">0</strong><span data-i18n="island.오늘_쓴_시간">오늘 쓴 시간</span></div>
+              </div>
               <div class="isl-week" id="islWeekBars" role="img" aria-label="최근 7일" data-i18n-aria-label="island.최근_7일"></div>
             </section>
             <section class="isl-card" aria-labelledby="islCheckTitle">
@@ -10177,7 +10181,7 @@
     <script src="/typeset_metrics.js?v=1.4.45"></script>
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
-    <script src="/app.js?v=1.4.255"></script>
+    <script src="/app.js?v=1.4.255-c1"></script>
     <script src="/feedback_panel.js?v=30"></script>
   </body>
 </html>

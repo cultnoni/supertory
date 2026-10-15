@@ -5851,7 +5851,7 @@ function syncParagraphStyleSelect(toolbar, editor) {
 
 /* —— Line height (줄간격) —— */
 const LINE_HEIGHT_STORAGE_KEY = "supertory.editorLineHeight";
-const DEFAULT_LINE_HEIGHT = "1.8";
+const DEFAULT_LINE_HEIGHT = "1.9";
 const LINE_HEIGHT_BLOCK_RE = /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|SECTION|ARTICLE|PRE)$/i;
 
 function getStoredLineHeight() {
@@ -7529,10 +7529,11 @@ function matchSizeSelectValue(select, sizePx) {
   if (!select) return;
   const raw = String(sizePx || "").trim().toLowerCase();
   if (!raw) return;
-  // Accept "17px", "17", "17.0px"
+  // Preserve fractional sizes such as the C1 paper's 16.5px.
   const num = parseFloat(raw);
   if (!Number.isFinite(num)) return;
-  const asPx = `${Math.round(num)}px`;
+  const displaySize = Math.round(num * 100) / 100;
+  const asPx = `${displaySize}px`;
   const hit = [...select.options].find((o) => o.value === asPx);
   if (hit) {
     select.value = asPx;
@@ -7545,7 +7546,7 @@ function matchSizeSelectValue(select, sizePx) {
       select.appendChild(extra);
     }
     extra.value = asPx;
-    extra.textContent = String(Math.round(num));
+    extra.textContent = String(displaySize);
     select.value = asPx;
   }
 }
@@ -32910,6 +32911,8 @@ async function refreshAiCheckHub() {
   }).join("");
   const set = (id, text) => { const el = $(id); if (el) el.textContent = text; };
   set("islTodayLine", i18n.t("island.오늘_요약", { c: last.chars.toLocaleString(), t: islFormatDuration(last.sec) }));
+  set("islTodayChars", `${last.chars.toLocaleString()}${i18n.t("island.자")}`);
+  set("islTodayTime", islFormatDuration(last.sec));
   const goal = Number(prefs?.goal_chars) || 0;
   const row = $("islGoalRow");
   if (row) {
@@ -32950,7 +32953,57 @@ function renderIslWidgetTiles() {
   });
   $("islWidgetEmpty")?.classList.toggle("hidden", items.length > 0);
 }
+// C1: keep the existing scroll host and editor intact; only rehost the paper
+// header. Restore every node to its anchor for the existing split layout.
+function setupIslandPaperLayout() {
+  const workspace = $("sceneWorkspace");
+  const page = $("manuscriptPage");
+  const content = $("sceneContent");
+  const tools = $("formatIconsShell");
+  if (!workspace || !page || !content || !tools || page.dataset.paperLayoutBound) return;
+  page.dataset.paperLayoutBound = "1";
+  const home = $("titlebarHomeButton");
+  const work = $("binderWorkMeta");
+  const binderTop = document.querySelector(".binder-panel-top");
+  if (home && work && binderTop) {
+    binderTop.append($("collapseBinderPanelButton"));
+    home.after(work);
+  }
+  const headers = [$("islCrumb"), workspace.querySelector(".episode-nav-bar"), $("sceneStatusShell")].filter(Boolean);
+  const navigation = [$("episodePrevButton"), $("episodeNextButton")].filter(Boolean);
+  const anchors = new Map([...headers, ...navigation].map((node) => {
+    const anchor = document.createComment("C1 layout anchor");
+    node.before(anchor);
+    return [node, anchor];
+  }));
+  const sheet = document.createElement("div");
+  sheet.className = "isl-paper-sheet";
+  const nav = document.createElement("div");
+  nav.className = "isl-paper-navigation";
+  const sync = () => {
+    const split = workspace.classList.contains("split-active");
+    if (split === !page.classList.contains("isl-paper-scroll")) return;
+    if (split) {
+      [...headers, ...navigation].forEach((node) => anchors.get(node).after(node));
+      sheet.before(...sheet.childNodes);
+      sheet.remove();
+      nav.remove();
+      page.classList.remove("isl-paper-scroll");
+    } else {
+      content.before(sheet);
+      sheet.append(...headers, content);
+      tools.append(nav);
+      nav.append(...navigation);
+      page.classList.add("isl-paper-scroll");
+    }
+    scheduleToolbarOverflowLayout();
+  };
+  new MutationObserver(sync).observe(workspace, { attributes: true, attributeFilter: ["class"] });
+  sync();
+}
+
 function setupAiCheckHub() {
+  setupIslandPaperLayout();
   $("aiTabWidgets")?.addEventListener("click", () => {
     hideToryPersonaMenu();
     setAiPanelTab("widgets");
