@@ -549,17 +549,17 @@ function quitAfterBackendStops() {
 
 /** Match web `--chrome-bg` / `--ink` so OS caption buttons blend with each UI theme. */
 const TITLEBAR_OVERLAY_BY_THEME = {
-  light: { color: "#F8FAFC", symbolColor: "#0F172A", height: 32 },
-  sand: { color: "#FEFDF8", symbolColor: "#2C2523", height: 32 },
-  dark: { color: "#1E1B17", symbolColor: "#ECE6DC", height: 32 },
-  cabin: { color: "#D5DDD3", symbolColor: "#2C3A2E", height: 32 },
-  study: { color: "#EAE0D3", symbolColor: "#4A3B32", height: 32 },
-  library: { color: "#EFEFF7", symbolColor: "#2B283B", height: 32 },
-  dawn: { color: "#E1E6EB", symbolColor: "#2B323B", height: 32 },
-  attic: { color: "#14181F", symbolColor: "#E6E0D4", height: 32 },
-  eink: { color: "#FFFFFF", symbolColor: "#000000", height: 32 },
-  "sunset-window": { color: "#F6E6C8", symbolColor: "#4D382C", height: 32 },
-  "silver-fog": { color: "#F1F3F5", symbolColor: "#343A40", height: 32 },
+  light: { color: "#F8FAFC", symbolColor: "#0F172A", height: 40 },
+  sand: { color: "#FEFDF8", symbolColor: "#2C2523", height: 40 },
+  dark: { color: "#1E1B17", symbolColor: "#ECE6DC", height: 40 },
+  cabin: { color: "#D5DDD3", symbolColor: "#2C3A2E", height: 40 },
+  study: { color: "#EAE0D3", symbolColor: "#4A3B32", height: 40 },
+  library: { color: "#EFEFF7", symbolColor: "#2B283B", height: 40 },
+  dawn: { color: "#E1E6EB", symbolColor: "#2B323B", height: 40 },
+  attic: { color: "#14181F", symbolColor: "#E6E0D4", height: 40 },
+  eink: { color: "#FFFFFF", symbolColor: "#000000", height: 40 },
+  "sunset-window": { color: "#F6E6C8", symbolColor: "#4D382C", height: 40 },
+  "silver-fog": { color: "#F1F3F5", symbolColor: "#343A40", height: 40 },
 };
 
 function normalizeHexColor(value, fallback) {
@@ -579,7 +579,7 @@ function titleBarOverlayOptions(themeOrOpts = "light") {
     return {
       color: normalizeHexColor(themeOrOpts.color, preset.color),
       symbolColor: normalizeHexColor(themeOrOpts.symbolColor, preset.symbolColor),
-      height: Number(themeOrOpts.height) > 0 ? Number(themeOrOpts.height) : 32,
+      height: Number(themeOrOpts.height) > 0 ? Number(themeOrOpts.height) : 40,
     };
   }
   const key = String(themeOrOpts || "light");

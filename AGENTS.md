@@ -119,6 +119,13 @@ Prefer reusing existing serializers and word-count helpers rather than inventing
 - Main views: idea board, keyword board, character board, settings-doc main (`synopsisWorkspace`), etc.  
 - When adding “open on main”, register in `SETTINGS_BOOKMARK_META` and hide other center panes consistently (`ideaBoardOpen`, `keywordBoardOpen`, `characterBoardOpen`, synopsis main)
 
+### 디자인 (섬과 종이)
+
+- 화면·기능을 추가하거나 고칠 때는 **`docs/design-guidelines.md`** 를 먼저 읽고 따른다 (토큰, 부품, 기능 배치 지도).
+- 디자인 레이어는 `web/island.css` (`styles.css` 뒤 로드). 새 디자인 규칙은 여기에 쓰고, 색은 기존 테마 변수만 쓴다.
+- 살아 있는 시안: `web/dev/main-design-v4.html`. 마스코트는 `/assets/tori-mascot.png`만 사용(글자·이모지 대체 금지).
+- 새 기능은 지침 §7 배치 지도에 자리를 먼저 정한다 — 화면에서 접근할 수 없는 기능을 만들지 않는다.
+
 ### Viewer
 
 Modes: `pdf` | `book` | `phone` | `eink` (settings in `localStorage` under `supertory.viewerSettings`).

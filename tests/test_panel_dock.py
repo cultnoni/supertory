@@ -505,8 +505,9 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22", writing_timer)
         self.assertIn('stroke="currentColor"', writing_timer)
         tool_timer = self.html.split('id="writingLogButton"', 1)[1].split("</button>", 1)[0]
-        self.assertIn('d="M16 14v2.2l1.6 1"', tool_timer)
-        self.assertIn('cx="16" cy="16" r="6"', tool_timer)
+        # 섬과 종이: 도구줄 아이콘은 시안 선 아이콘(stroke 1.8) — docs/design-guidelines.md §10
+        self.assertIn('cx="12" cy="13" r="8"', tool_timer)
+        self.assertIn('stroke-width="1.8"', tool_timer)
         self.assertIn('data-i18n="app.기록"', tool_timer)
         self.assertIn('name="writingTimerStylePref"', self.html)
         self.assertIn('value="hourglass"', self.html)
@@ -894,7 +895,7 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('id="openPageWriteFromTypeset"', self.html)
         self.assertNotIn("index.쪽쓰기_기능은_준비_중입니다", self.js.split('$("pageWriteButton")', 1)[1][:400])
         self.assertIn("lucide-book-open-text", row)
-        self.assertIn('d="M12 5v16"', row)
+        self.assertIn('d="M4 4h12a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"', row)
         expected_labels = {
             "ko": ("조판", "조판 열기", "조판 미리보기"),
             "en": ("Typeset", "Open typeset", "Typeset preview"),
@@ -951,8 +952,6 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("width: max-content", tab_bar)
         self.assertIn("max-width: calc(100% - 32px)", tab_bar)
         self.assertNotIn("flex: 1 1 auto", tab_bar)
-        add_btn = self.css.split(".episode-tab-add {", 1)[1].split("}", 1)[0]
-        self.assertNotIn("translateX", add_btn)
         # Tab size itself must stay untouched.
         tab = self.css.split(".episode-tab {", 1)[1].split("}", 1)[0]
         self.assertIn("min-height: 28px", tab)
@@ -1602,8 +1601,8 @@ class PanelDockContractTests(unittest.TestCase):
         history = self.html.split('data-dock-item="aiHistory"', 1)[1].split("</button>", 1)[0]
         self.assertIn("M22 13a18.15 18.15 0 0 1-20 0", history)
         viewer = self.html.split('id="viewerModeButton"', 1)[1].split("</button>", 1)[0]
-        self.assertIn('circle cx="6" cy="15" r="4"', viewer)
-        self.assertIn('circle cx="18" cy="15" r="4"', viewer)
+        self.assertIn('d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"', viewer)
+        self.assertIn('circle cx="12" cy="12" r="3"', viewer)
         self.assertIn('stroke="currentColor"', viewer)
         self.assertNotIn("#e0b48a", self.css)
         self.assertNotIn("#f0d0a8", self.css)
@@ -1806,8 +1805,9 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("tori-mascot.png", header)
         self.assertIn("titlebar-mascot", header)
         ai_title = self.html.split('class="ai-panel-title"', 1)[1].split("</h2>", 1)[0]
-        self.assertIn("lucide-bot", ai_title)
-        self.assertNotIn("tori-mascot.png", ai_title)
+        # 섬과 종이 디자인: SuperTORY 머리글은 마스코트(로봇 아이콘 아님) — docs/design-guidelines.md §4
+        self.assertIn("tori-mascot.png", ai_title)
+        self.assertNotIn("lucide-bot", ai_title)
         self.assertNotIn("lucide-house", header)
         self.assertIn("lucide-book-plus", header)
         self.assertIn("lucide-settings", header)

@@ -32400,13 +32400,641 @@ function setToryChatMode(mode, { quiet = false } = {}) {
   return true;
 }
 
+/** 서식줄: 기본은 모두 바깥에 · 폭이 모자랄 때만 단계적으로 접고(⋯ 더보기 표시) */
+function fitFormatRow() {
+  const tb = $("formatToolbar");
+  const body = tb?.querySelector(".format-toolbar-row-body");
+  if (!tb || !body || tb.offsetParent === null) return;
+  const tiers = ["", "is-tight", "is-tight is-compact", "is-tight is-compact is-mini", "is-tight is-compact is-mini is-micro", "is-tight is-compact is-mini is-micro is-nano"];
+  tb.classList.add("isl-measure");
+  for (let i = 0; i < tiers.length; i += 1) {
+    tb.classList.remove("is-tight", "is-compact", "is-mini", "is-micro", "is-nano");
+    tiers[i].split(" ").filter(Boolean).forEach((c) => tb.classList.add(c));
+    if (body.scrollWidth - body.clientWidth <= 1) break;
+  }
+  tb.classList.remove("isl-measure");
+}
+let fitFormatRowRaf = 0;
+function scheduleFitFormatRow() {
+  if (fitFormatRowRaf) return;
+  fitFormatRowRaf = window.requestAnimationFrame(() => { fitFormatRowRaf = 0; fitFormatRow(); });
+}
+
+/** 서식줄 select: 시안처럼 선택된 글자 폭 + ⌄ 만큼만 차지하게 크기를 맞춘다 */
+function fitFormatSelects() {
+  const sels = document.querySelectorAll("#formatToolbar .toolbar-field select");
+  if (!sels.length) return;
+  const canvas = fitFormatSelects._c || (fitFormatSelects._c = document.createElement("canvas"));
+  const ctx = canvas.getContext("2d");
+  sels.forEach((sel) => {
+    const cs = getComputedStyle(sel);
+    ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const text = sel.options[sel.selectedIndex]?.textContent || sel.value || "";
+    const w = Math.ceil(ctx.measureText(text).width) + 28;
+    sel.style.setProperty("width", `${Math.max(36, w)}px`, "important");
+  });
+  scheduleFitFormatRow();
+}
+
+/** 자간(글자 사이 간격): 장평과 같은 방식으로 선택한 단락에 적용 */
+function applyLetterSpacing(hundredthsEm, editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  if (!editor) return;
+  const v = Math.max(-10, Math.min(30, Math.round(Number(hundredthsEm) || 0)));
+  const blocks = paragraphBlocksForSelection(editor);
+  if (!blocks.length) return;
+  const html = blocks.map((block) => {
+    const clone = block.cloneNode(true);
+    if (v === 0) clone.style.removeProperty("letter-spacing");
+    else clone.style.letterSpacing = `${(v / 100).toFixed(2)}em`;
+    if (!clone.getAttribute("style")) clone.removeAttribute("style");
+    return clone.outerHTML;
+  }).join("");
+  replaceNodesUndoable(blocks, html);
+  updateEditorPlaceholder(editor);
+  try { editor.dispatchEvent(new Event("input", { bubbles: true })); } catch (_) { /* ignore */ }
+}
+
+/** 서식 ⋯ 더보기 팝오버: 글자(장평·자간·색) · 단락 · 삽입 · 문서. 기존 서식 함수/버튼을 그대로 호출한다 */
+/** 분할 메뉴 안의 "비교 보기" — 기존 비교 버튼을 대신 눌러 준다(아이콘줄의 비교 버튼은 삭제) */
+function setupSplitCompareItem() {
+  const item = $("viewModeCompareItem");
+  if (!item || item._islBound) return;
+  item._islBound = true;
+  item.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try { closeViewModeMenu?.(); } catch (_) { /* ignore */ }
+    $("compareSplitButton")?.click();
+  });
+}
+
+function setupFormatMorePopover() {
+  const pop = $("islFmtPop");
+  const btn = $("islFmtMore");
+  if (!pop || !btn || setupFormatMorePopover._bound) return;
+  setupFormatMorePopover._bound = true;
+  fitFormatSelects();
+  scheduleFitFormatRow();
+  window.addEventListener("resize", scheduleFitFormatRow);
+  if (typeof ResizeObserver === "function") {
+    const ro = new ResizeObserver(scheduleFitFormatRow);
+    const shell = $("formatToolbarShell"); if (shell) ro.observe(shell);
+    const work = $("workArea"); if (work) ro.observe(work);
+  }
+  document.querySelector("#formatToolbar")?.addEventListener("change", () => window.setTimeout(fitFormatSelects, 0));
+  document.addEventListener("selectionchange", () => { window.clearTimeout(fitFormatSelects._t); fitFormatSelects._t = window.setTimeout(fitFormatSelects, 120); });
+  if (document.fonts?.ready) document.fonts.ready.then(fitFormatSelects);
+  const editorOf = () => getActiveRichEditor() || lastEditorSelection.editor || $("sceneContent");
+  const withSelection = (fn) => {
+    const ed = editorOf();
+    if (!ed) return;
+    focusEditor(ed);
+    const range = getUsableEditorRange(ed);
+    if (range) { try { restoreSelection(range); } catch (_) { /* ignore */ } }
+    fn(ed);
+    rememberLastEditorSelection(ed);
+    try { ed.dispatchEvent(new Event("input", { bubbles: true })); } catch (_) { /* ignore */ }
+  };
+  const swatch = (hex, label, onPick) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "isl-fp-dot"; b.title = label; b.setAttribute("aria-label", label);
+    b.style.setProperty("--sw", hex);
+    b.addEventListener("click", onPick);
+    return b;
+  };
+  const clearDot = (label, onPick) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "isl-fp-dot is-clear"; b.title = label; b.setAttribute("aria-label", label); b.textContent = "∅";
+    b.addEventListener("click", onPick);
+    return b;
+  };
+  const fill = () => {
+    const text = $("islFpTextSw"); const hl = $("islFpHlSw"); const chars = $("islFpChars");
+    if (text && !text.childElementCount) {
+      FORMAT_PRESET_COLORS.forEach((c) => text.appendChild(swatch(c.hex, c.label, () => withSelection((ed) => applyFormatColorToSelection("text", c.hex, ed, { forceApply: true })))));
+      text.appendChild(clearDot(i18n.t("island.fp_지우기"), () => withSelection(() => clearTextColor())));
+    }
+    if (hl && !hl.childElementCount) {
+      FORMAT_HIGHLIGHT_PRESET_COLORS.forEach((c) => hl.appendChild(swatch(c.hex, c.label, () => withSelection((ed) => applyFormatColorToSelection("highlight", c.hex, ed, { forceApply: true })))));
+      hl.appendChild(clearDot(i18n.t("island.fp_지우기"), () => withSelection(() => clearHighlight())));
+    }
+    if (chars && !chars.childElementCount) {
+      SPECIAL_CHARS_UNIQUE.slice(0, 30).forEach((ch) => {
+        const b = document.createElement("button");
+        b.type = "button"; b.textContent = ch; b.title = ch;
+        b.addEventListener("click", () => withSelection((ed) => insertSpecialChar(ch, ed)));
+        chars.appendChild(b);
+      });
+    }
+  };
+  // 현재 선택의 장평·자간 값을 슬라이더에 반영
+  const syncSliders = () => {
+    const jang = $("formatJangpyeong")?.value || "100";
+    $("islFpWidth").value = jang; $("islFpWidthVal").textContent = `${jang}%`;
+    let track = 0;
+    try {
+      const ed = editorOf();
+      const sel = window.getSelection();
+      const node = sel?.rangeCount ? sel.getRangeAt(0).startContainer : null;
+      const blk = node && ed ? getBlockElementForParagraph(node, ed) : null;
+      const raw = blk?.style?.letterSpacing || "";
+      const m = raw.match(/(-?[\d.]+)em/);
+      if (m) track = Math.round(parseFloat(m[1]) * 100);
+    } catch (_) { /* ignore */ }
+    $("islFpTracking").value = String(track);
+    $("islFpTrackingVal").textContent = track ? (track / 100).toFixed(2) : "0";
+  };
+  const place = () => {
+    const r = btn.getBoundingClientRect();
+    const w = Math.min(420, window.innerWidth - 16);
+    pop.style.width = `${w}px`;
+    pop.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))}px`;
+    pop.style.top = `${Math.round(r.bottom + 6)}px`;
+    pop.style.maxHeight = `${Math.max(240, window.innerHeight - r.bottom - 16)}px`;
+  };
+  const close = () => { pop.hidden = true; pop.classList.add("hidden"); btn.setAttribute("aria-expanded", "false"); };
+  const open = () => {
+    fill(); syncSliders(); place();
+    pop.hidden = false; pop.classList.remove("hidden"); btn.setAttribute("aria-expanded", "true");
+  };
+  // 클릭해도 본문 선택이 풀리지 않게
+  [btn, pop].forEach((el) => el.addEventListener("mousedown", (event) => {
+    if (event.target.closest("input[type='range']")) { try { rememberLastEditorSelection(editorOf()); } catch (_) { /* ignore */ } return; }
+    event.preventDefault();
+  }));
+  btn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    try { rememberLastEditorSelection(editorOf()); } catch (_) { /* ignore */ }
+    if (pop.hidden) open(); else close();
+  });
+  document.addEventListener("click", (event) => { if (!pop.hidden && !event.target.closest("#islFmtPop, #islFmtMore")) close(); });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !pop.hidden) close(); });
+  window.addEventListener("resize", () => { if (!pop.hidden) place(); });
+  // 슬라이더
+  $("islFpWidth")?.addEventListener("input", (e) => { $("islFpWidthVal").textContent = `${e.target.value}%`; });
+  $("islFpWidth")?.addEventListener("change", (e) => {
+    const v = String(normalizeJangpyeongPercent(e.target.value));
+    const sel = $("formatJangpyeong");
+    if (sel && ![...sel.options].some((o) => o.value === v)) {
+      const o = document.createElement("option"); o.value = v; o.textContent = v; sel.appendChild(o);
+    }
+    if (sel) sel.value = v;
+    withSelection((ed) => applyJangpyeong(v, ed));
+  });
+  $("islFpTracking")?.addEventListener("input", (e) => { const n = Number(e.target.value); $("islFpTrackingVal").textContent = n ? (n / 100).toFixed(2) : "0"; });
+  $("islFpTracking")?.addEventListener("change", (e) => withSelection((ed) => applyLetterSpacing(e.target.value, ed)));
+  $("islTrackingSelect")?.addEventListener("change", (e) => withSelection((ed) => applyLetterSpacing(e.target.value, ed)));
+  // 정렬·단 나누기·글머리·기호 → 기존 서식 버튼 그대로 클릭, 번호 목록·삽입·서식 지우기는 기존 함수
+  pop.addEventListener("click", (event) => {
+    const fmt = event.target.closest("[data-isl-fmt]");
+    if (fmt) {
+      if (fmt.dataset.islFmt === "specialChar") {
+        // 숨겨진 툴바 버튼은 위치를 잡을 수 없어 팔레트가 열리자마자 닫힌다 → 더보기 버튼 아래에 직접 연다
+        close();
+        window.setTimeout(() => {
+          try { showFormatSpecialPalette(btn, getActiveRichEditor() || $("sceneContent")); } catch (error) { handleError(error); }
+        }, 0);
+        return;
+      }
+      document.querySelector(`#formatToolbar [data-format="${fmt.dataset.islFmt}"]`)?.click();
+      return;
+    }
+    const list = event.target.closest("[data-isl-list]");
+    if (list) { withSelection((ed) => applyListStyle(list.dataset.islList, ed)); return; }
+    const ins = event.target.closest("[data-isl-insert]");
+    if (ins) { withSelection((ed) => insertSpecialChar(ins.dataset.islInsert, ed)); return; }
+    const cmd = event.target.closest("[data-isl-cmd]");
+    if (cmd) { withSelection(() => { try { document.execCommand(cmd.dataset.islCmd, false, null); } catch (_) { /* ignore */ } }); }
+  });
+}
+
+const ISL_FAV_DEFAULT = ["characters", "world", "baits", "ideas"];
+const ISL_FAV_MAX = 6;
+const ISL_FAV_ICONS = {
+  characters: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  world: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/>',
+  baits: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  ideas: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6M10 22h4"/>',
+  items: '<path d="m21 8-9-5-9 5v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+  dictionary: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
+  keywords: '<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1"/>',
+};
+const ISL_FAV_ICON_FALLBACK = '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>';
+/** 설정집 즐겨찾기: 바인더 아래 타일. 개수에 따라 한 줄 3칸까지 (CSS data-count) */
+function islFavKeys() {
+  const avail = Object.keys(SETTINGS_BOOKMARK_META).filter((k) => document.querySelector(`[data-settings-main="${k}"]`));
+  let list = null;
+  try { list = JSON.parse(localStorage.getItem("supertory.islFavs") || "null"); } catch (_) { list = null; }
+  if (!Array.isArray(list)) list = ISL_FAV_DEFAULT;
+  return { avail, list: list.filter((k) => avail.includes(k)).slice(0, ISL_FAV_MAX) };
+}
+function saveIslFavs(list) {
+  try { localStorage.setItem("supertory.islFavs", JSON.stringify(list)); } catch (_) { /* ignore */ }
+}
+function renderIslFavorites() {
+  const host = $("islTiles");
+  if (!host) return;
+  const { list } = islFavKeys();
+  host.textContent = "";
+  host.dataset.count = String(list.length);
+  const counts = {
+    characters: Array.isArray(state.characters) && state.characters.length ? `${state.characters.length}${i18n.t("island.명")}` : "",
+    baits: Array.isArray(state.baits) && state.baits.length ? `${state.baits.length}${i18n.t("island.개")}` : "",
+    ideas: Array.isArray(state.ideas) && state.ideas.length ? `${state.ideas.length}${i18n.t("island.장")}` : "",
+  };
+  list.forEach((key) => {
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "isl-tile";
+    tile.dataset.islOpen = key;
+    tile.innerHTML = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ISL_FAV_ICONS[key] || ISL_FAV_ICON_FALLBACK}</svg><strong></strong><span></span><i class="isl-tile-x" role="button" data-isl-fav-remove="${key}"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></i>`;
+    tile.querySelector("strong").textContent = SETTINGS_BOOKMARK_META[key]?.title || key;
+    tile.querySelector("span").textContent = counts[key] || "";
+    tile.querySelector(".isl-tile-x").title = i18n.t("island.즐겨찾기_빼기");
+    host.appendChild(tile);
+  });
+}
+function setupIslFavorites() {
+  const host = $("islTiles");
+  const menu = $("islFavMenu");
+  const addBtn = $("islFavAdd");
+  if (!host) return;
+  renderIslFavorites();
+  const closeMenu = () => { if (menu) { menu.hidden = true; menu.classList.add("hidden"); } addBtn?.setAttribute("aria-expanded", "false"); };
+  host.addEventListener("click", (event) => {
+    const x = event.target.closest?.("[data-isl-fav-remove]");
+    if (!x) return;
+    event.stopPropagation();
+    event.preventDefault();
+    saveIslFavs(islFavKeys().list.filter((k) => k !== x.dataset.islFavRemove));
+    renderIslFavorites();
+  });
+  addBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const wasOpen = menu && !menu.hidden;
+    closeMenu();
+    if (wasOpen || !menu) return;
+    const { avail, list } = islFavKeys();
+    menu.textContent = "";
+    const rest = avail.filter((k) => !list.includes(k));
+    if (list.length >= ISL_FAV_MAX || !rest.length) {
+      const p = document.createElement("p");
+      p.className = "isl-fav-empty";
+      p.textContent = i18n.t("island.즐겨찾기_모두_추가됨");
+      menu.appendChild(p);
+    } else {
+      rest.forEach((key) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.setAttribute("role", "menuitem");
+        b.dataset.islFavPick = key;
+        b.textContent = SETTINGS_BOOKMARK_META[key]?.title || key;
+        menu.appendChild(b);
+      });
+    }
+    menu.hidden = false;
+    menu.classList.remove("hidden");
+    addBtn.setAttribute("aria-expanded", "true");
+  });
+  menu?.addEventListener("click", (event) => {
+    const pick = event.target.closest?.("[data-isl-fav-pick]");
+    if (!pick) return;
+    event.stopPropagation();
+    closeMenu();
+    const { list } = islFavKeys();
+    if (!list.includes(pick.dataset.islFavPick)) saveIslFavs([...list, pick.dataset.islFavPick]);
+    renderIslFavorites();
+  });
+  document.addEventListener("click", (event) => { if (!event.target.closest?.("#islFavMenu, #islFavAdd")) closeMenu(); });
+}
+/** 바인더 요약 카드: 렌더된 목차에서 회차 수·완성 수·단어수·상태별 막대를 읽어 표시 (읽기 전용) */
+function refreshPartCard() {
+  const card = $("islPartCard");
+  const outline = $("outline");
+  if (!card || !outline) return;
+  const dots = [...outline.querySelectorAll(".scene-row .scene-status[data-status]")];
+  const setText = (id, text) => { const el = $(id); if (el) el.textContent = text; };
+  // 설정집 바로가기 타일 · 하단 바 개수 (이미 불러온 상태값만 읽음)
+  const nChar = Array.isArray(state.characters) ? state.characters.length : 0;
+  const nBait = Array.isArray(state.baits) ? state.baits.length : 0;
+  const nIdea = Array.isArray(state.ideas) ? state.ideas.length : 0;
+  if ($("islTiles")?.children.length) renderIslFavorites();
+  setText("islFootIdeas", nIdea ? String(nIdea) : "");
+  if (!dots.length) { card.hidden = true; return; }
+  const counts = { outline: 0, idea: 0, draft: 0, revision: 0, complete: 0 };
+  dots.forEach((d) => { const k = d.dataset.status; if (k in counts) counts[k] += 1; });
+  let words = 0;
+  outline.querySelectorAll(".scene-link .scene-wc").forEach((w) => { words += Number(String(w.textContent).replace(/,/g, "")) || 0; });
+  // 제목: 열린 회차가 속한 가장 안쪽 폴더(없으면 첫 폴더), 오른쪽: 바깥 폴더(권)
+  const active = outline.querySelector(".scene-link.active");
+  const host = (active ? active.closest(".outline-chapter:not(.is-transparent-chapter)") : null)
+    || outline.querySelector(".outline-chapter:not(.is-transparent-chapter)");
+  const titleOf = (sec) => sec?.querySelector(":scope > .chapter-row .chapter-title")?.textContent?.trim() || "";
+  const outer = host?.parentElement?.closest?.(".outline-chapter");
+  const t = $("islPartTitle");
+  if (t) t.textContent = titleOf(host) || "";
+  setText("islPartVol", titleOf(outer) && outer !== host ? titleOf(outer) : "");
+  const activeTitle = active?.querySelector(".scene-title")?.textContent?.trim() || "";
+  const epShort = (activeTitle.match(/^(\d+\s*화)/) || [])[1] || activeTitle;
+  setText("islCrumb", [titleOf(outer) && outer !== host ? titleOf(outer) : "", titleOf(host), epShort].filter(Boolean).join(" › "));
+  setText("islPartSub", i18n.t("island.요약_진행", { n: dots.length, m: counts.complete, w: words.toLocaleString() }));
+  const bar = $("islPartBar");
+  if (bar) {
+    bar.innerHTML = ["complete", "revision", "draft", "idea", "outline"]
+      .filter((k) => counts[k] > 0)
+      .map((k) => `<i data-status="${k}" style="flex:${counts[k]}"></i>`)
+      .join("");
+  }
+  card.hidden = false;
+}
+function setupPartCard() {
+  const menu = $("islOutlineMenu");
+  const moreBtn = $("islOutlineMore");
+  const closeMenu = () => { if (menu) { menu.hidden = true; menu.classList.add("hidden"); } moreBtn?.setAttribute("aria-expanded", "false"); };
+  moreBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = menu?.hidden;
+    closeMenu();
+    if (open && menu) { menu.hidden = false; menu.classList.remove("hidden"); moreBtn.setAttribute("aria-expanded", "true"); }
+  });
+  menu?.addEventListener("click", (event) => {
+    const item = event.target.closest?.("[data-isl-proxy]");
+    if (!item) return;
+    event.stopPropagation();
+    closeMenu();
+    $(item.dataset.islProxy)?.click();
+  });
+  document.addEventListener("click", (event) => { if (!event.target.closest?.("#islOutlineMenu, #islOutlineMore")) closeMenu(); });
+  document.addEventListener("click", (event) => {
+    const open = event.target.closest?.("[data-isl-open]");
+    if (open) {
+      document.querySelector(`[data-settings-main="${open.dataset.islOpen}"]`)?.click();
+      return;
+    }
+    if (event.target.closest?.("#islNewEpisode")) {
+      const sid = state.sceneId;
+      const btn = (sid ? document.querySelector(`.scene-add-btn[data-add-after-scene="${sid}"]`) : null)
+        || $("outlineEndAddButton")
+        || [...document.querySelectorAll("#outline .folder-add-scene")].pop();
+      btn?.click();
+      return;
+    }
+  });
+  setupIslFavorites();
+  const applyTilesOpen = (open) => {
+    const tiles = $("islTiles");
+    const btn = $("islTilesToggle");
+    if (tiles) tiles.hidden = !open;
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn?.closest(".isl-glabel")?.classList.toggle("is-collapsed", !open);
+  };
+  let tilesOpen = true;
+  try { tilesOpen = localStorage.getItem("supertory.islTilesOpen") !== "0"; } catch (_) { /* ignore */ }
+  applyTilesOpen(tilesOpen);
+  $("islTilesToggle")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    tilesOpen = !tilesOpen;
+    applyTilesOpen(tilesOpen);
+    try { localStorage.setItem("supertory.islTilesOpen", tilesOpen ? "1" : "0"); } catch (_) { /* ignore */ }
+  });
+  $("binderTabManuscript")?.addEventListener("click", () => window.setTimeout(refreshPartCard, 50));
+  const outline = $("outline");
+  if (!outline || typeof MutationObserver === "undefined") return;
+  let raf = 0;
+  new MutationObserver(() => {
+    if (raf) return;
+    raf = window.requestAnimationFrame(() => { raf = 0; refreshPartCard(); });
+  }).observe(outline, { childList: true, subtree: true, characterData: true });
+  refreshPartCard();
+}
+
+/** 작성 상태 단계 표시줄 — 기존 #sceneStatus <select>를 그대로 쓰고(저장·잠금 로직 유지) 보이는 UI만 단계 알약으로 */
+const ISL_STATUS_ORDER = ["outline", "idea", "draft", "revision", "complete"];
+function syncStatusStepper() {
+  const host = $("islStatusStepper");
+  const sel = $("sceneStatus");
+  if (!host || !sel) return;
+  const cur = sel.value || "draft";
+  const idx = ISL_STATUS_ORDER.indexOf(cur);
+  host.innerHTML = ISL_STATUS_ORDER.map((v, i) => {
+    const cls = v === cur ? "is-now" : (i < idx ? "is-done" : "");
+    return `<button type="button" role="radio" aria-checked="${v === cur ? "true" : "false"}" class="isl-step ${cls}" data-status="${v}"${sel.disabled ? " disabled" : ""}><span class="isl-dot" aria-hidden="true"></span>${escapeHtml(statusLabel[v] || v)}</button>`;
+  }).join("");
+}
+function setupStatusStepper() {
+  $("islStatusStepper")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-status]");
+    const sel = $("sceneStatus");
+    if (!btn || !sel || sel.disabled) return;
+    if (sel.value === btn.dataset.status) return;
+    sel.value = btn.dataset.status;
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    syncStatusStepper();
+  });
+  syncStatusStepper();
+}
+
+/** 체크 탭 타이머: 기존 뽀모도로 상태를 그대로 보여 주고 시작/정지만 대신 누른다 */
+function syncIslTimer() {
+  const clock = $("islTimerClock");
+  if (!clock) return;
+  try { ensurePomodoroState(); } catch (_) { /* ignore */ }
+  const sec = Math.max(0, Number(pomodoroClockSeconds()) || 0);
+  clock.textContent = `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
+  const label = $("islTimerLabel");
+  if (label) label.textContent = i18n.t(pomodoroState.running ? "island.정지" : "island.시작");
+  $("islTimerToggle")?.classList.toggle("is-running", Boolean(pomodoroState.running));
+}
+
+/** 체크 탭 실시간 체크: ToryCheckEngine으로 최근 본문을 읽기만 해서 걸리는 항목 3개까지 */
+function refreshIslCheckList() {
+  const list = $("islCheckList");
+  if (!list) return;
+  const engine = toryCheckEngine();
+  const text = state.sceneId ? getEditorPlainText() : "";
+  const rows = [];
+  if (engine && typeof engine.analyze === "function" && text) {
+    const settings = toryCheckSettingsPayload();
+    const take = (tab) => { try { return engine.analyze(tab, text, settings)?.items || []; } catch (_) { return []; } };
+    take("words").filter((it) => it.flagged).forEach((it) => rows.push({ tag: "island.반복", cls: "sent", text: i18n.t("island.반복_설명", { w: it.word, n: it.count }) }));
+    take("phrases").filter((it) => it.flagged).forEach((it) => rows.push({ tag: "island.표현", cls: "bait", quote: it.text, text: i18n.t("island.표현_설명", { n: it.count }) }));
+    take("starts").filter((it) => it.flagged).forEach((it) => rows.push({ tag: "island.시작어", cls: "spell", text: i18n.t("island.시작_설명", { w: it.token, n: it.count }) }));
+  }
+  const count = $("islCheckCount");
+  if (count) count.textContent = rows.length ? i18n.t("island.건", { n: rows.length }) : "";
+  list.innerHTML = rows.length
+    ? rows.slice(0, 3).map((r) => `<div class="isl-chk"><span class="isl-tag ${r.cls}">${escapeHtml(i18n.t(r.tag))}</span><div>${r.quote ? `<q>${escapeHtml(String(r.quote).slice(0, 40))}</q> ` : ""}${escapeHtml(r.text)}</div></div>`).join("")
+    : `<p class="isl-hint">${escapeHtml(i18n.t("island.체크_없음"))}</p>`;
+}
+
+/** 체크 탭: 오늘 기록 + 최근 7일 막대 (기록 API 읽기 전용) · 상세는 기존 도크 위젯/달력으로 */
+let aiCheckHubTimer = 0;
+function islDayKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function islFormatDuration(sec) {
+  const m = Math.floor((Number(sec) || 0) / 60);
+  if (m < 60) return `${m}${i18n.t("island.분")}`;
+  return `${Math.floor(m / 60)}${i18n.t("island.시간")} ${m % 60}${i18n.t("island.분")}`;
+}
+async function refreshAiCheckHub() {
+  const bars = $("islWeekBars");
+  if (!bars) return;
+  const today = new Date();
+  const days = [];
+  for (let i = 6; i >= 0; i -= 1) {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+    days.push({ d, key: islDayKey(d), chars: 0, sec: 0 });
+  }
+  let prefs = null;
+  try {
+    const data = await api(`/api/writing/days?from=${days[0].key}&to=${days[6].key}`);
+    prefs = data?.prefs || null;
+    const map = new Map((data?.days || []).map((row) => [row.day, row]));
+    days.forEach((row) => {
+      const hit = map.get(row.key);
+      if (hit) {
+        row.chars = Number(hit.chars_added) || 0;
+        row.sec = Number(hit.active_seconds) || 0;
+      }
+    });
+  } catch (_) { /* 기록을 못 읽어도 탭은 그대로 */ }
+  const last = days[6];
+  const max = Math.max(1, ...days.map((row) => row.chars));
+  const names = String(i18n.t("island.요일")).split(",");
+  bars.innerHTML = days.map((row, i) => {
+    const pct = row.chars > 0 ? Math.max(8, Math.round((row.chars / max) * 100)) : 4;
+    const label = i === 6 ? i18n.t("island.오늘") : (names[row.d.getDay()] || "");
+    return `<i class="${i === 6 ? "is-today" : ""}" style="height:${pct}%" title="${escapeHtml(row.key)} · ${row.chars.toLocaleString()}${escapeHtml(i18n.t("island.자"))}"><em>${escapeHtml(label)}</em></i>`;
+  }).join("");
+  const set = (id, text) => { const el = $(id); if (el) el.textContent = text; };
+  set("islTodayLine", i18n.t("island.오늘_요약", { c: last.chars.toLocaleString(), t: islFormatDuration(last.sec) }));
+  const goal = Number(prefs?.goal_chars) || 0;
+  const row = $("islGoalRow");
+  if (row) {
+    row.hidden = goal <= 0;
+    if (goal > 0) {
+      const pct = Math.min(100, Math.round((last.chars / goal) * 100));
+      set("islGoalChars", goal.toLocaleString());
+      set("islGoalPct", `${pct}%`);
+      const fill = $("islGoalFill");
+      if (fill) fill.style.width = `${pct}%`;
+    }
+  }
+}
+function renderIslWidgetTiles() {
+  const host = $("islWidgetTiles");
+  if (!host) return;
+  const items = [...document.querySelectorAll("#aiDockRail [data-dock-item]")];
+  host.textContent = "";
+  items.forEach((btn) => {
+    const key = btn.dataset.dockItem;
+    const name = btn.getAttribute("aria-label") || btn.getAttribute("title") || key;
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "isl-tile";
+    tile.dataset.islWidget = key;
+    const svg = btn.querySelector("svg");
+    if (svg) {
+      const copy = svg.cloneNode(true);
+      copy.removeAttribute("id");
+      copy.setAttribute("width", "17");
+      copy.setAttribute("height", "17");
+      tile.appendChild(copy);
+    }
+    const strong = document.createElement("strong");
+    strong.textContent = name;
+    tile.appendChild(strong);
+    host.appendChild(tile);
+  });
+  $("islWidgetEmpty")?.classList.toggle("hidden", items.length > 0);
+}
+function setupAiCheckHub() {
+  $("aiTabWidgets")?.addEventListener("click", () => {
+    hideToryPersonaMenu();
+    setAiPanelTab("widgets");
+  });
+  $("islAiBadge")?.addEventListener("click", () => setAiPanelOpen(true));
+  const badge = $("islAiBadge");
+  if (badge && typeof MutationObserver !== "undefined") {
+    let played = false;
+    const playOnce = () => {
+      if (played || !document.body.classList.contains("ai-panel-collapsed")) return;
+      played = true;
+      badge.classList.add("is-intro");
+      const done = () => badge.classList.remove("is-intro");
+      badge.addEventListener("animationend", done, { once: true });
+      window.setTimeout(done, 2200);
+    };
+    new MutationObserver(playOnce).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    playOnce();
+  }
+  $("islWidgetTiles")?.addEventListener("click", (event) => {
+    const tile = event.target.closest?.("[data-isl-widget]");
+    if (!tile) return;
+    document.querySelector(`#aiDockRail [data-dock-item="${tile.dataset.islWidget}"]`)?.click();
+  });
+  $("islTimerToggle")?.addEventListener("click", () => {
+    try { ensurePomodoroState(); togglePomodoro(); } catch (error) { handleError(error); }
+    syncIslTimer();
+  });
+  window.setInterval(() => {
+    if ($("aiCheckView")?.hidden) return;
+    syncIslTimer();
+  }, 1000);
+  window.setInterval(() => {
+    if ($("aiCheckView")?.hidden) return;
+    refreshIslCheckList();
+  }, 4000);
+  setupStatusStepper();
+  setupPartCard();
+  setupFormatMorePopover();
+  setupSplitCompareItem();
+  // 첫 화면은 체크 탭(시안) — 다른 동작이 도우미/소통방으로 바꾸면 그대로 따른다
+  window.setTimeout(() => { try { setAiPanelTab("check"); } catch (_) { /* ignore */ } }, 0);
+  $("aiTabCheck")?.addEventListener("click", () => {
+    hideToryPersonaMenu();
+    setAiPanelTab("check");
+  });
+  $("islAskForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = $("islAskInput")?.value || "";
+    setAiPanelTab("chat", { chatHub: "tory" });
+    window.setTimeout(() => {
+      const input = $("toryChatInput");
+      if (input) { input.value = text; input.focus(); input.dispatchEvent(new Event("input", { bubbles: true })); }
+    }, 60);
+    if ($("islAskInput")) $("islAskInput").value = "";
+  });
+  $("islWritingLogButton")?.addEventListener("click", () => {
+    openWritingLogModal("calendar")?.catch?.(handleError);
+  });
+  $("aiCheckView")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-isl-dock]");
+    if (!btn) return;
+    document.querySelector(`[data-dock-item="${btn.dataset.islDock}"]`)?.click();
+  });
+  if (!aiCheckHubTimer) {
+    aiCheckHubTimer = window.setInterval(() => {
+      if (!$("aiCheckView")?.hidden) refreshAiCheckHub().catch(() => {});
+    }, 60000);
+  }
+}
+
 function setAiPanelTab(tab, { chatHub = null, skipPopupClose = false } = {}) {
-  const next = tab === "chat" ? "chat" : "tools";
+  const next = tab === "chat" ? "chat" : tab === "check" ? "check" : tab === "widgets" ? "widgets" : "tools";
+  const widgetView = $("aiWidgetView");
+  const widgetTab = $("aiTabWidgets");
+  const isWidgets = next === "widgets";
   const toolsView = $("aiToolsView");
   const chatView = $("aiChatView");
+  const checkView = $("aiCheckView");
   const toolsTab = $("aiTabTools");
   const chatTab = $("aiTabChat");
+  const checkTab = $("aiTabCheck");
   const isChat = next === "chat";
+  const isCheck = next === "check";
 
   if (isChat && toryChatPopupOpen && !skipPopupClose) {
     closeToryChatPopup({ restorePanelTab: false });
@@ -32418,14 +33046,29 @@ function setAiPanelTab(tab, { chatHub = null, skipPopupClose = false } = {}) {
   }
   else if (toryChatPopupOpen && skipPopupClose) setToryChatPopupDockHint(true);
 
-  toolsView?.classList.toggle("hidden", isChat);
+  const isTools = !isChat && !isCheck && !isWidgets;
+  widgetView?.classList.toggle("hidden", !isWidgets);
+  if (widgetView) widgetView.hidden = !isWidgets;
+  widgetTab?.classList.toggle("is-active", isWidgets);
+  widgetTab?.setAttribute("aria-selected", isWidgets ? "true" : "false");
+  if (isWidgets) renderIslWidgetTiles();
+  toolsView?.classList.toggle("hidden", !isTools);
   chatView?.classList.toggle("hidden", !isChat);
-  if (toolsView) toolsView.hidden = isChat;
+  checkView?.classList.toggle("hidden", !isCheck);
+  if (toolsView) toolsView.hidden = !isTools;
   if (chatView) chatView.hidden = !isChat;
-  toolsTab?.classList.toggle("is-active", !isChat);
+  if (checkView) checkView.hidden = !isCheck;
+  toolsTab?.classList.toggle("is-active", isTools);
   chatTab?.classList.toggle("is-active", isChat);
-  if (toolsTab) toolsTab.setAttribute("aria-selected", isChat ? "false" : "true");
+  checkTab?.classList.toggle("is-active", isCheck);
+  if (toolsTab) toolsTab.setAttribute("aria-selected", isTools ? "true" : "false");
   if (chatTab) chatTab.setAttribute("aria-selected", isChat ? "true" : "false");
+  if (checkTab) checkTab.setAttribute("aria-selected", isCheck ? "true" : "false");
+  if (isCheck) {
+    refreshAiCheckHub().catch(() => {});
+    syncIslTimer();
+    refreshIslCheckList();
+  }
   if (isChat) {
     if (chatHub) setToryChatHub(chatHub, { quiet: true });
     else if (!toryChatHub) setToryChatHub("home", { quiet: true });
@@ -35409,6 +36052,7 @@ function setupToryChat() {
     hideToryPersonaMenu();
     setAiPanelTab("chat", { chatHub: "home" });
   });
+  setupAiCheckHub();
   setupAiHelperPaneTabs();
 
   $("toryChatForm")?.addEventListener("submit", (event) => {
@@ -35625,7 +36269,51 @@ function applyToryNotifyCollapsed(collapsed) {
   }
 }
 
+function updateToryNotifyBadge(onCount) {
+  const badge = $("islNotifyBadge");
+  if (!badge) return;
+  const n = Number(onCount) || 0;
+  badge.textContent = n > 99 ? "99+" : String(n);
+  badge.hidden = n <= 0;
+}
+
+/** 토리 알림 센터: 머리글 종 아이콘 → 패널 위에 뜨는 팝오버 (큰 창으로 열면 팝오버는 자동으로 닫힘) */
+function setToryNotifyPopover(open) {
+  const box = $("toryNotifyBox");
+  const bell = $("islNotifyBell");
+  if (!box) return;
+  const inPanel = box.parentElement?.classList?.contains("ai-panel-inner");
+  const on = Boolean(open) && inPanel;
+  box.classList.toggle("is-popover-open", on);
+  if (bell) bell.setAttribute("aria-expanded", on ? "true" : "false");
+  if (on) renderToryNotifyList?.();
+}
+
+function setupToryNotifyBell() {
+  $("islNotifyBell")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setToryNotifyPopover(!$("toryNotifyBox")?.classList.contains("is-popover-open"));
+  });
+  $("islNotifyRailButton")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setAiPanelOpen(true);
+    setToryNotifyPopover(true);
+  });
+  document.addEventListener("click", (event) => {
+    const box = $("toryNotifyBox");
+    if (!box?.classList.contains("is-popover-open")) return;
+    if (event.target.closest?.("#toryNotifyBox, #islNotifyBell, #toryNotifyEditModal, .modal")) return;
+    setToryNotifyPopover(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && $("toryNotifyBox")?.classList.contains("is-popover-open")) {
+      setToryNotifyPopover(false);
+    }
+  });
+}
+
 function updateToryNotifyCountUi(onCount, total) {
+  updateToryNotifyBadge(onCount);
   const countEl = $("toryNotifyCount");
   if (!countEl) return;
   countEl.innerHTML = `
@@ -36037,6 +36725,7 @@ function openToryNotifyPopup() {
   if (toryNotifyPopupOpen) return;
   toryNotifyPopupOpen = true;
   applyToryNotifyCollapsed(false);
+  setToryNotifyPopover(false);
   host.appendChild(box);
   popup.classList.remove("hidden");
   popup.hidden = false;
@@ -36168,6 +36857,7 @@ function setupToryNotifyPopupChrome() {
 
 function setupToryNotifyCenter() {
   setupToryNotifyPopupChrome();
+  setupToryNotifyBell();
   $("toryNotifyAddButton")?.addEventListener("click", () => openToryNotifyEditModal(null));
   $("toryNotifyEditForm")?.addEventListener("submit", (event) => saveToryNotifyFromModal(event));
   document.querySelectorAll("[data-close-tory-notify-edit]").forEach((el) => {
@@ -49681,7 +50371,7 @@ function setupBaitCollection() {
     if (action === "notify-list") {
       setAiPanelOpen(true);
       renderToryNotifyList();
-      $("toryNotifyBox")?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      setToryNotifyPopover(true);
       return;
     }
     setActiveBinder("settings");
@@ -50464,6 +51154,17 @@ function scheduleHeaderNoticeStripLayout() {
 }
 
 function syncHeaderNoticeStripLayout() {
+  // 시안: 메인 페이지(가운데 섬) 가운데 기준 — 오른쪽 반 = 검색, 왼쪽 반 = 고정 메모. 메인 페이지 밖(창 컨트롤 쪽)으로는 나가지 않는다.
+  const mainEl = $("workArea");
+  if (mainEl) {
+    const mr = mainEl.getBoundingClientRect();
+    if (mr.width > 0) {
+      const root = document.documentElement.style;
+      root.setProperty("--isl-main-left", `${Math.round(mr.left)}px`);
+      root.setProperty("--isl-main-center", `${Math.round(mr.left + mr.width / 2)}px`);
+      root.setProperty("--isl-main-right", `${Math.round(mr.right)}px`);
+    }
+  }
   const strip = $("headerNoticeStrip");
   if (!strip) return;
   if (strip.classList.contains("is-empty")) {
@@ -50480,8 +51181,10 @@ function syncHeaderNoticeStripLayout() {
   const ld = lead.getBoundingClientRect();
   const padRight = parseFloat(getComputedStyle(titlebar).paddingRight) || 0;
   const gap = 6;
-  const leftVp = Math.max(ld.right + gap, wr.left);
-  let rightVp = wr.right;
+  // 시안: 아이콘 오른쪽부터 창 가운데까지가 고정 메모 자리(오른쪽 반은 검색)
+  const leftVp = ld.right + gap;
+  const centerVp = wr.left + wr.width / 2 - gap;
+  let rightVp = Math.min(wr.right, centerVp);
   const capRight = tb.right - padRight - 4;
   if (Number.isFinite(capRight)) rightVp = Math.min(rightVp, capRight);
   const badge = $("offlineModeBadge");
@@ -62750,8 +63453,17 @@ function applyMsToolbarCollapsed(which, collapsed, { persist = true, toastMsg = 
 function setupManuscriptToolbarCollapse() {
   const map = loadMsToolbarCollapsed();
   applyMsToolbarCollapsed("meta", map.meta, { persist: false, toastMsg: false });
-  applyMsToolbarCollapsed("format-icons", map["format-icons"], { persist: false, toastMsg: false });
-  applyMsToolbarCollapsed("format-format", map["format-format"], { persist: false, toastMsg: false });
+  // 도구 아이콘줄·서식줄은 접을 수 없다(접기 기능 삭제) — 예전에 접어 둔 값이 남아 있어도 항상 펼친다
+  applyMsToolbarCollapsed("format-icons", false, { persist: false, toastMsg: false });
+  applyMsToolbarCollapsed("format-format", false, { persist: false, toastMsg: false });
+  try {
+    const stored = loadMsToolbarCollapsed();
+    if (stored["format-icons"] || stored["format-format"]) {
+      stored["format-icons"] = false;
+      stored["format-format"] = false;
+      saveMsToolbarCollapsed(stored);
+    }
+  } catch (_) { /* ignore */ }
   applyMsToolbarCollapsed("feature", map.feature, { persist: false, toastMsg: false });
 
   document.querySelectorAll("[data-toolbar-hide]").forEach((btn) => {
@@ -62781,7 +63493,8 @@ function setupManuscriptToolbarCollapse() {
 
 function toolbarOverflowRows() {
   return Array.from(document.querySelectorAll(".format-toolbar-row")).filter((row) => (
-    row.querySelector(":scope > .format-overflow-slot > .format-overflow-btn")
+    !row.closest("#formatToolbarShell")
+    && row.querySelector(":scope > .format-overflow-slot > .format-overflow-btn")
     && row.querySelector(":scope > .format-toolbar-row-body")
   ));
 }
@@ -62804,6 +63517,7 @@ function toolbarOverflowIconUnits(body) {
     || el.classList.contains("format-overflow-slot")
     || el.classList.contains("format-overflow-btn")
     || el.classList.contains("format-overflow-menu")
+    || getComputedStyle(el).display === "none"
   );
   body.querySelectorAll(":scope > .format-toolbar-cluster").forEach((cluster) => {
     Array.from(cluster.children).forEach((child) => {
@@ -64964,7 +65678,9 @@ function renderSceneTreeHtml(scenes, {
     const statusText = statusLabel[scene.status] || scene.status || "";
     // 작성 상태는 고정 폭 슬롯 → 북마크 유무와 관계없이 열 정렬
     // 모든 상태 동일 텍스트 뱃지 · 완성만 is-complete 틴트 배경
-    const statusInner = `<span class="scene-status${isComplete ? " is-complete" : ""}">${escapeHtml(statusText)}</span>`;
+    const statusInner = `<span class="scene-status${isComplete ? " is-complete" : ""}" data-status="${escapeHtml(String(scene.status || ""))}">${escapeHtml(statusText)}</span>`;
+    const wcNum = Number(scene.word_count) || 0;
+    const wcMarkup = wcNum > 0 ? `<span class="scene-wc">${wcNum.toLocaleString()}</span>` : "";
     const statusMarkup = `<span class="scene-status-slot">${statusInner}</span>`;
     const sid = Number(scene.id);
     // 북마크·떡밥: 작성상태 왼쪽 · 호버 박스 밖(트리/폴더 아이콘 열)
@@ -65069,6 +65785,7 @@ function renderSceneTreeHtml(scenes, {
           <button type="button" draggable="${dragAttr}" class="scene-link ${Number(state.sceneId) === sid ? "active" : ""} ${isComplete ? "is-complete" : ""} ${isPinned ? "is-pinned" : ""} ${sceneBm ? "is-bookmarked" : ""}" data-scene="${sid}" data-chapter-id="${chapterId}" data-parent-scene="${parentAttr}" title="${sceneTitle}">
             ${pinIcon}
             <span class="${titleClass}">${escapeHtml(display.label)}</span>
+            ${wcMarkup}
           </button>
           ${addAfterBtn}
         </div>
@@ -74981,35 +75698,8 @@ function renderEpisodeChrome() {
         </div>`;
     }).join("");
   }
-  const addBtn = $("episodeTabAddButton");
-  if (addBtn) {
-    const openIds = new Set((state.episodeTabs || []).map((t) => Number(t.sceneId)));
-    const hasMore = sequence.some((ep) => !openIds.has(Number(ep.sceneId)));
-    const hasNext = idx >= 0 && idx < sequence.length - 1;
-    addBtn.disabled = !(hasMore || hasNext);
-    addBtn.hidden = !(state.episodeTabs || []).length;
-  }
   if (state.splitEnabled && state.splitMode === "split" && typeof syncSplitPaneTopAlign === "function") {
     requestAnimationFrame(() => syncSplitPaneTopAlign());
-  }
-}
-
-function openAdjacentEpisodeAsTab() {
-  const sequence = getEpisodeSequence();
-  if (!sequence.length) return;
-  const openIds = new Set((state.episodeTabs || []).map((t) => Number(t.sceneId)));
-  const idx = findEpisodeIndex(state.sceneId, sequence);
-  // Prefer next unopened after current, then wrap; else just go next.
-  for (let step = 1; step <= sequence.length; step += 1) {
-    const ep = sequence[(Math.max(idx, 0) + step) % sequence.length];
-    if (!ep) continue;
-    if (!openIds.has(Number(ep.sceneId))) {
-      requestOpenScene(ep.sceneId);
-      return;
-    }
-  }
-  if (idx >= 0 && idx < sequence.length - 1) {
-    requestOpenScene(sequence[idx + 1].sceneId);
   }
 }
 
@@ -75058,9 +75748,6 @@ function setupEpisodeChrome() {
     if (!tab) return;
     event.preventDefault();
     closeEpisodeTab(Number(tab.dataset.episodeTab));
-  });
-  $("episodeTabAddButton")?.addEventListener("click", () => {
-    openAdjacentEpisodeAsTab();
   });
   renderEpisodeChrome();
 }
@@ -75146,6 +75833,7 @@ function fillSceneEditorFields(scene) {
     titleEl.disabled = false;
   }
   if ($("sceneStatus")) $("sceneStatus").value = scene.status || "idea";
+  syncStatusStepper();
   lastPersistedSceneStatus = scene.status || "idea";
   syncViewerReaderCommentsButton();
   if (lastPersistedSceneStatus !== "complete") {
@@ -76477,7 +77165,7 @@ async function maybeRestoreLocalDraft(serverScene, options = {}) {
 
   suppressSceneDirty = true;
   if ($("sceneTitle") && draft.title != null) $("sceneTitle").value = draft.title;
-  if ($("sceneStatus") && draft.status) $("sceneStatus").value = draft.status;
+  if ($("sceneStatus") && draft.status) { $("sceneStatus").value = draft.status; syncStatusStepper(); }
   if ($("sceneSynopsis") && draft.synopsis_md != null) $("sceneSynopsis").value = draft.synopsis_md;
   if ($("sceneNotes") && draft.notes_md != null) $("sceneNotes").value = draft.notes_md;
   setEditorContent(localContent);
@@ -77296,6 +77984,7 @@ function setupSceneAutoSave() {
   // Writing status bar → binder episode head must update immediately (not only after save).
   $("sceneStatus")?.addEventListener("change", () => {
     const status = $("sceneStatus")?.value || "draft";
+    syncStatusStepper();
     syncOpenSceneToOutlineBinder({ status });
     applySceneCompleteLock();
     markSceneDirty();
@@ -82551,10 +83240,12 @@ function isFeatureHideExempt(el) {
     || id === "binderTabSettings"
     || id === "aiTabTools"
     || id === "aiTabChat"
+    || id === "aiTabCheck"
+    || id === "aiTabWidgets"
   ) {
     return true;
   }
-  if (el.closest?.("#binderTabManuscript, #binderTabSettings, #aiTabTools, #aiTabChat")) {
+  if (el.closest?.("#binderTabManuscript, #binderTabSettings, #aiTabTools, #aiTabChat, #aiTabCheck, #aiTabWidgets")) {
     return true;
   }
   if (
@@ -84883,7 +85574,7 @@ function getTitleBarOverlayPayload(themeId = getUiTheme()) {
   } catch (_) {
     /* ignore */
   }
-  return { theme: id, scheme, color, symbolColor, height: 32 };
+  return { theme: id, scheme, color, symbolColor, height: 40 };
 }
 
 function syncElectronTitleBarTheme(themeId = getUiTheme()) {
@@ -86326,6 +87017,7 @@ function setupCreateMenu() {
     event.stopPropagation();
     toggleCreateMenu();
   });
+  $("titlebarSearchButton")?.addEventListener("click", () => openSettingsSearchBoard().catch(handleError));
   $("titlebarHomeButton")?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();

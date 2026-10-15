@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuperTory · 섬과 종이 v4 시안</title>
+<link rel="stylesheet" href="../fonts/pretendard.css">
+<style>
+:root{
+  --bg:#f1efee; --panel:#fafafa; --sunk:#f1efec; --desk:#f4f2ef; --paper:#ffffff; --paper-ink:#2b2a27;
+  --ink:#2b2a27; --ink2:#5d5e5b; --ink3:#8e8b84; --line:#e6e3de;
+  --accent:#45463f; --accent-soft:#e8e7e3; --accent-line:#d3d1c8; --accent-ink:#fafafa;
+  --warn:#9a7430; --warn-soft:#f0ede2;
+  --s-idea:#a99ec0; --s-draft:#c9a24f; --s-rev:#7f9bbd; --s-done:#6f9a84;
+  --shadow:0 1px 2px rgba(43,42,39,.05),0 8px 24px rgba(43,42,39,.05);
+  --pop:0 2px 6px rgba(43,42,39,.08),0 16px 40px rgba(43,42,39,.14);
+  --serif:"Noto Serif KR","KoPub Batang","바탕",Batang,serif;
+  --sans:"Pretendard","Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+}
+:root[data-theme="dark"]{
+  --bg:#171615; --panel:#1f1e1c; --sunk:#282725; --desk:#1b1a19; --paper:#262523; --paper-ink:#ece9e4;
+  --ink:#ece9e4; --ink2:#b3afa7; --ink3:#857f76; --line:#34322f;
+  --accent:#d8d4c8; --accent-soft:#34322d; --accent-line:#4a473f; --accent-ink:#1f1e1c;
+  --warn:#d9b363; --warn-soft:#352f21;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.3); --pop:0 2px 6px rgba(0,0,0,.4),0 16px 40px rgba(0,0,0,.5);
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);font-size:13.5px;display:flex;flex-direction:column;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+i[data-ic]{display:inline-flex;flex:none}
+i[data-ic] svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.num{font-variant-numeric:tabular-nums}
+
+/* ── 시안 전환 막대 ── */
+.sw{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 14px;background:#1f2429;color:#e8eaed;font-size:12.5px;flex:none}
+.sw b{font-weight:600;margin-right:4px}
+.sw .grp{display:flex;gap:4px;background:#2c3238;border-radius:9px;padding:3px}
+.sw button{padding:5px 10px;border-radius:7px;color:#b9c0c7;white-space:nowrap}
+.sw button:hover{color:#fff}
+.sw button[aria-pressed="true"]{background:#fff;color:#1f2429;font-weight:600}
+.sw .note{margin-left:auto;color:#8f979e}
+
+/* ── 앱 ── */
+.app{flex:1;min-height:0;display:grid;grid-template-rows:auto 1fr;gap:8px;padding:8px}
+.top{display:flex;align-items:center;gap:12px;padding:0 4px}
+.work{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:10px;font-weight:700;flex:1;min-width:0;text-align:left}
+.work .wt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.work:hover{background:var(--sunk)}
+.mascot{width:26px;height:26px;object-fit:contain;flex:none}
+.top{position:relative;min-height:36px}
+.top-end{margin-left:auto;display:flex;align-items:center;gap:8px}
+.memo-pill{display:flex;gap:6px;align-items:center;padding:5px 10px;border-radius:99px;background:var(--panel);border:1px solid var(--line);color:var(--ink2);font-size:12.5px}
+.memo-pill .num{color:var(--ink3)}
+.app[data-offline="1"] .offline{display:inline-flex}
+.offline{display:none;margin-left:auto;align-items:center;gap:6px;font-size:12px;color:var(--warn);background:var(--warn-soft);padding:4px 10px;border-radius:99px}
+.offline i{width:6px;height:6px;border-radius:50%;background:var(--warn)}
+.cmd{position:absolute;left:50%;transform:translateX(-50%);width:min(560px,44%);margin:0;display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:10px;background:var(--panel);border:1px solid var(--line);color:var(--ink3)}
+.cmd kbd{margin-left:auto;font:11px var(--sans);border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--ink2)}
+.top-r{display:flex;gap:2px}
+.ib{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:var(--ink2);position:relative}
+.ib:hover,.ib.on{background:var(--panel);color:var(--ink)}
+
+.body{min-height:0;display:grid;grid-template-columns:var(--lw,292px) minmax(0,1fr) var(--rw,292px);gap:8px;transition:grid-template-columns .2s}
+.app[data-left="rail"]{--lw:52px}
+.app[data-right="rail"]{--rw:52px}
+.island{background:var(--panel);border:1px solid var(--line);border-radius:14px;min-height:0;min-width:0;display:flex;flex-direction:column;position:relative;box-shadow:var(--shadow)}
+.scroll{overflow:auto;min-height:0;flex:1;padding:12px}
+*{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--ink3) 28%,transparent) transparent}
+*::-webkit-scrollbar{width:8px;height:8px}*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--ink3) 28%,transparent);border-radius:8px;border:2px solid transparent;background-clip:content-box}
+*::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--ink3) 50%,transparent);background-clip:content-box}
+
+/* 접힘(도크 레일) */
+.rail{display:none;flex-direction:column;align-items:center;gap:2px;padding:8px 0;height:100%}
+.app[data-left="rail"] .l-full,.app[data-right="rail"] .r-full{display:none!important}
+.app[data-left="rail"] .l-rail,.app[data-right="rail"] .r-rail{display:flex}
+.rail .ib{width:36px;height:36px;border-radius:10px}
+.rail .ib.expand{color:var(--accent);margin-bottom:2px}
+.rail .sep{width:22px;height:1px;background:var(--line);margin:4px 0}
+.rail .dot{position:absolute;top:6px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--s-draft)}
+.rail .badge{position:absolute;bottom:2px;right:1px;font-size:9.5px;background:var(--accent);color:var(--accent-ink);border-radius:8px;padding:0 4px;line-height:14px}
+.rail-spacer{flex:1}
+.tip{position:absolute;white-space:nowrap;background:#1f2429;color:#fff;font-size:12px;padding:4px 8px;border-radius:6px;pointer-events:none;opacity:0;transition:opacity .1s;z-index:30;top:50%;transform:translateY(-50%)}
+.l-rail .tip{left:calc(100% + 8px)} .r-rail .tip{right:calc(100% + 8px)}
+.rail .ib:hover .tip{opacity:1}
+.flyout{position:absolute;top:60px;width:300px;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--pop);z-index:40;padding:14px;display:none}
+.r-rail .flyout{right:calc(100% + 10px)} .l-rail .flyout{left:calc(100% + 10px)}
+.flyout.show{display:block}
+.fly-h{font-weight:600;display:flex;align-items:center;gap:6px;margin-bottom:10px}
+.fly-h button{margin-left:auto;color:var(--ink3)}
+
+/* 바인더 */
+.head-mini{display:flex;align-items:center;gap:6px;padding:10px 12px 0}
+.head-mini .t{font-weight:600;margin-right:auto}
+.seg{display:flex;background:var(--sunk);border-radius:9px;padding:3px;gap:2px}
+.seg button{flex:1;padding:5px 8px;border-radius:7px;color:var(--ink2);font-size:12.5px;white-space:nowrap}
+.seg button.on{background:var(--paper);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(31,36,41,.1)}
+.part{border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:10px 12px;margin:10px 0 8px}
+.part .t{font-weight:600;display:flex}.part .t span{margin-left:auto;font-weight:400;color:var(--ink3);font-size:12px}
+.part .s{color:var(--ink2);font-size:12px;margin:2px 0 8px}
+.stack{display:flex;gap:3px}.stack i{flex:1;height:6px;border-radius:3px;background:var(--line)}
+.ep{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;color:var(--ink2);cursor:pointer}
+.ep:hover{background:var(--sunk)}
+.ep .k{width:30px;color:var(--ink3);font-size:12px}
+.ep .d{width:8px;height:8px;border-radius:50%;flex:none}
+.ep .w{margin-left:auto;font-size:11.5px;color:var(--ink3)}
+.ep.on{background:var(--accent-soft);color:var(--ink);font-weight:600;box-shadow:inset 2px 0 0 var(--accent)}
+.legend{display:flex;gap:10px;font-size:11.5px;color:var(--ink3);padding:8px 4px 4px}
+.legend i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px}
+.glabel{display:flex;font-size:11.5px;color:var(--ink3);padding:12px 4px 6px;font-weight:600;letter-spacing:.02em}
+.glabel span:last-child{margin-left:auto;font-weight:400}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px;border:1px solid var(--line);border-radius:11px;background:var(--paper);text-align:left}
+.tile:hover{border-color:var(--accent-line)}
+.tile i{color:var(--accent);margin-bottom:4px}.tile strong{font-weight:600;font-size:13px}.tile span{font-size:11.5px;color:var(--ink3)}
+.bfoot{border-top:1px solid var(--line);padding:8px 10px;display:flex;gap:4px}
+.bfoot button{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px;border-radius:8px;color:var(--ink2);font-size:12.5px}
+.bfoot button:hover{background:var(--sunk)}
+
+/* 중앙 */
+.center{container-type:inline-size;background:var(--desk);border:1px solid var(--line);border-radius:14px;display:flex;flex-direction:column;min-height:0;min-width:0;position:relative;overflow:hidden}
+.tabs{display:flex;gap:2px;padding:8px 10px 0;background:var(--panel);border-bottom:1px solid var(--line)}
+.tab{padding:7px 12px;border-radius:9px 9px 0 0;color:var(--ink2);display:flex;gap:8px;align-items:center;font-size:12.5px}
+.tab.on{background:var(--desk);color:var(--ink);font-weight:600}
+.tab .x{color:var(--ink3)}
+.bars{background:var(--panel);border-bottom:1px solid var(--line);padding:6px 10px;display:flex;flex-direction:column;gap:5px;position:relative;z-index:20}
+.tool-row{display:flex;align-items:center;gap:2px;flex-wrap:nowrap;min-width:0;overflow:hidden}
+.tb.gs{margin-left:10px;position:relative}
+.tb.gs::before{content:"";position:absolute;left:-7px;top:6px;bottom:6px;width:1px;background:var(--line)}
+.tb[hidden]{display:none}
+.more-tools{margin-left:auto!important}
+.app[data-narrow="1"] .tool-row{max-width:470px}
+.fmt-row{display:flex;align-items:center;gap:1px;flex-wrap:wrap;min-width:0;padding:3px;border-radius:10px;background:var(--sunk)}
+.fmt-row .dv{height:14px;margin:0 4px}
+.tool-row>*,.fmt-row>*{flex:none}
+.tg{display:flex;gap:1px}
+.dv{width:1px;height:18px;background:var(--line);margin:0 5px}
+.tb{display:flex;align-items:center;gap:4px;padding:6px 6px;border-radius:8px;color:var(--ink2);font-size:12.5px;white-space:nowrap}
+.tb:hover,.tb.on{background:var(--sunk);color:var(--ink)}
+.tb.on{box-shadow:inset 0 0 0 1px var(--accent-line);background:var(--accent-soft);color:var(--accent)}
+.tb.rec{color:var(--accent)}
+.tb .live{width:6px;height:6px;border-radius:50%;background:#d6564a;animation:pl 1.4s infinite}
+@keyframes pl{50%{opacity:.3}}
+.pn{margin-left:auto;display:flex;gap:4px}
+.pbox{display:inline-flex;align-items:center;gap:2px;font-size:12px;color:var(--ink2);padding:5px 8px;border-radius:7px;border:1px solid var(--line);white-space:nowrap}
+.pbox:hover{color:var(--ink);border-color:var(--ink3)}
+.rt{font-size:11.5px;color:var(--ink3);margin-left:2px}.tb.rec.run{color:#d6564a}.tb.rec.run .rt{color:#d6564a;font-weight:600}
+.tb.rec.run i[data-ic] svg{animation:pl 1.4s infinite}
+.fb{min-width:28px;height:28px;padding:0 7px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;gap:4px;color:var(--ink2);font-size:12.5px;white-space:nowrap}
+.fb:hover,.fb.on{background:var(--paper);color:var(--ink)}
+.fb.on{background:var(--accent-soft);color:var(--accent)}
+.fold{margin-left:auto;display:flex;gap:2px}
+.pop{position:absolute;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--pop);padding:14px;z-index:50;display:none}
+.pop.show{display:block}
+.pop h5{font-size:11.5px;color:var(--ink3);font-weight:600;margin:0 0 8px;letter-spacing:.02em}
+.pop section+section{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.pop-more{width:420px}
+.pop-qa{width:300px}
+.pop-view{width:240px}
+.row2{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.lab{color:var(--ink2);font-size:12.5px;width:54px}
+.slider{flex:1;height:4px;background:var(--line);border-radius:4px;position:relative;min-width:100px}
+.slider i{position:absolute;left:0;top:0;bottom:0;width:55%;background:var(--accent);border-radius:4px}
+.slider i::after{content:"";position:absolute;right:-6px;top:-4px;width:12px;height:12px;border-radius:50%;background:var(--paper);border:2px solid var(--accent)}
+.val{width:44px;text-align:right;font-size:12.5px;font-variant-numeric:tabular-nums}
+.sw-colors{display:flex;gap:6px}
+.sw-colors i{width:20px;height:20px;border-radius:50%;border:1px solid rgba(0,0,0,.12);cursor:pointer}
+.sw-colors i.add{display:grid;place-items:center;background:var(--sunk);color:var(--ink2);font-style:normal}
+.chips{display:flex;gap:4px;flex-wrap:wrap}
+.chip{padding:5px 9px;border-radius:8px;background:var(--sunk);color:var(--ink2);font-size:12.5px;display:inline-flex;gap:5px;align-items:center}
+.chip:hover{color:var(--ink)}
+.chip.on{background:var(--accent-soft);color:var(--accent)}
+.sp-grid{display:grid;grid-template-columns:repeat(10,1fr);gap:2px}
+.sp-grid button{height:28px;border-radius:6px;font-size:14px;color:var(--ink)}
+.sp-grid button:hover{background:var(--sunk)}
+.menu-item{display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:9px;width:100%;text-align:left}
+.menu-item:hover{background:var(--sunk)}
+.menu-item i{color:var(--ink2)}
+.menu-item small{margin-left:auto;color:var(--ink3);font-size:11.5px}
+.menu-sep{height:1px;background:var(--line);margin:6px 2px}
+.mini-seg{display:flex;gap:4px;margin:2px 0 4px 36px}
+.mini-seg span{padding:3px 8px;border-radius:7px;background:var(--sunk);color:var(--ink2);font-size:12px}
+.mini-seg span.on{background:var(--accent-soft);color:var(--accent)}
+
+/* 종이 */
+.desk{flex:1;min-height:0;overflow:auto;padding:26px 24px 40px}
+.paper{max-width:760px;margin:0 auto;background:var(--paper);color:var(--paper-ink);border-radius:4px;padding:44px 64px 64px;box-shadow:0 0 0 1px rgba(31,36,41,.05),0 10px 30px rgba(31,36,41,.1);min-height:640px}
+.crumb{font-size:12px;color:var(--ink3)}
+.paper{position:relative}
+.titlerow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;margin:8px 0 14px;position:relative}
+.navbtn{display:inline-flex;align-items:center;gap:3px;height:34px;padding:0 8px;border-radius:9px;color:var(--ink3);font-size:12.5px;white-space:nowrap}
+.navbtn:hover{color:var(--ink);background:var(--sunk)}
+.navbtn.dis{opacity:.4;pointer-events:none}
+.tgroup{display:flex;align-items:center;gap:8px;justify-content:center;min-width:0;position:relative}
+.title{font-size:24px;font-weight:700;letter-spacing:-.015em;text-align:center;flex:0 1 auto;min-width:0;border-radius:8px;padding:2px 6px;margin-left:-6px}
+.title:hover{background:var(--sunk)}
+.sugg{width:32px;height:32px;border-radius:9px;border:1px solid var(--line);display:grid;place-items:center;color:var(--accent);flex:none}
+.sugg:hover,.sugg.on{background:var(--accent-soft);border-color:var(--accent-line)}
+.sumrow{display:flex;align-items:center;gap:8px;background:var(--sunk);border-radius:10px;padding:5px 6px 5px 4px;margin-bottom:26px;position:relative}
+.sumlab{padding:4px 10px;border-radius:7px;font-weight:600;font-size:12.5px;color:var(--ink2);display:flex;gap:5px;align-items:center;flex:none}
+.sumlab:hover{background:var(--paper);color:var(--ink)}
+.suminp{flex:1;min-width:0;font-size:13px;color:var(--paper-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.suminp.ph{color:var(--ink3)}
+.sumrow .fb{height:26px}
+.pop-sub{top:44px;left:50%;transform:translateX(-50%);width:340px}
+.pop-sum{top:calc(100% + 6px);left:0;right:0}
+.cand{display:flex;gap:8px;align-items:center;padding:8px 9px;border-radius:9px;width:100%;text-align:left}
+.cand:hover{background:var(--sunk)}
+.cand .n{width:18px;height:18px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-size:11px;display:grid;place-items:center;flex:none}
+.sumli{display:flex;gap:10px;padding:7px 8px;border-radius:8px;font-size:12.5px;color:var(--ink2)}
+.sumli:hover{background:var(--sunk)}.sumli b{color:var(--ink3);width:30px;flex:none;font-weight:500}
+.sumli.on{background:var(--accent-soft);color:var(--ink)}
+.stepper{display:flex;gap:4px;margin-bottom:26px;flex-wrap:wrap}
+.step{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;color:var(--ink3);font-size:12px;border:1px solid transparent}
+.step .dt{width:8px;height:8px;border-radius:50%;border:2px solid var(--line)}
+.step.done .dt{background:var(--s-done);border-color:var(--s-done)}
+.step.now{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.step.now .dt{background:var(--accent);border-color:var(--accent)}
+.ms p{font-family:var(--serif);font-size:17px;line-height:1.95;text-indent:1em;margin-bottom:.8em}
+.ms p.dlg{text-indent:0}
+.caret{display:inline-block;width:2px;height:1.1em;vertical-align:-.2em;background:var(--accent);animation:pl 1.1s steps(1) infinite}
+.foot{background:var(--panel);border-top:1px solid var(--line);padding:7px 14px;display:flex;gap:16px;color:var(--ink2);font-size:12.5px;align-items:center}
+.foot .bar{display:inline-block;width:80px;height:5px;background:var(--line);border-radius:4px;margin:0 6px;vertical-align:middle}
+.foot .bar i{display:block;width:66%;height:100%;background:var(--accent);border-radius:4px}
+.app[data-offline="1"] .foot .sv{margin-left:12px}
+.foot .sv{margin-left:auto;color:var(--accent);display:flex;gap:5px;align-items:center}
+.handle{position:absolute;left:50%;transform:translateX(-50%);top:0;padding:1px 14px;background:var(--panel);border:1px solid var(--line);border-top:0;border-radius:0 0 9px 9px;color:var(--ink3);font-size:11px;display:none}
+
+/* 토리 */
+.t-head{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:11px 12px 6px;font-weight:700;position:relative}
+.t-title{display:flex;align-items:center;gap:7px;justify-content:center}
+.t-right{display:flex;align-items:center;gap:4px;justify-content:flex-end}
+.t-right .acorn{margin-left:0}
+.nbadge{position:absolute;top:1px;right:0;min-width:15px;height:15px;border-radius:8px;background:#d6564a;color:#fff;font-size:10px;line-height:15px;text-align:center;padding:0 3px;font-weight:600}
+.pop-works{top:48px;left:10px;width:260px}
+.pop-bell{top:46px;right:12px;width:290px}
+.acorn{margin-left:auto;font-weight:500;font-size:12px;color:var(--ink2);background:var(--sunk);padding:3px 9px;border-radius:99px;display:flex;gap:5px;align-items:center}
+.t-tabs{margin:4px 12px 0}
+.box{border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:12px;margin-bottom:10px}
+.box h4{font-size:13px;display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.box h4 span{margin-left:auto;font-weight:400;color:var(--ink3);font-size:12px}
+.timer{display:flex;align-items:center;gap:10px}
+.timer strong{font-size:26px;font-weight:600;letter-spacing:-.02em}
+.timer{flex-wrap:wrap}.timer .today{order:3;flex-basis:100%;margin-top:-2px}
+.today{font-size:12px;color:var(--ink3)}.today b{color:var(--ink2)}
+.btn{padding:7px 12px;border-radius:9px;background:var(--accent);color:var(--accent-ink);display:inline-flex;gap:6px;align-items:center;font-size:12.5px}
+.btn.ghost{background:var(--sunk);color:var(--ink)}
+.btn.sm{padding:5px 9px;font-size:12px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.two strong{display:block;font-size:15px}.two span{font-size:11.5px;color:var(--ink3)}
+.week{display:flex;gap:5px;align-items:flex-end;height:42px;margin-top:10px}
+.week i{flex:1;background:var(--accent-soft);border-radius:4px;position:relative}
+.week i.today{background:var(--accent)}
+.week em{position:absolute;bottom:-15px;left:0;right:0;text-align:center;font-style:normal;font-size:10px;color:var(--ink3)}
+.link{color:var(--accent);font-size:12.5px;display:inline-flex;gap:4px;align-items:center;margin-top:20px}
+.chk{display:flex;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:12.5px;line-height:1.5;color:var(--ink2)}
+.chk:first-of-type{border-top:0}
+.chk q{color:var(--ink);quotes:none;background:var(--warn-soft);padding:0 3px;border-radius:3px}
+.tag{flex:none;height:19px;line-height:19px;padding:0 7px;border-radius:6px;font-size:11px;font-weight:600}
+.tag.sent{background:var(--accent-soft);color:var(--accent)}.tag.bait{background:var(--warn-soft);color:var(--warn)}.tag.spell{background:var(--accent-soft);color:var(--ink2)}
+
+.sub-chips{display:flex;gap:4px;margin:0 0 10px}
+.bub{max-width:88%;padding:9px 11px;border-radius:12px;font-size:12.5px;line-height:1.6;margin-bottom:8px}
+.bub.me{margin-left:auto;background:var(--accent);color:var(--accent-ink);border-bottom-right-radius:4px}
+.bub.ai{background:var(--paper);border:1px solid var(--line);border-bottom-left-radius:4px}
+.bub .act{display:flex;gap:4px;margin-top:8px}
+.ask{margin:0 12px 10px;display:flex;align-items:center;gap:8px;padding:8px 8px 8px 12px;border:1px solid var(--line);border-radius:12px;background:var(--paper);color:var(--ink3);font-size:12.5px}
+.ask .send{margin-left:auto;width:28px;height:28px;display:grid;place-items:center;border-radius:8px;background:var(--accent);color:var(--accent-ink)}
+.ask .cost{font-size:11px;color:var(--ink3);margin-left:auto;margin-right:4px}.ask .cost+.send{margin-left:0}
+.t-foot{display:flex;gap:6px;padding:0 12px 10px;color:var(--ink3);font-size:11.5px}
+.t-foot button{display:inline-flex;gap:4px;align-items:center;padding:4px 8px;border-radius:7px;background:var(--sunk);color:var(--ink2)}
+.tgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.tcard{border:1px solid var(--line);background:var(--paper);border-radius:11px;padding:10px;text-align:left;display:flex;flex-direction:column;gap:3px;position:relative}
+.tcard:hover{border-color:var(--accent-line)}
+.tcard i{color:var(--accent);margin-bottom:3px}.tcard strong{font-size:12.5px}.tcard span{font-size:11.5px;color:var(--ink3);line-height:1.4}
+.tcard .c{position:absolute;top:9px;right:9px;font-size:10.5px;color:var(--ink3);background:var(--sunk);border-radius:99px;padding:1px 7px}
+.hist{border:1px solid var(--line);background:var(--paper);border-radius:11px;padding:10px 12px;margin-bottom:7px}
+.hist .m{display:flex;gap:6px;align-items:center;font-size:11.5px;color:var(--ink3);margin-bottom:4px}
+.hist p{font-size:12.5px;line-height:1.55;color:var(--ink2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.hist .act{display:flex;gap:4px;margin-top:8px}
+.pane{display:none}
+.app[data-ttab="check"] .pane.check,.app[data-ttab="chat"] .pane.chat,.app[data-ttab="tools"] .pane.tools,.app[data-ttab="result"] .pane.result{display:block}
+
+/* 집필 기록 모달(필요할 때만) */
+.scrim{position:absolute;inset:0;background:rgba(20,24,28,.38);display:none;place-items:center;z-index:80;border-radius:inherit}
+.app[data-modal="log"] .scrim{display:grid}
+.modal{width:min(640px,92%);background:var(--panel);border-radius:16px;border:1px solid var(--line);box-shadow:var(--pop);overflow:hidden}
+.modal-h{display:flex;align-items:center;padding:14px 18px 0;font-size:15px;font-weight:700}
+.modal-h button{margin-left:auto;color:var(--ink3)}
+.modal .seg{margin:10px 18px 0;width:max-content}.modal .seg button{padding:5px 16px}
+.cal-wrap{display:grid;grid-template-columns:1fr 190px;gap:18px;padding:14px 18px 18px}
+.cal-top{display:flex;align-items:center;gap:6px;margin-bottom:6px;font-weight:600;font-size:12.5px}
+.cal-top button{color:var(--ink2)}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal b{font-weight:500;font-size:11px;color:var(--ink3);text-align:center}
+.cal span{height:30px;border-radius:7px;background:var(--sunk);font-size:11px;padding:4px 6px;color:var(--ink3)}
+.cal span.l1{background:var(--accent-soft);color:var(--ink2)}.cal span.l2{background:var(--accent-line);color:var(--ink)}.cal span.l3{background:var(--accent);color:var(--accent-ink)}
+.cal span.today{outline:2px solid var(--accent);outline-offset:-2px;font-weight:700}
+.cal span.void{background:none}
+.side-s .box{margin-bottom:8px}.side-s big{font-size:19px;font-weight:700;display:block}.side-s small{color:var(--ink3);font-size:11.5px}
+</style>
+</head>
+<body>
+
+<div class="sw">
+  <b>SuperTory 섬과 종이 · v4 시안</b>
+  <div class="grp" id="presets">
+    <button data-p="home" aria-pressed="true">① 첫 화면</button>
+    <button data-p="more">② 서식 더보기</button>
+    <button data-p="view">③ 좁은 창(더보기)</button>
+  </div>
+  <div class="grp">
+    <button data-p="t-check">④ 토리·체크</button>
+    <button data-p="t-chat">⑤ 대화</button>
+    <button data-p="t-tools">⑥ 도구</button>
+    <button data-p="t-result">⑦ 결과</button>
+  </div>
+  <div class="grp">
+    <button data-p="rails">⑧ 양쪽 접힘</button>
+    <button data-p="qa">⑨ 빠른 분석</button><button data-p="log">⑩ 집필 기록 달력</button><button data-p="sugg">⑪ 소제목 추천</button><button data-p="sum">⑫ 요약 목록</button><button data-p="gitsi">⑬ 짓시</button><button data-p="bell">⑭ 토리 알림</button><button data-p="offline">⑮ 오프라인</button><button data-p="works">⑯ 작품 목록</button>
+  </div>
+  <div class="grp"><button id="themeBtn">다크 전환</button></div>
+  <span class="note">시안용 가짜 데이터 · 모든 버튼이 실제로 동작하지는 않습니다</span>
+</div>
+
+<div class="app" id="app" data-left="open" data-right="open" data-ttab="check" data-pop="" data-modal="">
+  <header class="top">
+    <div class="top-r">
+      <button class="ib home" title="시작 화면"><img class="mascot" src="/assets/tori-mascot.png" alt="" style="width:24px;height:24px"></button>
+      <button class="ib" title="새로 만들기 · 가져오기 · 내보내기"><i data-ic="bookPlus" data-s="17"></i></button>
+      <button class="ib" title="테마"><i data-ic="sun" data-s="17"></i></button>
+      <button class="ib" title="배경음"><i data-ic="headphones" data-s="17"></i></button>
+      <button class="ib" id="gitsiBtn" data-act="gitsi" title="짓시 (코워킹·화면 공유)"><i data-ic="video" data-s="17"></i></button>
+      <button class="ib" title="설정"><i data-ic="settings" data-s="17"></i></button>
+    </div>
+    <div class="cmd"><i data-ic="search" data-s="15"></i>회차·인물·설정 검색 또는 명령<kbd>Ctrl K</kbd></div>
+  <div class="pop" id="popGitsi" style="top:42px;left:96px;width:290px;padding:14px">
+      <h5 style="font-size:13px;color:var(--ink);margin-bottom:10px;display:flex;align-items:center;gap:6px"><i data-ic="video" data-s="15"></i>짓시 코워킹</h5>
+      <label style="display:block;font-size:12px;color:var(--ink2);margin-bottom:8px">룸 코드<div class="cand" style="border:1px solid var(--line);margin-top:4px;color:var(--ink3);padding:8px 10px">supertory-xxxx</div></label>
+      <label style="display:block;font-size:12px;color:var(--ink2);margin-bottom:10px">표시 이름<div class="cand" style="border:1px solid var(--line);margin-top:4px;color:var(--ink3);padding:8px 10px">작가님</div></label>
+      <div style="display:flex;gap:6px"><button class="btn" style="flex:1;justify-content:center">입장하기</button><button class="btn ghost">화면 공유</button></div>
+      <div class="glabel" style="padding:12px 0 4px"><span>최근 짓시 룸</span></div>
+      <div class="sumli"><b style="width:auto">supertory-7f3a</b><span style="margin-left:auto;color:var(--ink3)">어제</span></div>
+    </div>
+  </header>
+
+  <div class="body">
+    <!-- ═ 바인더 섬 ═ -->
+    <aside class="island" aria-label="바인더">
+      <div class="l-full" style="display:flex;flex-direction:column;min-height:0;flex:1">
+        <div class="head-mini"><button class="work" id="workBtn" data-act="works" title="작품 목록"><i data-ic="libbig" data-s="18" style="color:var(--accent)"></i><span class="wt">달빛 서고의 사서</span><i data-ic="chevDown" data-s="14"></i></button><button class="ib" style="width:28px;height:28px" data-act="left" title="접기"><i data-ic="panelLeft" data-s="16"></i></button></div>
+        <div class="pop pop-works" id="popWorks" style="padding:8px">
+          <div style="display:flex;align-items:center;padding:2px 8px 6px"><h5 style="margin:0">작품 목록</h5><span style="margin-left:auto;font-size:11.5px;color:var(--ink3)">우클릭: 순서 변경</span></div>
+          <button class="menu-item" style="background:var(--accent-soft)"><i data-ic="libbig" data-s="15" style="color:var(--accent)"></i>달빛 서고의 사서<small>5화</small></button>
+          <button class="menu-item"><i data-ic="libbig" data-s="15"></i>여름의 끝에서<small>12화</small></button>
+          <button class="menu-item"><i data-ic="libbig" data-s="15"></i>이름 없는 지도<small>3화</small></button>
+          <div class="menu-sep"></div>
+          <button class="menu-item" style="color:var(--accent)"><i data-ic="plus" data-s="15" style="color:var(--accent)"></i>새 작품 만들기</button>
+        </div>
+        <div class="scroll">
+          <div class="seg"><button class="on">본문</button><button>설정집</button></div>
+          <div class="part">
+            <div class="t">1부 · 봄의 문<span>1권</span></div>
+            <div class="s">5화 중 2화 완성 · <span class="num">19,494</span>자</div>
+            <div class="stack"><i style="background:var(--s-done)"></i><i style="background:var(--s-done)"></i><i style="background:var(--s-rev)"></i><i style="background:var(--s-draft)"></i><i style="background:var(--s-idea)"></i></div>
+          </div>
+          <div class="ep"><span class="k">1화</span><span class="d" style="background:var(--s-done)"></span>비 오는 서고<span class="w num">4,102</span></div>
+          <div class="ep"><span class="k">2화</span><span class="d" style="background:var(--s-done)"></span>잠긴 서가<span class="w num">3,870</span></div>
+          <div class="ep"><span class="k">3화</span><span class="d" style="background:var(--s-rev)"></span>문 앞의 소년<span class="w num">4,310</span></div>
+          <div class="ep on"><span class="k">4화</span><span class="d" style="background:var(--s-draft)"></span>첫 번째 대출자<span class="w num">3,284</span></div>
+          <div class="ep"><span class="k">5화</span><span class="d" style="background:var(--s-idea)"></span>반납일<span class="w num">0</span></div>
+          <div class="legend"><span><i style="background:var(--s-idea)"></i>구상</span><span><i style="background:var(--s-draft)"></i>초고</span><span><i style="background:var(--s-rev)"></i>수정</span><span><i style="background:var(--s-done)"></i>완성</span></div>
+          <div class="glabel"><span>설정집 바로가기</span><span>전체 ›</span></div>
+          <div class="tiles">
+            <button class="tile"><i data-ic="users" data-s="17"></i><strong>캐릭터</strong><span>12명</span></button>
+            <button class="tile"><i data-ic="globe" data-s="17"></i><strong>세계관</strong><span>4개 문서</span></button>
+            <button class="tile"><i data-ic="link" data-s="17"></i><strong>떡밥 모음</strong><span>7개 · 2개 회수</span></button>
+            <button class="tile"><i data-ic="bulb" data-s="17"></i><strong>생각수첩</strong><span>23장</span></button>
+          </div>
+        </div>
+        <div class="bfoot"><button><i data-ic="plus" data-s="14"></i>새 회차</button><button title="메모 · 아이디어 빠른 기록"><i data-ic="bulb" data-s="14"></i>메모<span class="num" style="color:var(--ink3)">3</span></button><button><i data-ic="trash" data-s="14"></i>휴지통</button></div>
+      </div>
+      <nav class="rail l-rail" aria-label="바인더 도크">
+        <button class="ib expand" data-act="left"><i data-ic="panelLeft" data-s="18"></i><span class="tip">작품·바인더 펼치기</span></button>
+        <button class="ib" title="작품 목록"><i data-ic="libbig" data-s="18"></i><span class="tip">작품 목록 · 달빛 서고의 사서</span></button>
+        <button class="ib" data-fly="l-manu"><i data-ic="folder" data-s="18"></i><span class="tip">목차보기</span></button>
+        <div class="sep"></div>
+        <button class="ib"><i data-ic="bulb" data-s="18"></i><span class="tip">생각수첩</span></button>
+        <button class="ib"><i data-ic="globe" data-s="18"></i><span class="tip">세계관</span></button>
+        <button class="ib"><i data-ic="users" data-s="18"></i><span class="tip">캐릭터</span></button>
+        <button class="ib"><i data-ic="clock" data-s="18"></i><span class="tip">연대기</span></button>
+        <button class="ib"><i data-ic="box" data-s="18"></i><span class="tip">아이템</span></button>
+        <button class="ib"><i data-ic="history" data-s="18"></i><span class="tip">등장 이력</span></button>
+        <button class="ib"><i data-ic="book" data-s="18"></i><span class="tip">토리 사전</span></button>
+        <div class="sep"></div>
+        <button class="ib"><i data-ic="link" data-s="18"></i><span class="dot"></span><span class="tip">떡밥 모음 (미회수 5)</span></button>
+        <button class="ib"><i data-ic="paperclip" data-s="18"></i><span class="tip">참고자료·출처</span></button>
+        <button class="ib"><i data-ic="network" data-s="18"></i><span class="tip">크로스 레퍼런스</span></button>
+        <button class="ib"><i data-ic="trend" data-s="18"></i><span class="tip">흥행작 프로파일</span></button>
+        <div class="rail-spacer"></div>
+        <button class="ib"><i data-ic="plus" data-s="18"></i><span class="tip">새 회차</span></button>
+      </nav>
+    </aside>
+
+    <!-- ═ 중앙 ═ -->
+    <main class="center">
+      <div class="tabs">
+        <span class="tab on">4화 첫 번째 대출자 <span class="x">×</span></span>
+        <span class="tab">윤서 · 캐릭터 <span class="x">×</span></span>
+        
+      </div>
+      <div class="bars">
+        <div class="tool-row" id="toolRow">
+          <button class="tb" data-tl="메모"><i data-ic="note" data-s="15"></i><span class="l">메모</span></button>
+          <button class="tb" data-tl="인물"><i data-ic="users" data-s="15"></i><span class="l">인물</span></button>
+          <button class="tb" data-tl="자료"><i data-ic="link" data-s="15"></i><span class="l">자료</span></button>
+          <button class="tb" data-tl="북마크"><i data-ic="bookmark" data-s="15"></i><span class="l">북마크</span></button>
+          <button class="tb gs" id="qaBtn" data-act="qa" title="빠른 분석 (내가 연결한 AI 기능)" data-tl="빠른 분석"><i data-ic="bolt" data-s="15"></i><span class="l">빠른 분석</span><i data-ic="chevDown" data-s="11"></i></button>
+          <button class="tb" data-tl="비교"><i data-ic="compare" data-s="15"></i><span class="l">비교</span></button>
+          <button class="tb" data-tl="찾기"><i data-ic="search" data-s="15"></i><span class="l">찾기</span></button>
+          <button class="tb gs" data-tl="뷰어"><i data-ic="eye" data-s="15"></i><span class="l">뷰어</span></button>
+          <button class="tb" data-tl="조판" title="조판 규격으로 편집"><i data-ic="pagewrite" data-s="15"></i><span class="l">조판</span></button>
+          <button class="tb" data-tl="분할"><i data-ic="columns" data-s="15"></i><span class="l">분할</span></button>
+          <button class="tb" data-tl="확장"><i data-ic="expand" data-s="15"></i><span class="l">확장</span></button>
+          <button class="tb" data-tl="타자기"><i data-ic="keyboard" data-s="15"></i><span class="l">타자기</span></button>
+          <button class="tb" data-tl="집중"><i data-ic="target" data-s="15"></i><span class="l">집중</span></button>
+          <button class="tb more-tools" id="toolMore" data-act="tools" hidden title="더보기"><i data-ic="more" data-s="16"></i><span class="l">더보기</span></button>
+        </div>
+        <div class="fmt-row">
+          <button class="fb" title="되돌리기"><i data-ic="undo" data-s="15"></i></button>
+          <button class="fb" title="다시 실행"><i data-ic="redo" data-s="15"></i></button><i class="dv"></i>
+          <button class="fb">본문<i data-ic="chevDown" data-s="12"></i></button>
+          <button class="fb">Pretendard<i data-ic="chevDown" data-s="12"></i></button>
+          <button class="fb">16.5<i data-ic="chevDown" data-s="12"></i></button>
+          <button class="fb opt">줄 1.9<i data-ic="chevDown" data-s="12"></i></button><i class="dv opt2"></i>
+          <button class="fb"><b>B</b></button><button class="fb"><i style="font-style:italic;font-family:serif;font-size:14px">I</i></button><button class="fb"><u>U</u></button><button class="fb"><s>S</s></button>
+          <button class="fb" title="글자색"><span style="font-weight:700;border-bottom:3px solid #d6564a;line-height:1">A</span></button><i class="dv"></i>
+          <button class="fb" title="정렬"><i data-ic="align" data-s="15"></i></button>
+          <button class="fb" id="moreBtn" data-act="more"><i data-ic="more" data-s="16"></i>더보기</button>
+        </div>
+
+        <!-- 서식 더보기 -->
+        <div class="pop pop-more" id="popMore">
+          <section>
+            <h5>글자</h5>
+            <div class="row2" style="margin-bottom:9px"><span class="lab">장평</span><div class="slider"><i></i></div><span class="val num">100%</span></div>
+            <div class="row2" style="margin-bottom:9px"><span class="lab">자간</span><div class="slider"><i style="width:35%"></i></div><span class="val num">-0.2</span></div>
+            <div class="row2" style="margin-bottom:9px"><span class="lab">글자색</span><div class="sw-colors"><i style="background:#262b31"></i><i style="background:#d6564a"></i><i style="background:#d2a456"></i><i style="background:#4f9b7d"></i><i style="background:#6f92c6"></i><i style="background:#a99ac8"></i><i class="add">+</i></div></div>
+            <div class="row2"><span class="lab">형광펜</span><div class="sw-colors"><i style="background:#fbe9a6"></i><i style="background:#cdeed9"></i><i style="background:#d4e4f7"></i><i style="background:#f6d2d0"></i><i class="add">∅</i></div></div>
+          </section>
+          <section>
+            <h5>단락</h5>
+            <div class="chips">
+              <button class="chip"><i data-ic="list" data-s="14"></i>글머리 기호</button>
+              <button class="chip"><i data-ic="listNum" data-s="14"></i>번호 목록</button>
+              <button class="chip"><i data-ic="indent" data-s="14"></i>들여쓰기</button>
+              <button class="chip"><i data-ic="outdent" data-s="14"></i>내어쓰기</button>
+              <button class="chip on"><i data-ic="quote" data-s="14"></i>첫줄 들여쓰기</button>
+            </div>
+          </section>
+          <section>
+            <h5>삽입</h5>
+            <div class="sp-grid" id="spGrid"></div>
+            <div class="chips" style="margin-top:8px"><button class="chip">장면 전환 ＊＊＊</button><button class="chip">구분선</button><button class="chip">말줄임표 …</button></div>
+          </section>
+          <section>
+            <h5>문서</h5>
+            <div class="chips">
+              <button class="chip"><i data-ic="doc" data-s="14"></i>전체 문서에 적용</button>
+              <button class="chip"><i data-ic="eraser" data-s="14"></i>서식 지우기</button>
+              <button class="chip"><i data-ic="quote" data-s="14"></i>따옴표 정리</button>
+            </div>
+          </section>
+        </div>
+
+        <div class="pop pop-qa" id="popQa" style="padding:8px">
+          <div style="display:flex;align-items:center;padding:2px 8px 6px"><h5 style="margin:0">빠른 분석</h5><span style="margin-left:auto;font-size:11.5px;color:var(--ink3)">내가 연결한 AI 기능</span></div>
+          <button class="menu-item"><i data-ic="chart" data-s="16"></i>장면 분석<small>도토리 2</small></button>
+          <button class="menu-item"><i data-ic="users" data-s="16"></i>인물 말투 점검<small>도토리 2</small></button>
+          <button class="menu-item"><i data-ic="align" data-s="16"></i>문장 리듬<small>도토리 1</small></button>
+          <button class="menu-item"><i data-ic="link" data-s="16"></i>떡밥 체크<small>도토리 1</small></button>
+          <button class="menu-item"><i data-ic="spell" data-s="16"></i>맞춤법 검사<small>무료</small></button>
+          <div class="menu-sep"></div>
+          <button class="menu-item" style="color:var(--accent)"><i data-ic="plus" data-s="16" style="color:var(--accent)"></i>기능 연결하기…<small>도구 탭의 기능 전부</small></button>
+          <button class="menu-item"><i data-ic="settings" data-s="16"></i>순서·목록 편집</button>
+        </div>
+        <!-- 보기 메뉴 -->
+        <div class="pop pop-view" id="popTools" style="padding:8px"></div>
+      </div>
+
+      <div class="desk">
+        <article class="paper">
+          <div class="crumb">1권 › 1부 봄의 문 › 4화</div>
+          <div class="titlerow">
+            <button class="navbtn" title="이전 회차 · 3화"><i data-ic="chevLeft" data-s="14"></i>이전</button>
+            <div class="tgroup">
+            <button class="sugg" id="suggBtn" data-act="sugg" title="토리의 소제목 추천 · 본문 1,200자 이상일 때 사용"><i data-ic="wand" data-s="16"></i></button>
+            <h1 class="title" contenteditable="false" title="현재 회차 제목 (수정 가능)">첫 번째 대출자</h1>
+            <div class="pop pop-sub" id="popSub" style="padding:8px">
+              <div style="display:flex;align-items:center;padding:2px 8px 6px"><h5 style="margin:0">토리의 소제목 추천</h5><span style="margin-left:auto;font-size:11.5px;color:var(--ink3)">도토리 1</span></div>
+              <button class="cand"><span class="n">1</span>젖은 책을 든 소년</button>
+              <button class="cand"><span class="n">2</span>대출 기록에 없는 이름</button>
+              <button class="cand"><span class="n">3</span>비가 그친 골목 끝</button>
+              <div class="menu-sep"></div>
+              <button class="menu-item"><i data-ic="redo" data-s="15"></i>다시 추천받기</button>
+            </div>
+          </div>
+            <button class="navbtn" title="다음 회차 · 5화">다음<i data-ic="chevRight" data-s="14"></i></button>
+          </div>
+          <div class="stepper" style="margin-bottom:12px" title="작성 상태">
+            <span class="step"><span class="dt"></span>개요</span><span class="step done"><span class="dt"></span>구상</span><span class="step now"><span class="dt"></span>초고</span><span class="step"><span class="dt"></span>수정</span><span class="step"><span class="dt"></span>완성</span>
+          </div>
+          <div class="sumrow" id="sumRow">
+            <button class="sumlab" data-act="sumlist" title="좌클릭: 요약 목록 · 우클릭: 토리야 요약해 줘"><i data-ic="note" data-s="14"></i>요약</button>
+            <span class="suminp">윤서는 반납하러 온 낯선 소년에게서 대출 기록이 없는 책을 받는다.</span>
+            <button class="fb" title="토리야 요약해 줘"><i data-ic="wand" data-s="14"></i></button>
+            <button class="fb" title="요약 칸 접기"><i data-ic="chevUp" data-s="14"></i></button>
+            <div class="pop pop-sum" id="popSum" style="padding:8px">
+              <div style="display:flex;align-items:center;padding:2px 8px 6px"><h5 style="margin:0">요약 목록</h5><span style="margin-left:auto;font-size:11.5px;color:var(--ink3)">누르면 해당 회차로 이동</span></div>
+              <div class="sumli"><b>1화</b>비 오는 날 윤서가 서고를 물려받는다.</div>
+              <div class="sumli"><b>2화</b>잠긴 서가에서 오래된 열쇠를 찾는다.</div>
+              <div class="sumli"><b>3화</b>문 앞에서 낯선 소년이 서성인다.</div>
+              <div class="sumli on"><b>4화</b>윤서는 반납하러 온 소년에게서 대출 기록이 없는 책을 받는다.</div>
+              <div class="sumli"><b>5화</b><span style="color:var(--ink3)">아직 요약이 없어요</span></div>
+            </div>
+          </div>
+          <div class="ms">
+            <p>그때 문에 달린 종이 울렸다. 바람도 불지 않는 아침이었다. 윤서는 고개를 들었고, 문간에 서 있는 낯선 소년의 손에 젖은 책 한 권이 들려 있는 것을 보았다.</p>
+            <p class="dlg">“반납하러 왔어요.”</p>
+            <p>소년은 그렇게 말하며 책을 내밀었다. 표지의 금박은 반쯤 지워져 있었지만, 윤서는 그것이 이 서고의 가장 오래된 장서라는 것을 한눈에 알아보았다. 대출 기록은 어디에도 없었다.</p>
+            <p class="dlg">“이 책은… 어디서 빌린 거니?”</p>
+            <p>소년은 대답 대신 창밖을 바라보았다. 비가 그친 골목 끝에서 누군가 천천히 걸어오고 있었다<span class="caret"></span></p>
+          </div>
+        </article>
+      </div>
+      <div class="foot">
+        <span><strong class="num">3,284</strong>자</span><span>공백 제외 <span class="num">2,561</span></span><span>단어 <span class="num">712</span></span>
+        <span>목표 <span class="num">5,000</span><span class="bar"><i></i></span>66%</span>
+        <span class="offline" title="인터넷 없이도 원고 작성은 그대로 가능해요. AI 기능만 연결되면 다시 쓸 수 있어요"><i></i>오프라인 모드</span>
+        <span class="sv"><i data-ic="check" data-s="14"></i>자동 저장됨</span>
+      </div>
+
+      <div class="scrim" id="scrim">
+        <div class="modal" role="dialog" aria-label="집필 기록">
+          <div class="modal-h">집필 기록<button data-act="closeModal"><i data-ic="x" data-s="18"></i></button></div>
+          <div class="seg"><button class="on">달력</button><button>집계</button><button>설정</button><button>폰 연동</button></div>
+          <div class="cal-wrap">
+            <div><div class="cal-top"><button><i data-ic="chevLeft" data-s="15"></i></button>2026년 10월<button><i data-ic="chevRight" data-s="15"></i></button></div><div class="cal" id="cal"></div></div>
+            <div class="side-s">
+              <div class="box"><small>이번 달</small><big class="num">31,540자</big><small>하루 평균 2,253자</small></div>
+              <div class="box"><small>연속 집필</small><big>4일</big><small>최장 17일</small></div>
+              <div class="box"><small>오늘</small><big class="num">1,904자</big><small>1시간 12분 · 3회</small></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ═ SuperTORY 섬 ═ -->
+    <aside class="island" aria-label="SuperTORY">
+      <div class="r-full" style="display:flex;flex-direction:column;min-height:0;flex:1">
+        <div class="t-head">
+          <button class="ib" style="width:28px;height:28px" data-act="right" title="접기"><i data-ic="panelRight" data-s="16"></i></button>
+          <div class="t-title"><img class="mascot" src="/assets/tori-mascot.png" alt="">SuperTORY</div>
+          <div class="t-right">
+            <button class="ib" id="bellBtn" data-act="bell" title="토리 알림" style="width:28px;height:28px"><i data-ic="bell" data-s="16"></i><span class="nbadge">2</span></button>
+            <span class="acorn"><i data-ic="acorn" data-s="13"></i><span class="num">128</span></span>
+          </div>
+          <div class="pop pop-bell" id="popBell" style="padding:10px">
+            <div style="display:flex;align-items:center;padding:2px 6px 8px"><h5 style="margin:0">토리 알림</h5><span style="margin-left:auto;display:flex;gap:4px"><button class="fb" title="큰 창으로 열기"><i data-ic="expand" data-s="14"></i></button></span></div>
+            <div class="chk"><span class="tag bait">오늘</span><div>오후 9시 · 5화 초고 마감 확인<br><span style="color:var(--ink3)">직접 추가한 알림</span></div></div>
+            <div class="chk"><span class="tag sent">토리</span><div>3일째 4화에 머물러 있어요. 5화 구상을 시작해 볼까요?</div></div>
+            <button class="menu-item" style="color:var(--accent);margin-top:4px"><i data-ic="plus" data-s="15" style="color:var(--accent)"></i>알림 추가</button>
+          </div>
+        </div>
+        <div class="seg t-tabs" id="tTabs"><button data-tt="check">체크</button><button data-tt="chat">대화</button><button data-tt="tools">도구</button><button data-tt="result">결과</button></div>
+        <div class="scroll" style="padding-top:12px">
+          <!-- 체크 -->
+          <div class="pane check">
+            <div class="box">
+              <h4><i data-ic="timer" data-s="15"></i>집필 기록<button class="link" style="margin:0 0 0 auto;font-size:12px" data-act="log">달력 <i data-ic="chevRight" data-s="12"></i></button></h4>
+              <div class="timer"><strong class="num" style="font-size:22px">25:00</strong><span class="today">오늘 <b class="num">1,904</b>자 · 1시간 12분</span><button class="btn sm" style="margin-left:auto"><i data-ic="play" data-s="12"></i>시작</button></div>
+              <div class="week" style="margin-bottom:16px"><i style="height:40%"><em>금</em></i><i style="height:70%"><em>토</em></i><i style="height:25%"><em>일</em></i><i style="height:85%"><em>월</em></i><i style="height:55%"><em>화</em></i><i style="height:100%"><em>수</em></i><i class="today" style="height:60%"><em>오늘</em></i></div>
+            </div>
+            <div class="box">
+              <h4>실시간 토리 체크<span>3건</span></h4>
+              <div class="chk"><span class="tag sent">문장</span><div><q>들려 있는 것을 보았다</q> 동사가 길게 이어져요.</div></div>
+              <div class="chk"><span class="tag bait">떡밥</span><div>젖은 책 — 아직 회수 계획이 없어요.</div></div>
+              <div class="chk"><span class="tag spell">맞춤법</span><div>이 회차는 고칠 곳이 없어요.</div></div>
+              <div style="display:flex;gap:6px;margin-top:6px"><button class="btn ghost sm"><i data-ic="spell" data-s="13"></i>맞춤법 검사</button><button class="btn ghost sm"><i data-ic="chart" data-s="13"></i>글자수 트래커</button></div>
+            </div>
+          </div>
+          <!-- 대화 -->
+          <div class="pane chat">
+            <div class="sub-chips"><span class="chip on"><i data-ic="mascot" data-s="13"></i>토리</span><span class="chip"><i data-ic="users" data-s="13"></i>내 캐릭터</span><span class="chip"><i data-ic="eye" data-s="13"></i>가상 독자</span></div>
+            <div class="bub me">이 장면에서 소년의 정체를 바로 밝히면 너무 빠를까?</div>
+            <div class="bub ai">4화 끝까지는 숨기는 편이 좋아요. 지금 ‘대출 기록이 없다’는 단서가 이미 긴장을 만들고 있어서, 정체는 5화 반납일 장면으로 미루면 떡밥 회수와도 맞물려요.
+              <div class="act"><button class="btn ghost sm">복사</button><button class="btn ghost sm">수집</button><button class="btn ghost sm">원고 끝에 넣기</button></div></div>
+            <div class="bub me">좋아. 그럼 소년이 책을 내밀 때 묘사를 한 줄 더 넣어줘.</div>
+            <div class="bub ai"><span style="color:var(--ink3)">생각하는 중…</span></div>
+          </div>
+          <!-- 도구 -->
+          <div class="pane tools">
+            <div class="glabel" style="padding-top:0"><span>다듬기</span></div>
+            <div class="tgrid">
+              <button class="tcard"><span class="c">3</span><i data-ic="wand" data-s="17"></i><strong>리라이트</strong><span>선택한 문장 다듬기</span></button>
+              <button class="tcard"><span class="c">3</span><i data-ic="compare" data-s="17"></i><strong>원문 비교</strong><span>원문과 결과 나란히</span></button>
+            </div>
+            <div class="glabel"><span>분석</span></div>
+            <div class="tgrid">
+              <button class="tcard"><span class="c">2</span><i data-ic="chart" data-s="17"></i><strong>장면 분석</strong><span>리듬 · 긴장 · 시점</span></button>
+              <button class="tcard"><span class="c">2</span><i data-ic="users" data-s="17"></i><strong>인물 분석</strong><span>말투 · 관계 일관성</span></button>
+              <button class="tcard"><span class="c">5</span><i data-ic="trend" data-s="17"></i><strong>흥행작 프로파일</strong><span>패턴과 비교</span></button>
+              <button class="tcard"><span class="c">1</span><i data-ic="network" data-s="17"></i><strong>크로스 레퍼런스</strong><span>설정 충돌 찾기</span></button>
+            </div>
+            <div class="glabel"><span>교정 · 번역</span></div>
+            <div class="tgrid">
+              <button class="tcard"><span class="c">무료</span><i data-ic="spell" data-s="17"></i><strong>맞춤법</strong><span>철자 · 띄어쓰기</span></button>
+              <button class="tcard"><span class="c">8</span><i data-ic="doc" data-s="17"></i><strong>교정본 비교</strong><span>회차 자동 매칭</span></button>
+              <button class="tcard"><span class="c">6</span><i data-ic="globe" data-s="17"></i><strong>번역</strong><span>원문 · 번역문 대조</span></button>
+              <button class="tcard"><span class="c">–</span><i data-ic="vault" data-s="17"></i><strong>수집창고</strong><span>저장한 결과 모음</span></button>
+            </div>
+          </div>
+          <!-- 결과 -->
+          <div class="pane result">
+            <div class="seg" style="margin-bottom:10px"><button class="on">최근 결과</button><button>히스토리</button><button>수집창고</button></div>
+            <div class="hist"><div class="m"><span class="tag sent">리라이트</span>방금 · 4화</div><p>소년은 젖은 책을 두 손으로 받쳐 들고, 마치 오래 숨겨 둔 비밀을 내려놓듯 조심스럽게 내밀었다.</p><div class="act"><button class="btn ghost sm">복사</button><button class="btn ghost sm">수집</button><button class="btn ghost sm">원고 끝에 넣기</button></div></div>
+            <div class="hist"><div class="m"><span class="tag sent">장면 분석</span>어제 · 3화</div><p>긴장은 중반에 정점을 찍고 마지막 두 문단에서 급히 풀립니다. 마지막 대사를 한 박자 늦추면…</p><div class="act"><button class="btn ghost sm">열기</button><button class="btn ghost sm">삭제</button></div></div>
+            <div class="hist"><div class="m"><span class="tag bait">대화</span>10월 12일 · 윤서</div><p>“그 책을 빌려 간 사람은 없었어. 내가 기억하는 한은.”</p></div>
+          </div>
+        </div>
+        <div class="ask"><span>토리에게 물어보기…</span><span class="cost">도토리 1</span><span class="send"><i data-ic="send" data-s="14"></i></span></div>
+        <div class="t-foot"><button><i data-ic="shield" data-s="12"></i>내화면 보호 끔</button><button><i data-ic="acorn" data-s="12"></i>도토리 충전</button></div>
+      </div>
+
+      <nav class="rail r-rail" aria-label="SuperTORY 도크">
+        <button class="ib expand" data-act="right"><i data-ic="panelRight" data-s="18"></i><span class="tip">SuperTORY 펼치기</span></button>
+        <button class="ib" data-fly="timer"><i data-ic="timer" data-s="18"></i><span class="tip">집필 기록 · 타이머</span></button>
+        <button class="ib" data-fly="check"><i data-ic="check" data-s="18"></i><span class="badge">3</span><span class="tip">실시간 토리 체크</span></button>
+        <button class="ib"><i data-ic="spell" data-s="18"></i><span class="tip">맞춤법 검사</span></button>
+        <button class="ib"><i data-ic="chart" data-s="18"></i><span class="tip">글자수 트래커</span></button>
+        <div class="sep"></div>
+        <button class="ib"><i data-ic="mascot" data-s="18"></i><span class="tip">토리와 대화</span></button>
+        <button class="ib"><i data-ic="users" data-s="18"></i><span class="tip">내 캐릭터와 대화</span></button>
+        <button class="ib"><i data-ic="eye" data-s="18"></i><span class="tip">가상 독자와 대화</span></button>
+        <div class="sep"></div>
+        <button class="ib"><i data-ic="doc" data-s="18"></i><span class="tip">결과 보기</span></button>
+        <button class="ib"><i data-ic="history" data-s="18"></i><span class="tip">히스토리</span></button>
+        <button class="ib"><i data-ic="vault" data-s="18"></i><span class="tip">수집창고</span></button>
+        <div class="rail-spacer"></div>
+        <button class="ib"><i data-ic="shield" data-s="18"></i><span class="tip">내화면 보호</span></button>
+        <button class="ib"><i data-ic="acorn" data-s="18"></i><span class="badge">128</span><span class="tip">도토리 잔량</span></button>
+
+        <div class="flyout" id="fly-timer">
+          <div class="fly-h"><i data-ic="timer" data-s="16"></i>집필 기록<button data-act="closeFly"><i data-ic="x" data-s="15"></i></button></div>
+          <div class="timer"><strong class="num">25:00</strong><button class="btn" style="margin-left:auto"><i data-ic="play" data-s="12"></i>시작</button></div>
+          <div class="two"><div><strong class="num">1,904자</strong><span>오늘 쓴 글자</span></div><div><strong>1시간 12분</strong><span>오늘 쓴 시간</span></div></div>
+          <button class="link" style="margin-top:12px" data-act="log">달력 · 집계 열기 <i data-ic="chevRight" data-s="13"></i></button>
+        </div>
+        <div class="flyout" id="fly-check">
+          <div class="fly-h"><i data-ic="check" data-s="16"></i>실시간 토리 체크<button data-act="closeFly"><i data-ic="x" data-s="15"></i></button></div>
+          <div class="chk"><span class="tag sent">문장</span><div><q>들려 있는 것을 보았다</q> 동사가 길게 이어져요.</div></div>
+          <div class="chk"><span class="tag bait">떡밥</span><div>젖은 책 — 아직 회수 계획이 없어요.</div></div>
+        </div>
+      </nav>
+    </aside>
+  </div>
+</div>
+
+<script>
+(function(){
+  var P={
+    book:'<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/>',
+    search:'<circle cx="11" cy="11" r="7.5"/><path d="m20.5 20.5-4.2-4.2"/>',
+    bookPlus:'<path d="M12 7v6M9 10h6"/><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/>',
+    sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    headphones:'<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>',
+    settings:'<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    plus:'<path d="M5 12h14M12 5v14"/>',
+    users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+    globe:'<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/>',
+    link:'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+    bulb:'<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6M10 22h4"/>',
+    note:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+    bookmark:'<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
+    chart:'<path d="M3 3v18h18"/><path d="M8 17v-6M13 17V7M18 17v-9"/>',
+    compare:'<rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/>',
+    eye:'<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    columns:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/>',
+    expand:'<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
+    layout:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>',
+    chevLeft:'<path d="m15 18-6-6 6-6"/>',chevRight:'<path d="m9 18 6-6-6-6"/>',chevDown:'<path d="m6 9 6 6 6-6"/>',chevUp:'<path d="m18 15-6-6-6 6"/>',
+    undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+    redo:'<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
+    align:'<path d="M21 6H3M15 12H3M17 18H3"/>',
+    more:'<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
+    check:'<path d="M20 6 9 17l-5-5"/>',
+    send:'<path d="m22 2-11 11M22 2l-7 20-4-9-9-4z"/>',
+    play:'<path d="M6 4v16l14-8z"/>',
+    timer:'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/>',
+    clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    keyboard:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M7 15h10"/>',
+    target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>',
+    panelLeft:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>',
+    panelRight:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/>',
+    folder:'<path d="M4 4h5l2 3h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/>',
+    box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+    history:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+    paperclip:'<path d="m21 11-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"/>',
+    network:'<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M12 7.5v4M12 11.5 6 17M12 11.5l6 5.5"/>',
+    trend:'<path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+    trash:'<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>',
+    mascot:'<circle cx="12" cy="12" r="9"/><circle cx="9" cy="10.5" r="1" fill="currentColor"/><circle cx="15" cy="10.5" r="1" fill="currentColor"/><path d="M9 15c1.7 1.4 4.3 1.4 6 0"/>',
+    acorn:'<path d="M5 10h14a7 7 0 0 1-14 0z"/><path d="M12 17v4M12 4c-2 0-4 1-4 3v3h8V7c0-2-2-3-4-3z"/>',
+    shield:'<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/>',
+    spell:'<path d="M3 16 7 6l4 10M4.5 13h5M13 17l3 3 6-7"/>',
+    doc:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
+    wand:'<path d="m15 4 5 5L8 21l-5-5zM13 6l5 5M19 3v3M21 4.5h-4"/>',
+    vault:'<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="12" cy="12" r="3.5"/><path d="M12 8.5v7M8.5 12h7"/>',
+    list:'<path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4.5" cy="6" r=".8"/><circle cx="4.5" cy="12" r=".8"/><circle cx="4.5" cy="18" r=".8"/>',
+    listNum:'<path d="M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M4 14h2l-2 4h2"/>',
+    indent:'<path d="M3 6h18M11 12h10M11 18h10M3 9l3 3-3 3"/>',
+    outdent:'<path d="M3 6h18M11 12h10M11 18h10M6 9l-3 3 3 3"/>',
+    quote:'<path d="M5 8h5v5a4 4 0 0 1-4 4M14 8h5v5a4 4 0 0 1-4 4"/>',
+    eraser:'<path d="m7 21-4-4 11-11a2 2 0 0 1 3 0l3 3a2 2 0 0 1 0 3L11 21zM12 21h9"/>',
+    pagewrite:'<path d="M4 4h12a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"/><path d="M8 9h6M8 13h6M20 8v8l-1.5 3L17 16V8a1.5 1.5 0 0 1 3 0z"/>',
+    video:'<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
+    bell:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
+    libbig:'<rect width="8" height="18" x="3" y="3" rx="1"/><path d="M7 3v18"/><path d="M20.4 18.9c.2.5-.1 1.1-.6 1.3l-1.9.7c-.5.2-1.1-.1-1.3-.6L11.1 5.1c-.2-.5.1-1.1.6-1.3l1.9-.7c.5-.2 1.1.1 1.3.6Z"/>',
+    bolt:'<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+    x:'<path d="M18 6 6 18M6 6l12 12"/>'
+  };
+  function icons(root){
+    (root||document).querySelectorAll('i[data-ic]').forEach(function(el){
+      if(el.firstChild)return;var s=el.dataset.s||16;
+      el.style.width=el.style.height=s+'px';
+      el.innerHTML='<svg viewBox="0 0 24 24">'+(P[el.dataset.ic]||'')+'</svg>';
+    });
+  }
+  icons();
+
+  var sp='※ ◇ ◆ ○ ● □ ■ ★ ☆ ♡ ♥ · ‥ … 「 」 『 』 《 》 〈 〉 ― ～ ① ② ③ ¶ † ‡ § ° ± × ÷ ′'.split(' ');
+  document.getElementById('spGrid').innerHTML=sp.slice(0,30).map(function(c){return '<button>'+c+'</button>'}).join('');
+  var cal=document.getElementById('cal'),h='';
+  '일 월 화 수 목 금 토'.split(' ').forEach(function(d){h+='<b>'+d+'</b>'});
+  var lv=[0,1,2,0,3,2,1,0,0,2,1,3,2,3,3];
+  for(var k=0;k<4;k++)h+='<span class="void"></span>';
+  for(var d=1;d<=31;d++){var l=d<=14?lv[(d-1)%lv.length]:0;h+='<span class="'+(l?'l'+l:'')+(d===14?' today':'')+'">'+d+'</span>';}
+  cal.innerHTML=h;
+
+  var app=document.getElementById('app');
+  function set(k,v){app.dataset[k]=v}
+  var POPS={works:['popWorks','workBtn'],bell:['popBell','bellBtn'],gitsi:['popGitsi','gitsiBtn'],more:['popMore','moreBtn'],tools:['popTools','toolMore'],qa:['popQa','qaBtn'],sugg:['popSub','suggBtn'],sum:['popSum',null]};
+  function place(name){
+    var el=document.getElementById(POPS[name][0]);
+    if(name==='sugg'||name==='sum'||name==='gitsi'||name==='bell'||name==='works')return;
+    var bars=el.parentNode,btn=document.getElementById(POPS[name][1]),br=bars.getBoundingClientRect(),r=btn.getBoundingClientRect();
+    el.style.top=(r.bottom-br.top+4)+'px';
+    var left=r.left-br.left;
+    if(left+el.offsetWidth>br.width-8)left=r.right-br.left-el.offsetWidth;
+    el.style.left=Math.max(8,left)+'px';el.style.right='auto';
+  }
+  function pop(name){
+    var next=app.dataset.pop===name?'':name;
+    set('pop',next);
+    Object.keys(POPS).forEach(function(k){
+      var on=next===k,el=document.getElementById(POPS[k][0]);
+      el.classList.toggle('show',on);
+      if(POPS[k][1])document.getElementById(POPS[k][1]).classList.toggle('on',on);
+    });
+    if(next)place(next);
+  }
+  function fly(id){
+    document.querySelectorAll('.flyout').forEach(function(f){f.classList.toggle('show',f.id==='fly-'+id&&!f.classList.contains('show'))});
+  }
+  function tt(t){set('ttab',t);document.querySelectorAll('#tTabs button').forEach(function(b){b.classList.toggle('on',b.dataset.tt===t)})}
+  tt('check');
+
+  var PRESETS={
+    home:function(){reset()},
+    more:function(){reset();pop('more')},
+    view:function(){reset();set('narrow','1');fit();pop('tools')},
+    't-check':function(){reset();tt('check')},
+    't-chat':function(){reset();tt('chat')},
+    't-tools':function(){reset();tt('tools')},
+    't-result':function(){reset();tt('result')},
+    rails:function(){reset();set('left','rail');set('right','rail');fly('timer')},
+    qa:function(){reset();pop('qa')},log:function(){reset();set('modal','log')},sugg:function(){reset();pop('sugg')},sum:function(){reset();pop('sum')},gitsi:function(){reset();pop('gitsi')},bell:function(){reset();pop('bell')},offline:function(){reset();set('offline','1')},works:function(){reset();pop('works')}
+  };
+  function reset(){set('offline','');set('narrow','');fit();set('left','open');set('right','open');set('modal','');if(app.dataset.pop)pop(app.dataset.pop);fly('none')}
+  document.getElementById('presets').parentNode.parentNode.querySelectorAll('[data-p]').forEach(function(b){
+    b.addEventListener('click',function(){
+      PRESETS[b.dataset.p]();
+      document.querySelectorAll('.sw [data-p]').forEach(function(x){x.setAttribute('aria-pressed',x===b)});
+    });
+  });
+  document.addEventListener('click',function(e){
+    var a=e.target.closest('[data-act]'),t=e.target.closest('[data-tt]'),f=e.target.closest('[data-fly]');
+    if(t){tt(t.dataset.tt);return}
+    if(f){fly(f.dataset.fly.replace('l-',''));return}
+    if(!a)return;
+    var v=a.dataset.act;
+    if(v==='gitsi'||v==='bell'||v==='works'){pop(v);return}
+    if(v==='more'||v==='tools'||v==='qa'||v==='sugg')pop(v);
+    else if(v==='sumlist')pop('sum');
+    else if(v==='left')set('left',app.dataset.left==='open'?'rail':'open');
+    else if(v==='right')set('right',app.dataset.right==='open'?'rail':'open');
+    else if(v==='log'){fly('none');set('modal','log')}
+    else if(v==='closeModal')set('modal','');
+    else if(v==='rec')toggleRec();
+    else if(v==='closeFly')fly('none');
+  });
+  function fit(){
+    var row=document.getElementById('toolRow'),more=document.getElementById('toolMore');
+    var its=[].slice.call(row.querySelectorAll('.tb[data-tl]'));
+    its.forEach(function(b){b.hidden=false});more.hidden=true;
+    if(row.scrollWidth<=row.clientWidth+1){document.getElementById('popTools').innerHTML='';return}
+    more.hidden=false;var hid=[];
+    for(var k=its.length-1;k>=0&&row.scrollWidth>row.clientWidth+1;k--){its[k].hidden=true;hid.unshift(its[k])}
+    document.getElementById('popTools').innerHTML=hid.map(function(b){
+      return '<button class="menu-item"><i data-ic="'+b.querySelector('i').dataset.ic+'" data-s="16"></i>'+b.dataset.tl+'</button>'}).join('');
+    icons(document.getElementById('popTools'));
+  }
+  window.addEventListener('resize',fit);
+  if(window.ResizeObserver)new ResizeObserver(fit).observe(document.querySelector('.center'));
+  document.fonts&&document.fonts.ready.then(fit);fit();
+  var run=false,sec=0,tm;
+  function fmt(n){return ('0'+Math.floor(n/60)).slice(-2)+':'+('0'+n%60).slice(-2)}
+  function toggleRec(){
+    run=!run;clearInterval(tm);if(run)tm=setInterval(function(){sec++;document.querySelectorAll('.timer .num').forEach(function(e){e.textContent=fmt(1500-sec)})},1000);
+    document.querySelectorAll('.timer .btn').forEach(function(x){x.lastChild.textContent=run?'정지':'시작'});
+  }
+  document.querySelectorAll('.timer .btn').forEach(function(x){x.addEventListener('click',toggleRec)});
+  document.getElementById('themeBtn').addEventListener('click',function(){
+    var d=document.documentElement;var dark=d.dataset.theme==='dark';
+    d.dataset.theme=dark?'light':'dark';this.textContent=dark?'다크 전환':'라이트 전환';
+  });
+})();
+</script>
+</body>
+</html>

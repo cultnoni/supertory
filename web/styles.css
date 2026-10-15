@@ -19994,49 +19994,8 @@ button.alias-chip.is-tori-draft,
   box-sizing: border-box;
 }
 .episode-tab-bar:empty { display: none; }
-/* 탭 없을 때 +도 숨김 */
-.episode-tab-row:not(:has(.episode-tab)) .episode-tab-add {
-  display: none;
-}
 .episode-tab-row:not(:has(.episode-tab)) {
   display: none;
-}
-/* 박스 없는 맨손 + — 탭 오른쪽 여백 */
-.episode-tab-add {
-  flex: 0 0 auto;
-  align-self: flex-end;
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  margin: 0 2px 2px 2px;
-  padding: 0;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  outline: none;
-  color: var(--ink, #1a1208);
-  font-size: 20px;
-  font-weight: 400;
-  line-height: 1;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  user-select: none;
-  position: relative;
-  z-index: 2;
-}
-.episode-tab-add:hover,
-.episode-tab-add:focus-visible {
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--primary, var(--ink));
-  outline: none;
-}
-.episode-tab-add:disabled {
-  opacity: 0.35;
-  cursor: default;
 }
 .episode-tab {
   flex: 0 1 auto;
