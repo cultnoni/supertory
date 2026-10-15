@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 import app
+from routes import reader_api
 import gemini_client
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,10 +30,10 @@ class ReaderDebateTests(unittest.TestCase):
         self.original_data_dir = app.DATA_DIR
         self.original_database_path = app.DATABASE_PATH
         self.original_generate = gemini_client.generate_text
-        self.original_gap = app.READER_DEBATE_GEMINI_GAP_SECONDS
+        self.original_gap = reader_api.READER_DEBATE_GEMINI_GAP_SECONDS
         app.DATA_DIR = Path(self.temporary_directory.name) / "data"
         app.DATABASE_PATH = app.DATA_DIR / "supertory.sqlite3"
-        app.READER_DEBATE_GEMINI_GAP_SECONDS = 0
+        reader_api.READER_DEBATE_GEMINI_GAP_SECONDS = 0
         app.initialise_database()
         self.server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.SuperToryHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -54,7 +55,7 @@ class ReaderDebateTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         gemini_client.generate_text = self.original_generate  # type: ignore[method-assign]
-        app.READER_DEBATE_GEMINI_GAP_SECONDS = self.original_gap
+        reader_api.READER_DEBATE_GEMINI_GAP_SECONDS = self.original_gap
         self.server.shutdown()
         self.thread.join()
         self.server.server_close()
@@ -110,7 +111,7 @@ class ReaderDebateTests(unittest.TestCase):
 
     def test_persona_ids_key_is_sorted(self) -> None:
         self.assertEqual(
-            app.reader_debate_persona_ids_key(
+            reader_api.reader_debate_persona_ids_key(
                 ["plausibility_absolutist", "roppan_cider", "roppan_narrative"]
             ),
             "plausibility_absolutist,roppan_cider,roppan_narrative",
@@ -139,7 +140,7 @@ class ReaderDebateTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 3)
         for call in self.calls:
             system = call["system"]
-            self.assertIn(app.READER_DEBATE_TASK_ADDON, system)
+            self.assertIn(reader_api.READER_DEBATE_TASK_ADDON, system)
             self.assertIn("[작품 정보]", system)
             self.assertNotIn("당신은 '토리'입니다", system)
             self.assertNotIn("장르 불일치 인지", system)

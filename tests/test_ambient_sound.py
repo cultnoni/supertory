@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import app
+from routes import ambient_api
 
 
 FAKE_MP3 = b"ID3\x04\x00\x00\x00\x00\x00\x00korean-ambient"
@@ -45,11 +46,11 @@ def _multipart(fields: dict[str, str], files: dict[str, tuple[str, bytes]]) -> t
 class AmbientSoundCatalogTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
-        self.original_root = app.AMBIENT_SOUND_ROOT
+        self.original_root = ambient_api.AMBIENT_SOUND_ROOT
         self.original_data_dir = app.DATA_DIR
         self.original_database_path = app.DATABASE_PATH
-        self.original_transcode = app.transcode_to_ambient_mp3
-        self.original_probe = app.probe_audio_duration_seconds
+        self.original_transcode = ambient_api.transcode_to_ambient_mp3
+        self.original_probe = ambient_api.probe_audio_duration_seconds
         root = Path(self.temporary_directory.name) / "sounds"
         (root / "nature").mkdir(parents=True)
         (root / "ambient").mkdir(parents=True)
@@ -62,7 +63,7 @@ class AmbientSoundCatalogTests(unittest.TestCase):
         (root / "ambient" / "창가-비.mp3").write_bytes(FAKE_MP3)
         (root / "ambient" / "카페.mp3").write_bytes(FAKE_MP3)
         (root / "noise" / "White.mp3").write_bytes(FAKE_MP3)
-        app.AMBIENT_SOUND_ROOT = root
+        ambient_api.AMBIENT_SOUND_ROOT = root
         app.DATA_DIR = Path(self.temporary_directory.name) / "data"
         app.DATABASE_PATH = app.DATA_DIR / "supertory.sqlite3"
         app.initialise_database()
@@ -74,11 +75,11 @@ class AmbientSoundCatalogTests(unittest.TestCase):
         self.server.shutdown()
         self.thread.join()
         self.server.server_close()
-        app.AMBIENT_SOUND_ROOT = self.original_root
+        ambient_api.AMBIENT_SOUND_ROOT = self.original_root
         app.DATA_DIR = self.original_data_dir
         app.DATABASE_PATH = self.original_database_path
-        app.transcode_to_ambient_mp3 = self.original_transcode
-        app.probe_audio_duration_seconds = self.original_probe
+        ambient_api.transcode_to_ambient_mp3 = self.original_transcode
+        ambient_api.probe_audio_duration_seconds = self.original_probe
         self.temporary_directory.cleanup()
 
     def request(
@@ -102,8 +103,8 @@ class AmbientSoundCatalogTests(unittest.TestCase):
         def probe(_path: Path) -> float:
             return float(duration)
 
-        app.transcode_to_ambient_mp3 = transcode
-        app.probe_audio_duration_seconds = probe
+        ambient_api.transcode_to_ambient_mp3 = transcode
+        ambient_api.probe_audio_duration_seconds = probe
 
     def insert_custom_track(
         self,
@@ -115,7 +116,7 @@ class AmbientSoundCatalogTests(unittest.TestCase):
         size: int | None = None,
     ) -> tuple[int, str]:
         stored = f"{uuid.uuid4().hex}.mp3"
-        path = app.ambient_custom_dir() / stored
+        path = ambient_api.ambient_custom_dir() / stored
         path.write_bytes(data)
         with app.database() as connection:
             cursor = connection.execute(
@@ -157,10 +158,10 @@ class AmbientSoundCatalogTests(unittest.TestCase):
             self.assertEqual(body, FAKE_MP3)
 
     def test_resolve_korean_filenames(self) -> None:
-        self.assertIsNotNone(app.resolve_ambient_sound_file("nature", "모닥불.mp3"))
-        self.assertIsNotNone(app.resolve_ambient_sound_file("nature", "시냇물"))
-        self.assertIsNotNone(app.resolve_ambient_sound_file("ambient", "창가-비.mp3"))
-        self.assertIsNone(app.resolve_ambient_sound_file("nature", "../noise/White.mp3"))
+        self.assertIsNotNone(ambient_api.resolve_ambient_sound_file("nature", "모닥불.mp3"))
+        self.assertIsNotNone(ambient_api.resolve_ambient_sound_file("nature", "시냇물"))
+        self.assertIsNotNone(ambient_api.resolve_ambient_sound_file("ambient", "창가-비.mp3"))
+        self.assertIsNone(ambient_api.resolve_ambient_sound_file("nature", "../noise/White.mp3"))
 
     def test_custom_tracks_are_listed_and_served(self) -> None:
         track_id, stored = self.insert_custom_track()
@@ -181,8 +182,8 @@ class AmbientSoundCatalogTests(unittest.TestCase):
         status, body = self.request(custom["url"])
         self.assertEqual(status, 200)
         self.assertEqual(body, FAKE_MP3)
-        self.assertIsNotNone(app.resolve_ambient_sound_file("custom", stored))
-        self.assertIsNone(app.resolve_ambient_sound_file("custom", "../x.mp3"))
+        self.assertIsNotNone(ambient_api.resolve_ambient_sound_file("custom", stored))
+        self.assertIsNone(ambient_api.resolve_ambient_sound_file("custom", "../x.mp3"))
 
     def test_legacy_custom_tracks_move_into_custom_style(self) -> None:
         track_id, _stored = self.insert_custom_track(category="nature")
@@ -220,7 +221,7 @@ class AmbientSoundCatalogTests(unittest.TestCase):
             ).fetchone()
         self.assertTrue(str(row["stored_filename"]).endswith(".mp3"))
         self.assertAlmostEqual(float(row["duration_seconds"]), 9.5)
-        self.assertTrue((app.ambient_custom_dir() / row["stored_filename"]).is_file())
+        self.assertTrue((ambient_api.ambient_custom_dir() / row["stored_filename"]).is_file())
 
         self.install_fake_ffmpeg(duration=21 * 60)
         body, content_type = _multipart(
@@ -249,7 +250,7 @@ class AmbientSoundCatalogTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("mp3", json.loads(raw.decode("utf-8"))["error"])
 
-        self.insert_custom_track(size=app.CUSTOM_AMBIENT_QUOTA_BYTES - 10, data=b"x")
+        self.insert_custom_track(size=ambient_api.CUSTOM_AMBIENT_QUOTA_BYTES - 10, data=b"x")
         self.install_fake_ffmpeg(duration=3.0, output=b"ID3" + b"\x00" * 64)
         body, content_type = _multipart(
             {"category": "ambient"},
@@ -266,7 +267,7 @@ class AmbientSoundCatalogTests(unittest.TestCase):
 
     def test_delete_custom_track_removes_file_and_row(self) -> None:
         track_id, stored = self.insert_custom_track()
-        path = app.ambient_custom_dir() / stored
+        path = ambient_api.ambient_custom_dir() / stored
         self.assertTrue(path.is_file())
         status, raw = self.request(f"/api/ambient/custom/{track_id}", "DELETE")
         self.assertEqual(status, 200, raw.decode("utf-8", errors="replace"))

@@ -17,7 +17,9 @@ export const lintFiles = [
   "web/tory-check.js",
   "web/smart-punctuation.js",
   "web/app.js",
+  "web/js/gitsi.js",
   "web/feedback_panel.js",
+  "web/app-boot.js",
 ];
 
 export const browserExtras = {
@@ -37,7 +39,10 @@ export const cdnGlobals = {
 /**
  * Rare shared names that auto-scan misses. Prefer auto-scan of sibling scripts.
  */
-export const manualAllowlist = Object.create(null);
+export const manualAllowlist = Object.assign(Object.create(null), {
+  // `const $ = …` is not picked up by VAR_RE (`$` is non-\w so `\b` fails).
+  $: "readonly",
+});
 
 const FN_RE = /(?:^|\n)(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(/g;
 const VAR_RE = /(?:^|\n)(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b/g;

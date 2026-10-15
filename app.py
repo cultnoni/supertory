@@ -82,7 +82,6 @@ import tarot_deck
 import translation_context
 import translation_prompts
 import typeset_export
-from routes import glump_api
 from repositories.scene_content_repository import SceneContentRepository
 from repositories.typeset_repository import TypesetRepository
 from repositories.translation_job_repository import TranslationJobRepository
@@ -222,574 +221,58 @@ MIGRATION_082_PATH = ROOT / "db" / "082_open_threads_resolved.sql"
 MIGRATION_085_PATH = ROOT / "db" / "085_character_custom_roles.py"
 MIGRATION_092_PATH = ROOT / "db" / "092_migrate_urban_main_to_fantasy_male.py"
 WEB_ROOT = ROOT / "web"
-AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
-AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
-CUSTOM_AMBIENT_FOLDER = "custom"
-CUSTOM_AMBIENT_QUOTA_BYTES = 400 * 1024 * 1024
-CUSTOM_AMBIENT_MAX_SECONDS = 20 * 60
-CUSTOM_AMBIENT_MAX_UPLOAD_BYTES = 250 * 1024 * 1024
-CUSTOM_AMBIENT_EXTENSIONS = {".mp3", ".wav", ".m4a", ".flac", ".ogg"}
-CUSTOM_AMBIENT_FILE_RE = re.compile(r"^[0-9a-f]{32}\.mp3$", re.IGNORECASE)
 
 
-def ambient_file_token(folder: str, filename: str) -> str:
-    """ASCII-only token so Korean filenames never go through HTTP path encoding."""
-    return f"{folder}/{filename}".encode("utf-8").hex()
 
 
-def ambient_custom_dir() -> Path:
-    path = DATA_DIR / "ambient_custom"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
-def resolve_custom_ambient_file(filename: str) -> Path | None:
-    name = Path(str(filename or "")).name
-    if not CUSTOM_AMBIENT_FILE_RE.fullmatch(name):
-        return None
-    root = ambient_custom_dir().resolve()
-    path = (root / name).resolve()
-    try:
-        path.relative_to(root)
-    except ValueError:
-        return None
-    return path if path.is_file() else None
 
 
-def resolve_ambient_sound_file(folder: str, filename: str) -> Path | None:
-    """Find an MP3 in assets/sounds, matching Unicode-normalized Korean names."""
-    if folder == CUSTOM_AMBIENT_FOLDER:
-        return resolve_custom_ambient_file(filename)
-    if folder not in AMBIENT_SOUND_FOLDERS:
-        return None
-    root = AMBIENT_SOUND_ROOT.resolve()
-    folder_dir = (root / folder).resolve()
-    try:
-        folder_dir.relative_to(root)
-    except ValueError:
-        return None
-    if not folder_dir.is_dir():
-        return None
-    wanted_name = unicodedata.normalize("NFC", str(filename or ""))
-    if not wanted_name or wanted_name in {".", ".."} or "/" in wanted_name or "\\" in wanted_name:
-        return None
-    direct = folder_dir / wanted_name
-    if direct.is_file():
-        return direct
-    wanted_cf = wanted_name.casefold()
-    wanted_stem = Path(wanted_name).stem.casefold()
-    for item in folder_dir.iterdir():
-        if not item.is_file() or item.suffix.lower() != ".mp3":
-            continue
-        name_n = unicodedata.normalize("NFC", item.name)
-        if name_n.casefold() == wanted_cf or item.stem.casefold() == wanted_stem:
-            return item
-    return None
 
 
-def list_ambient_sound_catalog() -> dict:
-    """MP3 tracks under assets/sounds/{frequency,noise,nature,ambient}."""
-    root = AMBIENT_SOUND_ROOT.resolve()
-    categories = []
-    for folder in AMBIENT_SOUND_FOLDERS:
-        folder_dir = root / folder
-        tracks = []
-        if folder_dir.is_dir():
-            for path in sorted(folder_dir.iterdir(), key=lambda item: item.name.lower()):
-                if not path.is_file() or path.suffix.lower() != ".mp3":
-                    continue
-                tracks.append({
-                    "id": f"{folder}:{path.stem}",
-                    "category": folder,
-                    "file": path.name,
-                    "stem": path.stem,
-                    "url": f"/api/ambient-file/{ambient_file_token(folder, path.name)}",
-                })
-        categories.append({"id": folder, "tracks": tracks})
-    custom_tracks, usage = load_custom_ambient_tracks()
-    categories.append({"id": CUSTOM_AMBIENT_FOLDER, "tracks": custom_tracks})
-    apply_ambient_track_overrides(categories)
-    return {"categories": categories, "usage": usage}
 
 
-def _unlink_quiet(path: Path | None) -> None:
-    if path is None:
-        return
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        pass
 
 
-def _subprocess_hidden_kwargs() -> dict:
-    kwargs: dict = {}
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    if flags:
-        kwargs["creationflags"] = flags
-    return kwargs
 
 
-def find_ffmpeg_tools() -> tuple[str, str]:
-    ffmpeg = shutil.which("ffmpeg")
-    ffprobe = shutil.which("ffprobe")
-    if not ffmpeg or not ffprobe:
-        raise ValueError("음원을 변환할 수 없어요. ffmpeg가 설치되어 있는지 확인해 주세요.")
-    return ffmpeg, ffprobe
 
 
-def transcode_to_ambient_mp3(source: Path, destination: Path) -> None:
-    ffmpeg, _ffprobe = find_ffmpeg_tools()
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    result = subprocess.run(
-        [
-            ffmpeg,
-            "-y",
-            "-i",
-            str(source),
-            "-b:a",
-            "128k",
-            "-ar",
-            "44100",
-            "-ac",
-            "2",
-            str(destination),
-        ],
-        capture_output=True,
-        timeout=180,
-        **_subprocess_hidden_kwargs(),
-    )
-    if result.returncode != 0 or not destination.is_file() or destination.stat().st_size < 32:
-        raise ValueError("이 파일은 변환할 수 없어요. 파일이 손상됐거나 지원하지 않는 형식일 수 있어요.")
 
 
-def probe_audio_duration_seconds(path: Path) -> float:
-    _ffmpeg, ffprobe = find_ffmpeg_tools()
-    result = subprocess.run(
-        [
-            ffprobe,
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            str(path),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        **_subprocess_hidden_kwargs(),
-    )
-    if result.returncode != 0:
-        raise ValueError("이 파일은 변환할 수 없어요. 파일이 손상됐거나 지원하지 않는 형식일 수 있어요.")
-    try:
-        duration = float((result.stdout or "").strip())
-    except (TypeError, ValueError) as error:
-        raise ValueError("이 파일은 변환할 수 없어요. 파일이 손상됐거나 지원하지 않는 형식일 수 있어요.") from error
-    if duration <= 0:
-        raise ValueError("이 파일은 변환할 수 없어요. 파일이 손상됐거나 지원하지 않는 형식일 수 있어요.")
-    return duration
 
 
-def custom_ambient_usage(connection: sqlite3.Connection | None = None) -> dict:
-    empty = {"used_bytes": 0, "limit_bytes": CUSTOM_AMBIENT_QUOTA_BYTES}
-
-    def _read(conn: sqlite3.Connection) -> dict:
-        used = conn.execute(
-            "SELECT COALESCE(SUM(file_size_bytes), 0) FROM user_ambient_tracks"
-        ).fetchone()[0]
-        return {"used_bytes": int(used or 0), "limit_bytes": CUSTOM_AMBIENT_QUOTA_BYTES}
-
-    if connection is not None:
-        try:
-            return _read(connection)
-        except sqlite3.Error:
-            return empty
-    try:
-        with database() as conn:
-            return _read(conn)
-    except sqlite3.Error:
-        return empty
 
 
-def custom_ambient_track_public(row: sqlite3.Row | dict) -> dict:
-    stored = str(row["stored_filename"])
-    original = str(row["original_filename"])
-    return {
-        "id": f"custom:{int(row['id'])}",
-        "category": CUSTOM_AMBIENT_FOLDER,
-        "file": original,
-        "stem": Path(original).stem,
-        "url": f"/api/ambient-file/{ambient_file_token(CUSTOM_AMBIENT_FOLDER, stored)}",
-        "custom": True,
-        "custom_id": int(row["id"]),
-        "duration_seconds": float(row["duration_seconds"] or 0),
-        "file_size_bytes": int(row["file_size_bytes"] or 0),
-    }
 
 
-def load_custom_ambient_tracks() -> tuple[list[dict], dict]:
-    tracks: list[dict] = []
-    usage = custom_ambient_usage()
-    try:
-        with database() as connection:
-            rows = connection.execute(
-                "SELECT id, original_filename, stored_filename, duration_seconds, "
-                "file_size_bytes, category FROM user_ambient_tracks "
-                "ORDER BY created_at, id"
-            ).fetchall()
-            usage = custom_ambient_usage(connection)
-    except sqlite3.Error:
-        return tracks, usage
-    for row in rows:
-        stored = str(row["stored_filename"])
-        if resolve_custom_ambient_file(stored) is None:
-            continue
-        tracks.append(custom_ambient_track_public(row))
-    return tracks, usage
 
 
-def sanitize_ambient_upload_filename(name: str) -> str:
-    cleaned = unicodedata.normalize("NFC", Path(str(name or "")).name).replace("\x00", "").strip()
-    if len(cleaned) > 200:
-        stem = Path(cleaned).stem[:180]
-        suffix = Path(cleaned).suffix[:20]
-        cleaned = f"{stem}{suffix}" if suffix else stem
-    return cleaned or "audio.mp3"
 
 
-def parse_multipart_form(handler) -> tuple[dict[str, str], dict[str, tuple[str, bytes]]]:
-    content_type = handler.headers.get("Content-Type", "")
-    if "multipart/form-data" not in content_type.lower():
-        raise ValueError("파일 업로드 형식이 올바르지 않습니다.")
-    try:
-        length = int(handler.headers.get("Content-Length") or 0)
-    except (TypeError, ValueError) as error:
-        raise ValueError("파일 업로드 형식이 올바르지 않습니다.") from error
-    if length <= 0:
-        raise ValueError("업로드 파일이 비어 있습니다.")
-    if length > CUSTOM_AMBIENT_MAX_UPLOAD_BYTES:
-        remaining = length
-        while remaining > 0:
-            chunk = handler.rfile.read(min(65536, remaining))
-            if not chunk:
-                break
-            remaining -= len(chunk)
-        raise ValueError("파일이 너무 큽니다.")
-    raw = handler.rfile.read(length)
-    header_block = f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8")
-    message = BytesParser(policy=email_policy).parsebytes(header_block + raw)
-    fields: dict[str, str] = {}
-    files: dict[str, tuple[str, bytes]] = {}
-    for part in message.iter_parts():
-        name = part.get_param("name", header="content-disposition")
-        if not name:
-            continue
-        filename = part.get_filename()
-        payload = part.get_payload(decode=True)
-        if payload is None:
-            payload = b""
-        if filename:
-            files[str(name)] = (str(filename), payload)
-        else:
-            charset = part.get_content_charset() or "utf-8"
-            try:
-                fields[str(name)] = payload.decode(charset, errors="replace")
-            except LookupError:
-                fields[str(name)] = payload.decode("utf-8", errors="replace")
-    return fields, files
 
 
-def save_custom_ambient_track(category: str, original_filename: str, file_bytes: bytes) -> dict:
-    category = CUSTOM_AMBIENT_FOLDER
-    if not file_bytes:
-        raise ValueError("업로드 파일이 비어 있습니다.")
-    original_filename = sanitize_ambient_upload_filename(original_filename)
-    extension = Path(original_filename).suffix.lower()
-    if extension not in CUSTOM_AMBIENT_EXTENSIONS:
-        raise ValueError("mp3, wav, m4a, flac, ogg 파일만 올릴 수 있어요.")
-    stored_filename = f"{uuid.uuid4().hex}.mp3"
-    source_path: Path | None = None
-    encoded_path: Path | None = None
-    dest_path: Path | None = None
-    try:
-        handle = tempfile.NamedTemporaryFile(delete=False, suffix=extension)
-        try:
-            handle.write(file_bytes)
-            handle.flush()
-        finally:
-            handle.close()
-        source_path = Path(handle.name)
-        encoded_handle = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        encoded_handle.close()
-        encoded_path = Path(encoded_handle.name)
-        transcode_to_ambient_mp3(source_path, encoded_path)
-        duration = probe_audio_duration_seconds(encoded_path)
-        if duration > CUSTOM_AMBIENT_MAX_SECONDS:
-            raise ValueError("배경음은 짧은 루프 소스를 권장해요")
-        encoded_size = encoded_path.stat().st_size
-        with database() as connection:
-            used = int(
-                connection.execute(
-                    "SELECT COALESCE(SUM(file_size_bytes), 0) FROM user_ambient_tracks"
-                ).fetchone()[0]
-                or 0
-            )
-            if used + encoded_size > CUSTOM_AMBIENT_QUOTA_BYTES:
-                raise ValueError("저장 공간이 가득 찼어요 (400MB 제한)")
-            dest_path = ambient_custom_dir() / stored_filename
-            shutil.move(str(encoded_path), str(dest_path))
-            encoded_path = None
-            cursor = connection.execute(
-                "INSERT INTO user_ambient_tracks("
-                "original_filename, stored_filename, duration_seconds, file_size_bytes, category) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (original_filename, stored_filename, duration, encoded_size, category),
-            )
-            track_id = int(cursor.lastrowid)
-            row = connection.execute(
-                "SELECT id, original_filename, stored_filename, duration_seconds, "
-                "file_size_bytes, category FROM user_ambient_tracks WHERE id = ?",
-                (track_id,),
-            ).fetchone()
-            usage = custom_ambient_usage(connection)
-        return {"track": custom_ambient_track_public(row), "usage": usage}
-    except Exception:
-        _unlink_quiet(encoded_path)
-        _unlink_quiet(dest_path)
-        raise
-    finally:
-        _unlink_quiet(source_path)
 
 
-def upload_custom_ambient_track_from_request(handler) -> dict:
-    fields, files = parse_multipart_form(handler)
-    upload = files.get("file")
-    if not upload:
-        raise ValueError("업로드 파일이 비어 있습니다.")
-    filename, payload = upload
-    category = str(fields.get("category") or "").strip()
-    return save_custom_ambient_track(category, filename, payload)
 
 
-def delete_custom_ambient_track(track_id: int) -> dict:
-    with database() as connection:
-        row = connection.execute(
-            "SELECT id, stored_filename FROM user_ambient_tracks WHERE id = ?",
-            (int(track_id),),
-        ).fetchone()
-        if row is None:
-            raise ValueError("음원을 찾을 수 없습니다.")
-        stored = str(row["stored_filename"])
-        connection.execute("DELETE FROM user_ambient_tracks WHERE id = ?", (int(track_id),))
-        try:
-            connection.execute(
-                "DELETE FROM ambient_track_overrides WHERE track_id = ?",
-                (f"custom:{int(track_id)}",),
-            )
-        except sqlite3.Error:
-            pass
-        usage = custom_ambient_usage(connection)
-    path = resolve_custom_ambient_file(stored)
-    if path is None:
-        candidate = ambient_custom_dir() / Path(stored).name
-        if candidate.is_file() and CUSTOM_AMBIENT_FILE_RE.fullmatch(candidate.name):
-            path = candidate
-    _unlink_quiet(path)
-    return {"ok": True, "usage": usage}
 
 
-def _json_flag(value, default: bool = True) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in {"1", "true", "yes", "on"}:
-            return True
-        if lowered in {"0", "false", "no", "off"}:
-            return False
-        raise ValueError("토글박스 표시 값이 올바르지 않습니다.")
-    if isinstance(value, (int, float)) and value in (0, 1):
-        return bool(value)
-    if isinstance(value, bool):
-        return value
-    raise ValueError("토글박스 표시 값이 올바르지 않습니다.")
 
 
-def parse_ambient_track_id(track_id: str) -> tuple[str, str] | None:
-    raw = unicodedata.normalize("NFC", unquote(str(track_id or "")).strip())
-    if not raw or len(raw) > 240 or "/" in raw or "\\" in raw:
-        return None
-    folder, sep, stem = raw.partition(":")
-    if not sep or not folder or not stem:
-        return None
-    if folder == CUSTOM_AMBIENT_FOLDER:
-        if not stem.isdigit():
-            return None
-        return folder, str(int(stem))
-    if folder not in AMBIENT_SOUND_FOLDERS:
-        return None
-    return folder, stem
 
 
-def canonical_ambient_track_id(track_id: str) -> str | None:
-    parsed = parse_ambient_track_id(track_id)
-    if parsed is None:
-        return None
-    folder, stem = parsed
-    return f"{folder}:{stem}"
 
 
-def ambient_track_exists(track_id: str) -> bool:
-    parsed = parse_ambient_track_id(track_id)
-    if parsed is None:
-        return False
-    folder, stem = parsed
-    if folder == CUSTOM_AMBIENT_FOLDER:
-        try:
-            with database() as connection:
-                row = connection.execute(
-                    "SELECT id FROM user_ambient_tracks WHERE id = ?",
-                    (int(stem),),
-                ).fetchone()
-            return row is not None
-        except sqlite3.Error:
-            return False
-    return resolve_ambient_sound_file(folder, f"{stem}.mp3") is not None
 
 
-def original_ambient_title(track_id: str) -> str:
-    parsed = parse_ambient_track_id(track_id)
-    if parsed is None:
-        return ""
-    folder, stem = parsed
-    if folder != CUSTOM_AMBIENT_FOLDER:
-        return stem
-    try:
-        with database() as connection:
-            row = connection.execute(
-                "SELECT original_filename FROM user_ambient_tracks WHERE id = ?",
-                (int(stem),),
-            ).fetchone()
-    except sqlite3.Error:
-        return ""
-    if row is None:
-        return ""
-    return Path(str(row["original_filename"] or "")).stem
 
 
-def load_ambient_track_overrides(connection: sqlite3.Connection | None = None) -> dict[str, dict]:
-    def _read(conn: sqlite3.Connection) -> dict[str, dict]:
-        try:
-            rows = conn.execute(
-                "SELECT track_id, custom_title, enabled_in_popup FROM ambient_track_overrides"
-            ).fetchall()
-        except sqlite3.Error:
-            return {}
-        result: dict[str, dict] = {}
-        for row in rows:
-            tid = canonical_ambient_track_id(str(row["track_id"] or ""))
-            if not tid:
-                continue
-            title = row["custom_title"]
-            if title is not None:
-                title = str(title).strip() or None
-            enabled = row["enabled_in_popup"]
-            result[tid] = {
-                "custom_title": title,
-                "enabled_in_popup": False if enabled in (0, "0", False) else True,
-            }
-        return result
-
-    if connection is not None:
-        return _read(connection)
-    try:
-        with database() as conn:
-            return _read(conn)
-    except sqlite3.Error:
-        return {}
 
 
-def apply_ambient_track_overrides(categories: list[dict]) -> None:
-    overrides = load_ambient_track_overrides()
-    for category in categories:
-        for track in category.get("tracks") or []:
-            original = str(track.get("stem") or Path(str(track.get("file") or "")).stem or "").strip()
-            ov = overrides.get(str(track.get("id") or "")) or {}
-            custom = ov.get("custom_title")
-            custom = str(custom).strip() if custom else None
-            track["custom_title"] = custom
-            track["display_title"] = custom or original
-            track["enabled_in_popup"] = (
-                bool(ov["enabled_in_popup"]) if "enabled_in_popup" in ov else True
-            )
 
 
-def upsert_ambient_track_override(track_id: str, payload: dict | None) -> dict:
-    canonical = canonical_ambient_track_id(track_id)
-    if not canonical or not ambient_track_exists(canonical):
-        raise LookupError("트랙을 찾을 수 없습니다.")
-    body = payload if isinstance(payload, dict) else {}
-    has_title = "custom_title" in body
-    has_enabled = "enabled_in_popup" in body
-    if not has_title and not has_enabled:
-        raise ValueError("변경할 값이 없습니다.")
-
-    custom_title = None
-    if has_title:
-        raw = body.get("custom_title")
-        if raw is None or str(raw).strip() == "":
-            custom_title = None
-        else:
-            custom_title = unicodedata.normalize("NFC", str(raw).strip())[:80]
-
-    enabled_value = None
-    if has_enabled:
-        enabled_value = 1 if _json_flag(body.get("enabled_in_popup"), default=True) else 0
-
-    with database() as connection:
-        existing = connection.execute(
-            "SELECT custom_title, enabled_in_popup FROM ambient_track_overrides WHERE track_id = ?",
-            (canonical,),
-        ).fetchone()
-        if existing is None:
-            connection.execute(
-                "INSERT INTO ambient_track_overrides("
-                "track_id, custom_title, enabled_in_popup, updated_at) "
-                "VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                (
-                    canonical,
-                    custom_title if has_title else None,
-                    enabled_value if has_enabled else 1,
-                ),
-            )
-        else:
-            next_title = custom_title if has_title else existing["custom_title"]
-            if next_title is not None:
-                next_title = str(next_title).strip() or None
-            next_enabled = enabled_value if has_enabled else existing["enabled_in_popup"]
-            next_enabled = 1 if next_enabled in (1, True, "1") else 0
-            connection.execute(
-                "UPDATE ambient_track_overrides "
-                "SET custom_title = ?, enabled_in_popup = ?, "
-                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
-                "WHERE track_id = ?",
-                (next_title, next_enabled, canonical),
-            )
-        row = connection.execute(
-            "SELECT track_id, custom_title, enabled_in_popup FROM ambient_track_overrides "
-            "WHERE track_id = ?",
-            (canonical,),
-        ).fetchone()
-    custom = str(row["custom_title"]).strip() if row and row["custom_title"] else None
-    enabled = True if row is None else bool(int(row["enabled_in_popup"] or 0))
-    original = original_ambient_title(canonical)
-    return {
-        "track_id": canonical,
-        "custom_title": custom,
-        "enabled_in_popup": enabled,
-        "display_title": custom or original,
-    }
 
 
 GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
@@ -839,6 +322,78 @@ DATA_DIR = resolve_writable_data_dir()
 DATABASE_PATH = DATA_DIR / "supertory.sqlite3"
 BACKEND_CRASH_LOG_NAME = "backend_crash.log"
 _BACKEND_CRASH_LOG_LOCK = Lock()
+
+# Route modules may touch ROOT/DATA_DIR at import time (ambient catalog paths),
+# so load them only after those paths exist.
+from routes import (  # noqa: E402
+    account_api,
+    ambient_api,
+    gitsi_api,
+    glump_api,
+    reader_api,
+    success_pattern_api,
+    translation_api,
+)
+
+# Translation helpers live in routes.translation_api; re-export names still used by
+# inline HTTP handlers and a few pipeline call sites until those routes are fully
+# switched to translation_api.try_handle_*.
+for _translation_export in dir(translation_api):
+    if _translation_export.startswith("__"):
+        continue
+    if _translation_export in globals() and _translation_export not in {
+        # Prefer the route-module copy for these names (they used to live in app).
+    }:
+        # Do not clobber app's ensure_* / ROOT / etc.
+        if not _translation_export.startswith(
+            (
+                "TRANSLATION_",
+                "Translation",
+                "get_translation_",
+                "list_translation_",
+                "load_translation_",
+                "start_translation_",
+                "proceed_translation_",
+                "generate_translation_",
+                "export_translation_",
+                "lookup_translation_",
+                "explain_translation_",
+                "approve_translation_",
+                "replace_translation_",
+                "retranslate_translation_",
+                "polish_translation_",
+                "choose_translation_",
+                "apply_all_translation_",
+                "post_translation_",
+                "fetch_free_",
+                "is_translation_",
+                "apply_translation_",
+                "serialize_translation_",
+                "decorate_translation_",
+                "translation_job_",
+                "split_translation_",
+                "detect_translation_",
+                "extract_translation_",
+                "refresh_translation_",
+                "decide_translation_",
+                "confirm_translation_",
+                "collect_character_world_index",
+                "PARAGRAPH_",
+                "PROPER_NOUN_",
+                "_translation_",
+                "_parse_paragraph_",
+                "_paragraph_",
+                "_store_paragraph_",
+                "_fallback_paragraph_",
+                "_debug_log_paragraph_",
+                "_clear_translation_",
+                "_set_translation_",
+                "_is_translation_",
+                "_record_translation_",
+            )
+        ):
+            continue
+    globals()[_translation_export] = getattr(translation_api, _translation_export)
 
 
 def backend_crash_log_path() -> Path:
@@ -2384,6 +1939,8 @@ def _scene_id_is_notnull(connection: sqlite3.Connection, table: str) -> bool:
     return False
 
 
+
+
 def _scene_reader_comments_has_batch_id(connection: sqlite3.Connection) -> bool:
     try:
         cols = {
@@ -3071,7 +2628,6 @@ def ensure_scene_reader_comments_started_column(connection: sqlite3.Connection) 
         pass
 
 
-GITSI_ROOM_FIELDS = "id, room_code, created_by, created_at, is_active, is_default"
 
 
 def ensure_gitsi_rooms_table(connection: sqlite3.Connection) -> None:
@@ -3331,6 +2887,37 @@ def ensure_ambient_track_overrides_table(connection: sqlite3.Connection) -> None
         pass
 
 
+
+def _translation_proper_noun_columns(connection: sqlite3.Connection) -> set[str]:
+    try:
+        return {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(translation_proper_nouns)").fetchall()
+        }
+    except sqlite3.Error:
+        return set()
+
+
+def _translation_job_columns(connection: sqlite3.Connection) -> set[str]:
+    try:
+        return {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(translation_jobs)").fetchall()
+        }
+    except sqlite3.Error:
+        return set()
+
+
+def _translation_segment_columns(connection: sqlite3.Connection) -> set[str]:
+    try:
+        return {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(translation_segments)").fetchall()
+        }
+    except sqlite3.Error:
+        return set()
+
+
 def ensure_translation_jobs_tables(connection: sqlite3.Connection) -> None:
     """Idempotent: translation_* tables (migration 061)."""
     try:
@@ -3487,14 +3074,6 @@ def ensure_translation_jobs_tables(connection: sqlite3.Connection) -> None:
         pass
 
 
-def _translation_proper_noun_columns(connection: sqlite3.Connection) -> set[str]:
-    try:
-        return {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(translation_proper_nouns)").fetchall()
-        }
-    except sqlite3.Error:
-        return set()
 
 
 def ensure_translation_proper_noun_suppressions(
@@ -3680,30 +3259,8 @@ def _rebuild_translation_proper_nouns_term_type_check(
     connection.execute("PRAGMA foreign_keys = ON")
 
 
-TRANSLATION_JOB_STATUSES = (
-    "draft",
-    "awaiting_review",
-    "in_progress",
-    "translated",
-    "completed",
-)
-TRANSLATION_PIPELINE_STEPS = (
-    "narrative_formatting",
-    "scene_split",
-    "proper_nouns",
-    "paragraph_translation",
-    "submission_package",
-)
 
 
-def _translation_job_columns(connection: sqlite3.Connection) -> set[str]:
-    try:
-        return {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(translation_jobs)").fetchall()
-        }
-    except sqlite3.Error:
-        return set()
 
 
 def ensure_translation_pipeline_schema(connection: sqlite3.Connection) -> None:
@@ -3769,14 +3326,6 @@ def ensure_translation_word_context_cache(connection: sqlite3.Connection) -> Non
         pass
 
 
-def _translation_segment_columns(connection: sqlite3.Connection) -> set[str]:
-    try:
-        return {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(translation_segments)").fetchall()
-        }
-    except sqlite3.Error:
-        return set()
 
 
 def ensure_translation_segment_manual_review_column(connection: sqlite3.Connection) -> None:
@@ -3925,70 +3474,20 @@ def _rebuild_translation_jobs_status_check(connection: sqlite3.Connection) -> No
     connection.execute("PRAGMA foreign_keys = ON")
 
 
-TRANSLATION_SEPARATOR_PARAGRAPH_RE = (
-    translation_batch_service.TRANSLATION_SEPARATOR_PARAGRAPH_RE
-)
 
 
-def is_translation_separator_paragraph(text: str) -> bool:
-    """True when the paragraph is only a repeated divider like ==== or ----."""
-    return translation_batch_service.is_translation_separator_paragraph(text)
 
 
-def apply_translation_separator_passthrough(
-    connection: sqlite3.Connection, row: sqlite3.Row | dict
-) -> bool:
-    """Copy source to translation without Gemini. Returns True when applied."""
-    source = str(row["source_text"] or "")
-    if not is_translation_separator_paragraph(source):
-        return False
-    repository = get_translation_segment_repository(connection)
-    repository.save_separator_passthrough(int(row["id"]))
-    repository.commit()
-    return True
 
 
-def split_source_paragraphs(text: str) -> list[str]:
-    """Split manuscript HTML/markdown into paragraph-sized translation segments."""
-    plain = plain_text_from_content(text or "")
-    chunks = re.split(r"\n\s*\n+", plain)
-    return [chunk.strip() for chunk in chunks if chunk.strip()]
 
 
-def get_translation_job_repository(
-    connection: sqlite3.Connection,
-) -> TranslationJobRepository:
-    return TranslationJobRepository(
-        connection,
-        scene_loader=list_scenes_in_binder_order,
-        paragraph_splitter=split_source_paragraphs,
-        separator_checker=is_translation_separator_paragraph,
-        timestamp_provider=utc_timestamp_now,
-    )
 
 
-def get_translation_preparation_repository(
-    connection: sqlite3.Connection,
-) -> TranslationPreparationRepository:
-    return TranslationPreparationRepository(
-        connection,
-        timestamp_provider=utc_timestamp_now,
-    )
 
 
-def get_translation_segment_repository(
-    connection: sqlite3.Connection,
-) -> TranslationSegmentRepository:
-    return TranslationSegmentRepository(connection)
 
 
-def get_translation_extras_repository(
-    connection: sqlite3.Connection,
-) -> TranslationExtrasRepository:
-    return TranslationExtrasRepository(
-        connection,
-        timestamp_provider=utc_timestamp_now,
-    )
 
 
 def get_scene_content_service() -> SceneContentService:
@@ -4002,58 +3501,12 @@ def get_scene_content_service() -> SceneContentService:
     )
 
 
-def get_translation_job_service(
-    connection: sqlite3.Connection,
-) -> translation_job_service.TranslationJobService:
-    return translation_job_service.TranslationJobService(
-        get_translation_job_repository(connection),
-        get_translation_preparation_repository(connection),
-        get_translation_segment_repository(connection),
-        get_translation_extras_repository(connection),
-        pipeline_wait_provider=_translation_pipeline_wait_seconds,
-    )
 
 
-def get_translation_preparation_service(
-    connection: sqlite3.Connection,
-) -> translation_preparation_service.TranslationPreparationService:
-    return translation_preparation_service.TranslationPreparationService(
-        get_translation_preparation_repository(connection),
-        get_translation_job_repository(connection),
-        get_translation_job_service(connection),
-        index_terms_provider=lambda project_id: collect_character_world_index_terms(
-            connection, project_id
-        ),
-        gemini_generate=_translation_pipeline_gemini,
-        gemini_is_configured=gemini_client.is_configured,
-    )
 
 
-def get_translation_batch_service(
-    connection: sqlite3.Connection,
-) -> translation_batch_service.TranslationBatchService:
-    return translation_batch_service.TranslationBatchService(
-        get_translation_segment_repository(connection),
-        get_translation_job_repository(connection),
-        get_translation_job_service(connection),
-        get_translation_preparation_repository(connection),
-        gemini_generate=_translation_pipeline_gemini,
-        sleep_provider=_translation_sleep,
-        empty_retry_delay_provider=_paragraph_empty_retry_delay,
-        debug_log_path=DATA_DIR / "translation_paragraph_debug.log",
-    )
 
 
-def get_translation_extras_service(
-    connection: sqlite3.Connection,
-) -> translation_extras_service.TranslationExtrasService:
-    return translation_extras_service.TranslationExtrasService(
-        get_translation_extras_repository(connection),
-        get_translation_preparation_repository(connection),
-        get_translation_job_service(connection),
-        gemini_generate=_translation_pipeline_gemini,
-        dictionary_fetch=fetch_free_dictionary_payload,
-    )
 
 
 def _json_load_optional(raw: object) -> object | None:
@@ -4068,92 +3521,32 @@ def _json_load_optional(raw: object) -> object | None:
         return text
 
 
-def serialize_translation_job(row: sqlite3.Row | dict) -> dict:
-    data = dict(row)
-    return translation_job_service.serialize_translation_job(
-        data,
-        pipeline_wait_seconds=_translation_pipeline_wait_seconds(int(data["id"])),
-    )
 
 
-def translation_job_progress(connection: sqlite3.Connection, job_id: int) -> dict:
-    return get_translation_segment_repository(connection).translation_progress(int(job_id))
 
 
-def decorate_translation_job(connection: sqlite3.Connection, job: dict) -> dict:
-    job.update(translation_job_progress(connection, int(job["id"])))
-    return job
 
 
-def serialize_translation_scene_context(row: sqlite3.Row | dict) -> dict:
-    return translation_preparation_service.serialize_scene_context(dict(row))
 
 
-def serialize_translation_segment(row: sqlite3.Row | dict) -> dict:
-    return translation_batch_service.serialize_translation_segment(dict(row))
 
 
-def serialize_translation_proper_noun(row: sqlite3.Row | dict) -> dict:
-    return translation_preparation_service.serialize_proper_noun(dict(row))
 
 
-def serialize_translation_chat_message(row: sqlite3.Row | dict) -> dict:
-    return translation_extras_service.serialize_qa_message(dict(row))
 
 
-def load_translation_job(
-    connection: sqlite3.Connection, job_id: int
-) -> dict:
-    row = get_translation_job_repository(connection).get_job(int(job_id))
-    if row is None:
-        raise LookupError("번역 작업을 찾을 수 없습니다.")
-    return row
 
 
-def translation_job_chapter_catalog(
-    connection: sqlite3.Connection, job_id: int, project_id: int
-) -> list[dict]:
-    del project_id
-    return get_translation_job_service(connection).get_job_summary(
-        int(job_id)
-    )["chapters"]
 
 
-TranslationSettingsConfirmRequired = (
-    translation_job_service.TranslationSettingsConfirmRequired
-)
 
 
-def translation_job_detail(connection: sqlite3.Connection, job_id: int) -> dict:
-    return get_translation_job_service(connection).get_job(int(job_id))
 
 
-def list_translation_scene_contexts(
-    connection: sqlite3.Connection, job_id: int
-) -> list[dict]:
-    return get_translation_preparation_service(connection).list_scene_contexts(
-        int(job_id)
-    )
 
 
-def load_translation_submission_package(
-    connection: sqlite3.Connection, job_id: int
-) -> dict | None:
-    row = get_translation_extras_repository(connection).get_submission_package(
-        int(job_id)
-    )
-    if row is None:
-        return None
-    return translation_extras_service.serialize_submission_package(row)
 
 
-def list_translation_segments(
-    connection: sqlite3.Connection, job_id: int, chapter: int | None
-) -> dict:
-    ensure_translation_segment_polish_proposal_columns(connection)
-    return get_translation_batch_service(connection).list_segments(
-        int(job_id), chapter
-    )
 
 
 def _chapter_polish_state(rows: Sequence[sqlite3.Row | dict]) -> dict:
@@ -4162,417 +3555,62 @@ def _chapter_polish_state(rows: Sequence[sqlite3.Row | dict]) -> dict:
     )
 
 
-def list_translation_proper_nouns(connection: sqlite3.Connection, job_id: int) -> dict:
-    return get_translation_preparation_service(connection).list_proper_nouns(
-        int(job_id)
-    )
-
-
-PROPER_NOUN_TERM_TYPES = translation_preparation_service.PROPER_NOUN_TERM_TYPES
-_INDEX_TERM_DELIMS = set(",，、/;·•|\n")
-_INDEX_TERM_OPEN = set("(（")
-_INDEX_TERM_CLOSE = set(")）")
-_INDEX_ORG_HINT = re.compile(
-    r"(제국|왕국|공국|공화국|기사단|왕가|길드|교단|함대|연합|부족)$"
-)
-_TRAILING_PAREN_LIST = re.compile(
-    r"^(?P<name>.+?)\s*[\(（](?P<inner>[^()（）]+)[\)）]\s*$"
-)
-
-
-def _split_outside_parens(text: str) -> list[str]:
-    parts: list[str] = []
-    buf: list[str] = []
-    depth = 0
-    for char in str(text or ""):
-        if char in _INDEX_TERM_OPEN:
-            depth += 1
-            buf.append(char)
-            continue
-        if char in _INDEX_TERM_CLOSE:
-            if depth:
-                depth -= 1
-            buf.append(char)
-            continue
-        if depth == 0 and char in _INDEX_TERM_DELIMS:
-            part = "".join(buf).strip()
-            if part:
-                parts.append(part)
-            buf = []
-            continue
-        buf.append(char)
-    tail = "".join(buf).strip()
-    if tail:
-        parts.append(tail)
-    return parts
-
-
-def _peel_trailing_paren_list(chunk: str) -> tuple[str, str | None]:
-    text = str(chunk or "").strip()
-    match = _TRAILING_PAREN_LIST.match(text)
-    if not match:
-        return text, None
-    name = " ".join(match.group("name").split()).strip()
-    inner = " ".join(match.group("inner").split()).strip()
-    if not inner:
-        return text, None
-    return name, inner
-
-
-def _clean_index_term_token(raw: object) -> str:
-    token = character_import_analysis.strip_tori_text(raw)
-    token = " ".join(token.split()).strip(" -–—·•")
-    if not token or len(token) > 40:
-        return ""
-    if translation_preparation_service.is_sentence_like_proper_noun(token):
-        return ""
-    return token
-
-
-def _split_index_term_tokens(raw: object) -> list[str]:
-    text = character_import_analysis.strip_tori_text(raw)
-    if not text:
-        return []
-    tokens: list[str] = []
-    seen: set[str] = set()
-
-    def emit(piece: object) -> None:
-        token = _clean_index_term_token(piece)
-        if not token:
-            return
-        key = token.casefold()
-        if key in seen:
-            return
-        seen.add(key)
-        tokens.append(token)
-
-    for chunk in _split_outside_parens(text):
-        outer_name, inner = _peel_trailing_paren_list(chunk)
-        if inner is None:
-            emit(chunk)
-            continue
-        if outer_name:
-            emit(outer_name)
-        for inner_chunk in _split_outside_parens(inner):
-            emit(inner_chunk)
-    return tokens
-
-
-def _index_term_looks_like_organization(name: str) -> bool:
-    return bool(_INDEX_ORG_HINT.search(str(name or "").strip()))
-
-
-def _resolve_index_term_type(
-    name: str, incoming: str, current: str | None = None
-) -> str:
-    incoming_kind = incoming if incoming in PROPER_NOUN_TERM_TYPES else "item"
-    if _index_term_looks_like_organization(name) and incoming_kind in {
-        "place",
-        "organization",
-        "item",
-    }:
-        incoming_kind = "organization"
-    if current is None:
-        return incoming_kind
-    current_kind = current if current in PROPER_NOUN_TERM_TYPES else "item"
-    if current_kind == incoming_kind:
-        return current_kind
-    kinds = {current_kind, incoming_kind}
-    if kinds <= {"place", "organization"}:
-        return (
-            "organization"
-            if _index_term_looks_like_organization(name)
-            else current_kind
-        )
-    rank = translation_preparation_service.INDEX_TERM_TYPE_RANK
-    fallback = rank.get("dictionary", -1)
-    if rank.get(incoming_kind, fallback) > rank.get(current_kind, fallback):
-        return incoming_kind
-    return current_kind
-
-
-def _index_term_from_item(item: object) -> str:
-    if isinstance(item, dict):
-        for key in ("name", "term", "title", "source_term"):
-            value = str(item.get(key) or "").strip()
-            if value:
-                return value
-        return ""
-    return str(item or "").strip()
-
-
-def collect_character_world_index_terms(
-    connection: sqlite3.Connection, project_id: int
-) -> list[dict[str, str]]:
-    """Reuse character sheets + project auto-index + worldbuilding names/places/terms."""
-    collected: list[dict[str, str]] = []
-    seen: dict[str, dict[str, str]] = {}
-
-    def add(term: object, term_type: str) -> None:
-        text = character_import_analysis.strip_tori_text(term)
-        text = " ".join(text.split()).strip()
-        if not text:
-            return
-        key = text.casefold()
-        existing = seen.get(key)
-        if existing is not None:
-            existing["term_type"] = _resolve_index_term_type(
-                text, term_type, existing.get("term_type")
-            )
-            return
-        kind = _resolve_index_term_type(text, term_type)
-        item = {"source_term": text, "term_type": kind}
-        seen[key] = item
-        collected.append(item)
-
-    try:
-        existing = character_import_analysis.list_existing_characters(
-            connection, int(project_id)
-        )
-    except sqlite3.Error:
-        existing = []
-    for row in existing:
-        add(row.get("name"), "character")
-
-    try:
-        alias_rows = connection.execute(
-            "SELECT alias FROM character_alias WHERE project_id = ? ORDER BY id",
-            (int(project_id),),
-        ).fetchall()
-    except sqlite3.Error:
-        alias_rows = []
-    for row in alias_rows:
-        add(row["alias"] if "alias" in row.keys() else row[0], "character")
-
-    try:
-        index_cols = {
-            str(col[1])
-            for col in connection.execute("PRAGMA table_info(project_index)").fetchall()
-        }
-    except sqlite3.Error:
-        index_cols = set()
-    char_col = "characters_json" if "characters_json" in index_cols else None
-    world_col = "world_rules_json" if "world_rules_json" in index_cols else None
-    if char_col or world_col:
-        select_cols = ", ".join(part for part in (char_col, world_col) if part)
-        try:
-            index_row = connection.execute(
-                f"SELECT {select_cols} FROM project_index WHERE project_id = ?",
-                (int(project_id),),
-            ).fetchone()
-        except sqlite3.Error:
-            index_row = None
-        if index_row is not None:
-            parse_list = SuperToryHandler._parse_json_list
-            if char_col:
-                for item in parse_list(index_row[char_col]):
-                    add(_index_term_from_item(item), "character")
-            if world_col:
-                for item in parse_list(index_row[world_col]):
-                    label = _index_term_from_item(item)
-                    for token in _split_index_term_tokens(label):
-                        add(token, "item")
-
-    try:
-        project_cols = {
-            str(col[1])
-            for col in connection.execute("PRAGMA table_info(project)").fetchall()
-        }
-        world_field = (
-            "worldbuilding_md" if "worldbuilding_md" in project_cols else None
-        )
-        world_md = ""
-        if world_field:
-            world_row = connection.execute(
-                f"SELECT {world_field} FROM project WHERE id = ?",
-                (int(project_id),),
-            ).fetchone()
-            world_md = str(world_row[0] if world_row else "") if world_row else ""
-        values = world_import_analysis.parse_worldbuilding_md(world_md)
-    except (sqlite3.Error, AttributeError, TypeError):
-        values = {}
-    field_types = {
-        "locale": "place",
-        "factions": "organization",
-        "special": "item",
-        "unique": "item",
-    }
-    for field_id, term_type in field_types.items():
-        for token in _split_index_term_tokens(values.get(field_id)):
-            add(token, term_type)
-
-    try:
-        dict_exists = connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'custom_dictionary_terms'"
-        ).fetchone()
-    except sqlite3.Error:
-        dict_exists = None
-    if dict_exists is not None:
-        try:
-            dict_cols = {
-                str(col[1])
-                for col in connection.execute(
-                    "PRAGMA table_info(custom_dictionary_terms)"
-                ).fetchall()
-            }
-        except sqlite3.Error:
-            dict_cols = set()
-        if "term" in dict_cols:
-            select_cols = ["term"]
-            if "aliases" in dict_cols:
-                select_cols.append("aliases")
-            try:
-                dict_rows = connection.execute(
-                    f"SELECT {', '.join(select_cols)} FROM custom_dictionary_terms "
-                    "WHERE project_id = ?",
-                    (int(project_id),),
-                ).fetchall()
-            except sqlite3.Error:
-                dict_rows = []
-            for row in dict_rows:
-                data = dict(row)
-                add(data.get("term"), "dictionary")
-                for token in _split_index_term_tokens(data.get("term")):
-                    add(token, "dictionary")
-                if "aliases" in dict_cols:
-                    for token in _split_index_term_tokens(data.get("aliases")):
-                        add(token, "dictionary")
-    return collected
-
-
-def extract_translation_proper_nouns(
-    connection: sqlite3.Connection, job_id: int
-) -> dict:
-    return get_translation_preparation_service(connection).extract_proper_nouns(
-        int(job_id)
-    )
-
-
-def refresh_translation_proper_nouns(
-    connection: sqlite3.Connection, job_id: int
-) -> dict:
-    return get_translation_preparation_service(connection).refresh_proper_nouns(
-        int(job_id)
-    )
-
-
-def decide_translation_proper_noun(
-    connection: sqlite3.Connection, noun_id: int, body: dict | None
-) -> dict:
-    return get_translation_preparation_service(connection).decide_proper_noun(
-        int(noun_id), body
-    )
-
-
-def confirm_translation_proper_nouns(
-    connection: sqlite3.Connection, job_id: int
-) -> dict:
-    return get_translation_preparation_service(
-        connection
-    ).confirm_all_proper_nouns(int(job_id))
-
-
-def _translation_sleep(seconds: float) -> None:
-    translation_batch_service._translation_sleep(seconds)
-
-
-def _is_translation_rate_limit_error(error: BaseException) -> bool:
-    return translation_batch_service.is_translation_rate_limit_error(error)
-
-
-def _translation_rate_limit_wait_seconds(error: BaseException) -> float:
-    return translation_batch_service.translation_rate_limit_wait_seconds(error)
-
-
-def _set_translation_pipeline_wait(job_id: int | None, seconds: float) -> None:
-    translation_batch_service.set_translation_pipeline_wait(job_id, seconds)
-
-
-def _clear_translation_pipeline_wait(job_id: int | None) -> None:
-    translation_batch_service.clear_translation_pipeline_wait(job_id)
-
-
-def _translation_pipeline_wait_seconds(job_id: int | None) -> float:
-    return translation_batch_service.translation_pipeline_wait_seconds(job_id)
-
-
-def _translation_pipeline_gemini(
-    prompt: str,
-    *,
-    temperature: float,
-    max_output_tokens: int,
-    job_id: int | None = None,
-) -> str:
-    return translation_batch_service.generate_translation_text(
-        prompt,
-        temperature=temperature,
-        max_output_tokens=max_output_tokens,
-        job_id=job_id,
-        sleep_provider=_translation_sleep,
-    )
-
-
-def _record_translation_pipeline_failure(
-    connection: sqlite3.Connection, job_id: int, step: str, error: BaseException
-) -> None:
-    message = str(error).strip() or step
-    repository = get_translation_preparation_repository(connection)
-    repository.record_pipeline_failure(int(job_id), step, message)
-    repository.commit()
-
-
-def _clear_translation_pipeline_failure(
-    connection: sqlite3.Connection, job_id: int
-) -> None:
-    get_translation_preparation_repository(connection).clear_pipeline_failure(
-        int(job_id)
-    )
-
-
-def _translation_chapter_numbers(
-    connection: sqlite3.Connection, job_id: int
-) -> list[int]:
-    return get_translation_preparation_repository(connection).chapter_numbers(
-        int(job_id)
-    )
-
-
-def _translation_chapter_source_text(
-    connection: sqlite3.Connection, job_id: int, chapter_number: int
-) -> str:
-    return get_translation_preparation_repository(connection).source_text(
-        int(job_id), int(chapter_number)
-    )
-
-
-def _translation_chapter_has_scenes(
-    connection: sqlite3.Connection, job_id: int, chapter_number: int
-) -> bool:
-    return get_translation_preparation_repository(
-        connection
-    ).chapter_has_scene_contexts(int(job_id), int(chapter_number))
-
-
-def detect_translation_narrative_formatting(
-    connection: sqlite3.Connection, job_id: int
-) -> tuple[dict, bool]:
-    return get_translation_preparation_service(
-        connection
-    ).detect_formatting_rules(int(job_id))
-
-
-def split_translation_scenes(
-    connection: sqlite3.Connection, job_id: int
-) -> tuple[list[dict], list[int]]:
-    return get_translation_preparation_service(connection).split_scenes(
-        int(job_id)
-    )
-
-
-def start_translation_pipeline(connection: sqlite3.Connection, job_id: int) -> dict:
-    return get_translation_preparation_service(connection).start_preparation(
-        int(job_id)
-    )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def _confirmed_proper_nouns_glossary(
@@ -4612,192 +3650,27 @@ def _format_narrative_rules_for_prompt(rules: object) -> str:
     return "\n".join(lines)
 
 
-_PARAGRAPH_TRANSLATION_TEXT_KEYS = (
-    "translated_text",
-    "translation",
-    "translated",
-    "text",
-)
 
 
-def _json_string_field(text: str, field: str) -> str:
-    marker = f'"{field}"'
-    start = str(text or "").find(marker)
-    if start < 0:
-        return ""
-    colon = str(text).find(":", start + len(marker))
-    if colon < 0:
-        return ""
-    rest = str(text)[colon + 1 :].lstrip()
-    if not rest.startswith('"'):
-        return ""
-    try:
-        value, _end = json.JSONDecoder().raw_decode(rest)
-    except json.JSONDecodeError:
-        return ""
-    return str(value).strip() if isinstance(value, str) else ""
 
 
-def _candidate_json_objects(raw: str) -> list[dict]:
-    cleaned = str(raw or "").strip()
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s*```$", "", cleaned)
-    found: list[dict] = []
-    try:
-        loaded = json.loads(cleaned)
-        if isinstance(loaded, dict):
-            found.append(loaded)
-        elif isinstance(loaded, list):
-            found.extend(item for item in loaded if isinstance(item, dict))
-    except json.JSONDecodeError:
-        pass
-    decoder = json.JSONDecoder()
-    index = 0
-    while index < len(cleaned):
-        start = cleaned.find("{", index)
-        if start < 0:
-            break
-        try:
-            obj, end = decoder.raw_decode(cleaned, start)
-        except json.JSONDecodeError:
-            index = start + 1
-            continue
-        if isinstance(obj, dict):
-            found.append(obj)
-        index = max(end, start + 1)
-    return found
 
 
-def _translated_text_from_mapping(data: dict) -> str:
-    for key in _PARAGRAPH_TRANSLATION_TEXT_KEYS:
-        value = data.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    for nest_key in ("result", "data", "output"):
-        nested = data.get(nest_key)
-        if isinstance(nested, dict):
-            found = _translated_text_from_mapping(nested)
-            if found:
-                return found
-    return ""
 
 
-def _parse_paragraph_translation_output(raw: str) -> tuple[str, object]:
-    text = str(raw or "").strip()
-    parsed: dict = {}
-    for candidate in _candidate_json_objects(text):
-        if _translated_text_from_mapping(candidate):
-            parsed = candidate
-            break
-        if not parsed:
-            parsed = candidate
-    translated = _translated_text_from_mapping(parsed)
-    notes = parsed.get("translation_notes") or parsed.get("notes") or []
-    if not translated:
-        for key in _PARAGRAPH_TRANSLATION_TEXT_KEYS:
-            translated = _json_string_field(text, key)
-            if translated:
-                break
-    if not translated:
-        prose = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE).strip()
-        if prose and prose[0] not in "{[":
-            translated = prose
-    if not translated:
-        if parsed:
-            return "", notes
-        raise ValueError("문단 번역 결과를 읽지 못했어요. 다시 「번역 진행」을 눌러 주세요.")
-    return translated, notes
 
 
-def _debug_log_paragraph_translation_raw(
-    *,
-    segment_id: int,
-    source_text: str,
-    raw: str,
-    error: BaseException | None = None,
-    attempt: int | None = None,
-    retrying: bool = False,
-    used_fallback: bool = False,
-) -> None:
-    """Temporary diagnostics for paragraph-translation parse failures. Remove later."""
-    text = str(raw or "")
-    stripped = text.strip()
-    reasons: list[str] = []
-    if not stripped:
-        reasons.append("empty_or_whitespace")
-    else:
-        reasons.append(f"len={len(text)}")
-        reasons.append(f"stripped_len={len(stripped)}")
-        reasons.append(f"first={stripped[:1]!r}")
-        if stripped[:1] in "{[":
-            reasons.append("starts_with_json_bracket")
-        try:
-            json.loads(stripped)
-            reasons.append("json_loads=ok")
-        except json.JSONDecodeError as exc:
-            reasons.append(
-                f"json_loads={type(exc).__name__}:{exc.msg} pos={exc.pos}"
-            )
-        candidates = _candidate_json_objects(stripped)
-        reasons.append(f"candidates={len(candidates)}")
-        if candidates:
-            keys = list(candidates[0].keys())
-            reasons.append(f"first_keys={keys}")
-            mapped = _translated_text_from_mapping(candidates[0])
-            reasons.append(f"mapped_text_len={len(mapped or '')}")
-    if attempt is not None:
-        reasons.append(f"attempt={attempt}")
-    if retrying:
-        reasons.append("retrying=True")
-    if used_fallback:
-        reasons.append("used_fallback=True")
-    header = (
-        f"[translation-paragraph-debug] segment={segment_id} "
-        f"source_len={len(source_text or '')} source={source_text!r} "
-        f"error={type(error).__name__ if error else '-'} "
-        f"error_msg={str(error) if error else '-'} "
-        f"reasons={'; '.join(reasons)}"
-    )
-    print(header, flush=True)
-    preview = stripped[:2000]
-    print(f"[translation-paragraph-debug] raw_preview={preview!r}", flush=True)
-    try:
-        path = DATA_DIR / "translation_paragraph_debug.log"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(header + "\n")
-            handle.write("--- RAW START ---\n")
-            handle.write(text)
-            handle.write("\n--- RAW END ---\n\n")
-    except OSError as write_error:
-        print(
-            f"[translation-paragraph-debug] log write failed: {write_error}",
-            flush=True,
-        )
 
 
 PARAGRAPH_EMPTY_ATTEMPTS = translation_batch_service.PARAGRAPH_EMPTY_ATTEMPTS
-PARAGRAPH_FALLBACK_NOTE = translation_batch_service.PARAGRAPH_FALLBACK_NOTE
 
 
 def _paragraph_empty_retry_delay() -> float:
     return 0.5
 
 
-def _translation_notes_as_list(notes: object) -> list:
-    if isinstance(notes, list):
-        return [item for item in notes if item not in (None, "")]
-    if isinstance(notes, str) and notes.strip():
-        return [{"note": notes.strip()}]
-    return []
 
 
-def _fallback_paragraph_translation(source_text: str, notes: object) -> tuple[str, list]:
-    fallback_notes = _translation_notes_as_list(notes)
-    fallback_notes.append(
-        {"note": PARAGRAPH_FALLBACK_NOTE, "needs_manual_review": True}
-    )
-    return str(source_text or ""), fallback_notes
 
 
 def _translate_paragraph_with_retries(
@@ -4937,107 +3810,12 @@ def _translate_one_segment_row(
     repository.commit()
 
 
-TRANSLATION_PARAGRAPH_BATCH_SIZE = (
-    translation_batch_service.TRANSLATION_PARAGRAPH_BATCH_SIZE
-)
-TRANSLATION_BATCH_STRUCTURE_ATTEMPTS = (
-    translation_batch_service.TRANSLATION_BATCH_STRUCTURE_ATTEMPTS
-)
 
 
-def _parse_paragraph_translation_batch_output(raw: str) -> list[dict]:
-    try:
-        parsed = SuperToryHandler._extract_json_object(str(raw or "").strip())
-    except (ValueError, json.JSONDecodeError, AttributeError, TypeError):
-        return []
-    items = parsed.get("paragraphs") if isinstance(parsed, dict) else None
-    if not isinstance(items, list):
-        return []
-    result: list[dict] = []
-    for item in items:
-        if not isinstance(item, dict):
-            return []
-        try:
-            segment_id = int(item.get("id"))
-        except (TypeError, ValueError):
-            return []
-        notes = item.get("translation_notes") or item.get("notes") or []
-        if not isinstance(notes, (list, str)):
-            notes = []
-        result.append(
-            {
-                "id": segment_id,
-                "translated_text": str(item.get("translated_text") or "").strip(),
-                "translation_notes": notes,
-            }
-        )
-    return result
 
 
-def _paragraph_translation_batch_settings(
-    connection: sqlite3.Connection,
-    rows: list[sqlite3.Row],
-    job: dict,
-    *,
-    style: dict,
-    glossary: object,
-    formatting: object,
-) -> tuple[list[dict], dict]:
-    first = rows[0]
-    previous = translation_context.load_previous_translated_context(
-        connection,
-        int(job["id"]),
-        before_chapter_number=int(first["chapter_number"]),
-        before_segment_order=int(first["segment_order"]),
-    )
-    paragraphs = []
-    for row in rows:
-        relationship, mood = _load_segment_scene_tags(
-            connection, row["scene_context_id"]
-        )
-        paragraphs.append(
-            {
-                "id": int(row["id"]),
-                "source_text": str(row["source_text"] or ""),
-                "relationship_tag": relationship,
-                "mood_tag": mood,
-            }
-        )
-    settings = {
-        "target_language": job.get("target_language") or "en",
-        "tense": style.get("tense") or "",
-        "character_voices": style.get("character_voices")
-        or style.get("voices")
-        or "",
-        "proper_nouns_confirmed": glossary,
-        "culture_localization_level": job.get("culture_localization_level")
-        or "moderate",
-        "narrative_formatting_rules": formatting,
-        "previous_context_summary": previous,
-    }
-    return paragraphs, settings
 
 
-def _store_paragraph_translation_batch(
-    connection: sqlite3.Connection,
-    rows: list[sqlite3.Row],
-    translated_items: list[dict],
-) -> list[dict]:
-    empty_rows: list[sqlite3.Row] = []
-    by_id = {int(row["id"]): row for row in rows}
-    for item in translated_items:
-        row = by_id[int(item["id"])]
-        translated = str(item.get("translated_text") or "").strip()
-        if not translated:
-            empty_rows.append(row)
-            continue
-    repository = get_translation_segment_repository(connection)
-    repository.save_translated_batch(
-        int(rows[0]["translation_job_id"]) if rows else 0,
-        translated_items,
-    )
-    repository.commit()
-    return empty_rows
 
 
 def _translate_paragraph_batch_recursive(
@@ -5142,43 +3920,12 @@ def _translate_paragraph_batch_recursive(
     return left_count + right_count, left_batches + right_batches
 
 
-def proceed_translation_pipeline(connection: sqlite3.Connection, job_id: int) -> dict:
-    """Translate remaining segments in order after proper nouns are confirmed."""
-    ensure_translation_pipeline_schema(connection)
-    ensure_translation_segment_manual_review_column(connection)
-    ensure_translation_segment_polish_proposal_columns(connection)
-    return get_translation_batch_service(connection).run_batch_translation(
-        int(job_id)
-    )
 
 
-def generate_translation_submission_package(
-    connection: sqlite3.Connection, job_id: int
-) -> dict:
-    """Build the target-language logline/synopsis package. Skip when already filled."""
-    ensure_translation_pipeline_schema(connection)
-    return get_translation_extras_service(
-        connection
-    ).generate_submission_package(int(job_id))
 
 
-def get_translation_submission_result(
-    connection: sqlite3.Connection, job_id: int
-) -> dict:
-    ensure_translation_pipeline_schema(connection)
-    return get_translation_extras_service(connection).get_submission_result(
-        int(job_id)
-    )
 
 
-def export_translation_submission_package(
-    connection: sqlite3.Connection, job_id: int, format_key: str
-):
-    ensure_translation_pipeline_schema(connection)
-    return get_translation_extras_service(connection).export_submission_package(
-        int(job_id),
-        format_key,
-    )
 
 
 FREE_DICTIONARY_API_URL = translation_extras_service.FREE_DICTIONARY_API_URL
@@ -5194,57 +3941,16 @@ def normalize_dictionary_word(word: object) -> str:
     return translation_extras_service.normalize_dictionary_word(word)
 
 
-def fetch_free_dictionary_payload(
-    word: str, target_language: object = "en"
-) -> tuple[int, object]:
-    """Call Free Dictionary API once. Returns (status_code, parsed_json)."""
-    return translation_extras_service.fetch_free_dictionary_payload(
-        word, target_language
-    )
 
 
-def lookup_translation_dictionary(
-    word: object,
-    target_language: object = "en",
-    segment_id: int | None = None,
-) -> dict:
-    with database() as connection:
-        return get_translation_extras_service(connection).lookup_word(
-            segment_id, word, target_language
-        )
 
 
-def explain_translation_word_context(
-    connection: sqlite3.Connection, body: dict | None
-) -> dict:
-    ensure_translation_word_context_cache(connection)
-    return get_translation_extras_service(connection).explain_word_context(
-        body
-    )
 
 
-def approve_translation_segment(
-    connection: sqlite3.Connection, segment_id: int, body: dict | None
-) -> dict:
-    return get_translation_batch_service(connection).approve_segment(
-        int(segment_id), body
-    )
 
 
-def approve_translation_chapter_segments(
-    connection: sqlite3.Connection, job_id: int, chapter_number: int
-) -> dict:
-    return get_translation_batch_service(connection).approve_chapter_segments(
-        int(job_id), int(chapter_number)
-    )
 
 
-def replace_translation_segment_text(
-    connection: sqlite3.Connection, segment_id: int, body: dict | None
-) -> dict:
-    return get_translation_batch_service(connection).replace_translated_text(
-        int(segment_id), body
-    )
 
 
 def _style_guide_mapping(raw: object) -> dict[str, object]:
@@ -5259,14 +3965,6 @@ def _style_guide_mapping(raw: object) -> dict[str, object]:
     return {}
 
 
-def retranslate_translation_segment(
-    connection: sqlite3.Connection, segment_id: int
-) -> dict:
-    ensure_translation_pipeline_schema(connection)
-    ensure_translation_segment_manual_review_column(connection)
-    return get_translation_batch_service(connection).retranslate_segment(
-        int(segment_id)
-    )
 
 
 CHAPTER_POLISH_RESPONSE_ATTEMPTS = (
@@ -5300,36 +3998,12 @@ def _parse_chapter_polish_model_output(raw: str) -> list[dict]:
     return result
 
 
-def polish_translation_chapter(
-    connection: sqlite3.Connection, job_id: int, chapter_number: int
-) -> dict:
-    """Review one approved English chapter and store per-paragraph proposals."""
-    ensure_translation_segment_polish_proposal_columns(connection)
-    return get_translation_batch_service(connection).run_chapter_polish(
-        int(job_id), int(chapter_number)
-    )
 
 
-def choose_translation_segment_polish(
-    connection: sqlite3.Connection, segment_id: int, body: dict | None
-) -> dict:
-    ensure_translation_segment_polish_proposal_columns(connection)
-    return get_translation_batch_service(connection).choose_polish(
-        int(segment_id), body
-    )
 
 
-def apply_all_translation_chapter_polish(
-    connection: sqlite3.Connection, job_id: int, chapter_number: int
-) -> dict:
-    ensure_translation_segment_polish_proposal_columns(connection)
-    return get_translation_batch_service(connection).apply_all_polish(
-        int(job_id), int(chapter_number)
-    )
 
 
-def post_translation_chat(connection: sqlite3.Connection, body: dict | None) -> dict:
-    return get_translation_extras_service(connection).answer_qa_payload(body)
 
 
 def set_project_genre_detail(
@@ -5573,174 +4247,24 @@ def attach_genre_detail(item: dict) -> dict:
     return attach_romance_axes(item)
 
 
-GITSI_ROOM_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,62}[A-Za-z0-9]$")
-GITSI_ROOM_CODE_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789"
 
 
-def generate_gitsi_room_code() -> str:
-    suffix = "".join(secrets.choice(GITSI_ROOM_CODE_ALPHABET) for _ in range(4))
-    return f"supertory-{suffix}"
 
 
-def normalize_gitsi_room_code(raw: str) -> str:
-    text = unicodedata.normalize("NFKC", str(raw or "")).strip()
-    text = re.sub(r"\s+", "-", text)
-    return text.strip("-._")
 
 
-def gitsi_room_public(row: sqlite3.Row | dict | None) -> dict | None:
-    data = as_dict(row) if row is not None and not isinstance(row, dict) else (dict(row) if row else None)
-    if not data:
-        return None
-    data["is_active"] = 1 if data.get("is_active") in (1, True, "1") else 0
-    data["is_default"] = 1 if data.get("is_default") in (1, True, "1") else 0
-    return data
 
 
-def list_gitsi_rooms(*, active_only: bool = True, limit: int = 40) -> list[dict]:
-    cap = max(1, min(int(limit or 40), 100))
-    with database() as connection:
-        if active_only:
-            rows = connection.execute(
-                f"SELECT {GITSI_ROOM_FIELDS} "
-                "FROM gitsi_rooms WHERE is_active = 1 "
-                "ORDER BY is_default DESC, datetime(created_at) DESC, id DESC LIMIT ?",
-                (cap,),
-            ).fetchall()
-        else:
-            rows = connection.execute(
-                f"SELECT {GITSI_ROOM_FIELDS} "
-                "FROM gitsi_rooms ORDER BY is_default DESC, datetime(created_at) DESC, id DESC LIMIT ?",
-                (cap,),
-            ).fetchall()
-    return [gitsi_room_public(row) for row in rows]
 
 
-def get_default_gitsi_room() -> dict | None:
-    with database() as connection:
-        row = connection.execute(
-            f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms "
-            "WHERE is_default = 1 AND is_active = 1 LIMIT 1"
-        ).fetchone()
-    return gitsi_room_public(row)
 
 
-def upsert_gitsi_room(room_code: str | None, created_by: str | None) -> dict:
-    """Create a room if needed, or reactivate an existing code on join."""
-    code = normalize_gitsi_room_code(room_code or "")
-    if not code:
-        for _ in range(8):
-            candidate = generate_gitsi_room_code()
-            with database() as connection:
-                exists = connection.execute(
-                    "SELECT 1 FROM gitsi_rooms WHERE room_code = ?", (candidate,)
-                ).fetchone()
-            if exists is None:
-                code = candidate
-                break
-        else:
-            raise ValueError("룸 코드를 만들지 못했습니다. 잠시 후 다시 시도해 주세요.")
-    if len(code) < 3 or len(code) > 64 or not GITSI_ROOM_CODE_RE.fullmatch(code):
-        raise ValueError("룸 코드는 3~64자의 영문·숫자·하이픈만 사용할 수 있어요.")
-    creator = (created_by or "").strip() or None
-    with database() as connection:
-        existing = connection.execute(
-            f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE room_code = ?",
-            (code,),
-        ).fetchone()
-        if existing is not None:
-            connection.execute(
-                "UPDATE gitsi_rooms SET is_active = 1 WHERE id = ?",
-                (existing["id"],),
-            )
-            row = connection.execute(
-                f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE id = ?",
-                (existing["id"],),
-            ).fetchone()
-            data = gitsi_room_public(row)
-            data["created"] = False
-            return data
-        cursor = connection.execute(
-            "INSERT INTO gitsi_rooms(room_code, created_by, is_active, is_default) "
-            "VALUES (?, ?, 1, 0)",
-            (code, creator),
-        )
-        row = connection.execute(
-            f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE id = ?",
-            (cursor.lastrowid,),
-        ).fetchone()
-    data = gitsi_room_public(row)
-    data["created"] = True
-    return data
 
 
-def set_gitsi_room_default(room_code: str | None, enabled: bool, created_by: str | None) -> dict:
-    """Mark one room as the default join target (clears any previous default)."""
-    if enabled:
-        data = upsert_gitsi_room(room_code, created_by)
-        with database() as connection:
-            connection.execute("UPDATE gitsi_rooms SET is_default = 0 WHERE is_default = 1")
-            connection.execute(
-                "UPDATE gitsi_rooms SET is_default = 1, is_active = 1 WHERE id = ?",
-                (data["id"],),
-            )
-            row = connection.execute(
-                f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE id = ?",
-                (data["id"],),
-            ).fetchone()
-        result = gitsi_room_public(row)
-        result["created"] = bool(data.get("created"))
-        return result
-    code = normalize_gitsi_room_code(room_code or "")
-    if not code:
-        raise ValueError("룸 코드를 입력해 주세요.")
-    with database() as connection:
-        connection.execute(
-            "UPDATE gitsi_rooms SET is_default = 0 WHERE room_code = ?",
-            (code,),
-        )
-        row = connection.execute(
-            f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE room_code = ?",
-            (code,),
-        ).fetchone()
-    if row is None:
-        raise ValueError("그 룸을 찾지 못했어요.")
-    return gitsi_room_public(row)
 
 
-def deactivate_gitsi_room(room_code: str | None) -> dict:
-    """Hide a room from the recent list. Joining the same code later reactivates it."""
-    code = normalize_gitsi_room_code(room_code or "")
-    if not code:
-        raise ValueError("룸 코드를 입력해 주세요.")
-    with database() as connection:
-        row = connection.execute(
-            f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE room_code = ?",
-            (code,),
-        ).fetchone()
-        if row is None:
-            raise ValueError("그 룸을 찾지 못했어요.")
-        connection.execute(
-            "UPDATE gitsi_rooms SET is_active = 0, is_default = 0 WHERE room_code = ?",
-            (code,),
-        )
-        row = connection.execute(
-            f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE room_code = ?",
-            (code,),
-        ).fetchone()
-    return gitsi_room_public(row)
 
 
-def gitsi_creator_label() -> str:
-    user = get_current_user()
-    if user:
-        email = str(user.get("email") or "").strip()
-        if email:
-            return email[:120]
-        user_id = str(user.get("id") or "").strip()
-        if user_id:
-            return user_id[:120]
-    return "local"
 
 
 def ensure_idea_note_pin_column(connection: sqlite3.Connection) -> None:
@@ -5883,176 +4407,8 @@ def utc_timestamp_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
 
 
-READER_PERSONA_CATEGORIES = (
-    "genre_specialist",
-    "sub_genre_specialist",
-    "taste_preference",
-    "narrative_critic",
-    "structure_wildcard",
-)
-READER_FAVORITE_MAX = 6
-READER_CHAT_HISTORY_LIMIT = 20
-READER_CHAT_EPISODE_CAP = 12000
-READER_CHAT_SYNOPSIS_CAP = 1500
-READER_CHAT_WORLD_CAP = 2000
-READER_DEBATE_MIN_PERSONAS = 3
-READER_DEBATE_MAX_PERSONAS = 5
-READER_DEBATE_TASK_ADDON = (
-    "다른 독자들의 이전 발언을 참고해서, 동의하거나 다른 관점을 제시하며 "
-    "자연스럽게 토론에 참여해라. 이미 나온 얘기를 그대로 반복하지 마라."
-)
-READER_COMMENTS_EXPECTED = 3
-READER_COMMENTS_MAX_REFRESHES = 3
-READER_COMMENT_JOKER_CHANCE = 0.25
-READER_COMMENT_WILDCARD_CATEGORIES = (
-    "narrative_critic",
-    "taste_preference",
-    "structure_wildcard",
-)
-READER_COMMENT_TASK_ADDON = """지금은 작가와 1:1로 대화하는 상황이 아닙니다.
-작가가 이 회차를 완성으로 표시했습니다.
-위의 1:1 대화 지시(이유를 설명하라, 정중하게 반응하라 등)는 이번 작업에 적용하지 마세요.
-형식만 짧고 즉흥적인 댓글창 한 줄로 맞추고, 말투·어휘·감정 온도는 위에서 정의된 이 독자의 [말투]·[정체성]·[말투 예시]를 우선하세요.
-ㅋㅋ/ㄹㅇ/이모지를 모든 댓글에 넣지 마세요. 이 독자의 말투에 맞을 때만 쓰세요.
-
-[Task Instruction — 이번 작업이 우선]
-이 회차를 평가하지 마세요. 웹소설 플랫폼 댓글창에 이 독자가 남길 법한 댓글 하나를 쓰세요.
-다른 독자와 비슷한 유행어·말투로 평평하게 만들지 마세요.
-
-[댓글 작성 규칙 — 형식은 공통, 말투는 페르소나마다 다름]
-- 1~2문장. 짧고 즉흥적으로. 제목·이름 접두어·따옴표·머리말은 붙이지 마세요.
-- 존댓말/정중한 피드백 톤 금지. 리뷰어처럼 정리하지 마세요.
-- '좋았어요', '기대됩니다', '잘 읽었습니다', '다음 전개가 기대돼요', '이 부분이 좋았어요' 같은 정중한 감상평/피드백 문구는 쓰지 마세요.
-- 특정 장면·대사·행동을 구체적으로 집어서 반응하세요. 막연한 감상은 금지입니다.
-- [말투]와 [말투 예시]의 결을 댓글에도 적극적으로 살리세요. 문장을 그대로 베끼지는 마세요.
-  · 날카롭고 분석적인 독자: ㅋㅋ/이모지 거의 없이, 팩폭하듯 단정적으로.
-  · 감정 이입·취향형 독자: 감탄사, ㅠㅠ/ㅋㅋㅋ를 쓰고 흥분한 톤.
-  · 구조·전개를 파고드는 독자: 복선/떡밥 회수 여부를 구체적으로 짚되, 분석하듯 살짝 냉정하게.
-- 웹소설 독자 커뮤니티 표현(떡밥, 복선, 회수, 이탈, 흑화, 개연성 터짐, 실화냐, 인성 등)은 이 독자의 관심사·말투와 맞을 때만 쓰세요.
-- [프로젝트 누적 정보]에 이전 화 떡밥·복선·타임라인·추적 사실이 있으면, 이번 화에서 회수되거나 어긋난 부분을 이 독자의 관심사에 맞게 녹여도 됩니다. 목록에 없는 설정은 지어내지 마세요.
-- 다른 가상 독자나 AI라는 사실을 언급하지 마세요.
-
-[형식 참고 예시 — 페르소나마다 결이 다릅니다. 이 독자의 [말투]에 가까운 결만 참고하고, 문장을 그대로 베끼지 마세요]
-- (분석적) 이 전개 그냥 개연성 터진 거 아님?
-- (취향·감정) 남주 인성 실화냐? 여기서 여주 버리면 진짜 이탈함
-- (구조·복선) 다음 화에 주인공 흑화할 듯? 떡밥 정리해 둠
-- (흥분한 회수) ㅋㅋ 3화에 나왔던 열쇠 복선 여기서 회수하네 미쳤다"""
-READER_GENRE_SPECIALIST_CATEGORIES = frozenset({
-    "genre_specialist",
-    "sub_genre_specialist",
-})
 # Category is narrative_critic, but the name itself is a genre specialty.
-READER_EXPLICIT_GENRE_PERSONA_IDS = frozenset({"academy_immersive"})
 # persona_id → (독자가 기대하는 장르 호칭, 작품 장르와 맞출 토큰)
-READER_PERSONA_SPECIALTY: dict[str, tuple[str, frozenset[str]]] = {
-    "roppan_cider": (
-        "로맨스·로판",
-        frozenset({
-            "romance", "romfant", "modern", "period", "romcom", "high", "low",
-            "office", "contract", "chaebol", "bl", "gl", "omega",
-            "로맨스", "로판", "현대로맨스", "시대로맨스", "로코", "하이루판",
-            "저루판", "오피스", "재벌", "BL", "GL",
-        }),
-    ),
-    "roppan_narrative": (
-        "로맨스·로판",
-        frozenset({
-            "romance", "romfant", "modern", "period", "romcom", "high", "low",
-            "office", "contract", "chaebol", "bl", "gl", "omega",
-            "로맨스", "로판", "현대로맨스", "시대로맨스", "로코", "하이루판",
-            "저루판", "재벌", "BL", "GL",
-        }),
-    ),
-    "modern_romance_flutter": (
-        "로맨스·로판",
-        frozenset({
-            "romance", "romfant", "modern", "period", "romcom", "high", "low",
-            "office", "contract", "chaebol",
-            "로맨스", "로판", "현대로맨스", "시대로맨스", "로코", "하이루판",
-            "저루판",
-        }),
-    ),
-    "modern_romance_tension": (
-        "로맨스·로판",
-        frozenset({
-            "romance", "romfant", "modern", "period", "romcom", "high", "low",
-            "office", "contract", "chaebol",
-            "로맨스", "로판", "현대로맨스", "시대로맨스", "로코", "하이루판",
-            "저루판",
-        }),
-    ),
-    "modern_fantasy_pro": (
-        "현판·전문직·재벌물",
-        frozenset({
-            "urban", "chaebol", "office", "contemporary",
-            "현판", "현대판타지", "어반판타지", "재벌", "오피스", "전문직",
-        }),
-    ),
-    "hunter_speedrunner": (
-        "헌터물",
-        frozenset({
-            "urban", "hidden_world",
-            "헌터", "헌터물", "현대판타지", "어반판타지", "레이드", "던전", "각성",
-        }),
-    ),
-    "game_system_maniac": (
-        "게임물",
-        frozenset({"game", "게임", "게임판타지", "게임물", "시스템"}),
-    ),
-    "high_fantasy_adventurer": (
-        "정통 판타지",
-        frozenset({
-            "traditional", "isekai", "dark", "female",
-            "정통판타지", "이세계", "다크판타지", "여성향 판타지",
-        }),
-    ),
-    "wuxia_romantic": (
-        "무협",
-        frozenset({
-            "martial", "classic", "new", "modern_wu", "murim",
-            "무협", "정통무협", "신무협", "현대한무", "강호",
-        }),
-    ),
-    "sf_hardcore_critic": (
-        "SF",
-        frozenset({
-            "sf", "SF", "space", "dystopia", "cyberpunk", "timeslip", "postapo",
-            "스페이스", "디스토피아", "사이버펑크", "타임슬립", "아포칼립스",
-        }),
-    ),
-    "mystery_trick_analyst": (
-        "추리·스릴러",
-        frozenset({
-            "mystery", "thriller", "honkaku", "social", "cozy", "legal", "crime",
-            "psycho", "horror", "suspense",
-            "추리", "스릴러", "미스터리", "호러", "본격추리", "서스펜스",
-        }),
-    ),
-    "sports_sim_fan": (
-        "스포츠·영지경영",
-        frozenset({
-            "sports", "스포츠", "스포츠물", "영지", "시뮬레이션", "경영", "리그",
-        }),
-    ),
-    "alt_history_analyst": (
-        "대체역사",
-        frozenset({
-            "alt_history", "alt", "대체역사",
-        }),
-    ),
-    "academy_immersive": (
-        "아카데미물",
-        frozenset({
-            "school", "youth", "academy",
-            "아카데미", "아카데미물", "학원", "학원물",
-        }),
-    ),
-}
-READER_AVATAR_URL_PREFIX = "/assets/reader_avatars"
-_reader_comments_inflight: set[int] = set()
-_reader_comments_inflight_batch: dict[int, str] = {}
-_reader_comments_last_error: dict[int, str] = {}
-_reader_comments_inflight_lock = Lock()
 _trait_analysis_jobs: dict[int, dict] = {}
 _trait_analysis_inflight: set[int] = set()
 _trait_analysis_lock = Lock()
@@ -6268,415 +4624,28 @@ def _scenes_snapshot_worker(project_id: int) -> None:
 
 
 
-def _as_string_list(value: object) -> list[str]:
-    """Parse a JSON array (or already-decoded list) into non-empty strings."""
-    if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
-    text = str(value or "").strip()
-    if not text:
-        return []
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        return [text]
-    if isinstance(parsed, list):
-        return [str(item).strip() for item in parsed if str(item).strip()]
-    return [text]
 
 
-def serialize_reader_persona(row: sqlite3.Row | dict) -> dict:
-    item = dict(row)
-    item["criteria"] = _as_string_list(item.get("criteria"))
-    item["sample_responses"] = _as_string_list(item.get("sample_responses"))
-    item["display_order"] = int(item.get("display_order") or 0)
-    return item
 
 
-def reader_chat_session_key(work_id: object, persona_id: object) -> str:
-    return f"reader_chat_{work_id}_{persona_id}"
 
 
-def parse_reader_debate_persona_ids(raw: object) -> list[str]:
-    """Normalize persona id list (array or comma-separated), preserving order."""
-    if isinstance(raw, str):
-        parts = [part.strip() for part in raw.split(",") if part.strip()]
-    elif isinstance(raw, (list, tuple)):
-        parts = [str(part).strip() for part in raw if str(part).strip()]
-    else:
-        parts = []
-    return parts
 
 
-def reader_debate_persona_ids_key(persona_ids: list[str]) -> str:
-    """Sorted comma key for session reuse (order-independent lookup)."""
-    return ",".join(sorted({str(pid).strip() for pid in persona_ids if str(pid).strip()}))
 
 
-def _reader_debate_system_prompt(
-    persona: dict,
-    shared_context: str,
-    *,
-    main_genre: object = "",
-    sub_genre: object = "",
-    genre_detail: object = "",
-) -> str:
-    """Reuse 1:1 persona prompt + debate task line + shared work context."""
-    return (
-        _reader_persona_system_prompt(persona)
-        + "\n"
-        + READER_DEBATE_TASK_ADDON
-        + _reader_genre_mismatch_block(
-            persona,
-            main_genre=main_genre,
-            sub_genre=sub_genre,
-            genre_detail=genre_detail,
-            shared_context=shared_context,
-        )
-        + "\n\n"
-        + shared_context
-    )
 
 
-def _reader_debate_user_prompt(
-    reader_name: str, transcript: str, user_message: str
-) -> str:
-    return (
-        f"아래는 작가와 여러 가상 독자의 토론, 그리고 작가의 새 메시지입니다. "
-        f"당신은 '{reader_name}'로서 새 메시지와 다른 독자들의 발언에 이어서 답하세요. "
-        f"이름 접두어는 붙이지 마세요.\n\n"
-        f"[지금까지의 토론]\n{transcript}\n\n"
-        f"[작가의 새 메시지]\n{user_message}"
-    )
 
 
-def _reader_debate_transcript_lines(
-    rows: list[dict], persona_names: dict[str, str]
-) -> list[str]:
-    lines: list[str] = []
-    for item in rows:
-        content = str(item.get("message") or "").strip()
-        if not content:
-            continue
-        if len(content) > 4000:
-            content = content[:4000] + "…"
-        speaker = str(item.get("speaker_type") or "").strip().lower()
-        if speaker == "user":
-            who = "작가"
-        else:
-            pid = str(item.get("persona_id") or "").strip()
-            who = persona_names.get(pid) or "가상 독자"
-        lines.append(f"{who}: {content}")
-    return lines
 
 
-def _reader_persona_system_prompt(persona_row: dict) -> str:
-    """Build a 1:1 virtual-reader system prompt from a single persona row.
-
-    Only this reader's fields are injected. Other personas and Tory's
-    Core Identity must never appear here.
-    """
-    persona = serialize_reader_persona(persona_row)
-    name = str(persona.get("name") or "").strip() or "가상 독자"
-    identity = str(persona.get("identity") or "").strip() or "(없음)"
-    tone = str(persona.get("tone") or "").strip() or "(없음)"
-    forbidden = str(persona.get("forbidden") or "").strip() or "(없음)"
-    criteria = persona.get("criteria") or []
-    if criteria:
-        criteria_block = "\n".join(
-            f"{index}. {line}" for index, line in enumerate(criteria, start=1)
-        )
-    else:
-        criteria_block = "(없음)"
-    samples = (persona.get("sample_responses") or [])[:3]
-    if samples:
-        sample_block = "\n".join(f"- {line}" for line in samples)
-    else:
-        sample_block = "(없음)"
-    prompt = (
-        "[Core Identity]\n"
-        f"당신은 '{name}'이라는 이름의 가상 독자입니다.\n\n"
-        "[정체성]\n"
-        f"{identity}\n\n"
-        "[말투]\n"
-        f"{tone}\n\n"
-        "[평가 우선순위]\n"
-        "아래 순서는 이 독자가 작품을 볼 때 더 중요하게 여기는 기준입니다. "
-        "앞번호일수록 판단에 더 큰 비중을 두세요.\n"
-        f"{criteria_block}\n\n"
-        "[금지사항]\n"
-        f"{forbidden}\n\n"
-        "[말투 예시]\n"
-        "아래는 이 독자의 말투·반응 방식을 참고하기 위한 예시입니다. "
-        "문장을 그대로 따라 말하지 말고, 톤과 반응의 결만 참고하세요.\n"
-        f"{sample_block}\n\n"
-        "중요: 당신은 이 독자 한 명뿐입니다. 다른 가상 독자의 취향·말투·평가 기준을 "
-        "끌어오거나 언급하지 마세요. 토리(SuperTORY 조력자)가 아니며, "
-        "편집자·비평가 페르소나를 섞지 마세요.\n\n"
-        "[Task Instruction]\n"
-        "당신은 지금 작가와 1:1로 대화 중입니다. 작가가 보여주는 원고나 질문에 대해 "
-        "위에서 정의된 당신의 캐릭터를 유지하며 반응하세요.\n"
-        "당신은 AI라는 사실을 언급하지 말고, 실제 독자처럼 자연스럽게 반응하세요.\n"
-        "평가 우선순위에 따라 반응하되, 항상 그 이유를 함께 설명하세요.\n"
-        "제공된 시놉시스·세계관·원고에 명시되지 않은 플롯 장치나 설정(예: 회빙환, 빙의, 환생, "
-        "숨겨진 정체 등)을 임의로 가정해서 언급하지 마라. 확인되지 않은 부분에 대해서는 "
-        "'본문/설정에 안 나와서 모르겠다' 또는 '~인가요?'처럼 되묻는 방식으로 반응해라."
-    )
-    persona_id = str(persona.get("id") or "").strip()
-    # 개연성·복선 설계 분석가만 누적 인덱스 떡밥/추적사실을 우선 점검한다.
-    if persona_id == "plausibility_absolutist":
-        prompt += (
-            "\n"
-            "[아직 안 풀린 떡밥/복선 목록]과 [추적 중인 설정/인물 사실]을 우선적으로 참고해서, "
-            "지금 첨부된 장면이나 시놉시스가 이 목록의 항목들과 모순되지 않는지, "
-            "너무 오래 방치된 떡밥은 없는지 짚어라. 목록에 없는 새로운 설정이 "
-            "갑자기 나왔다면 그것도 짚어라."
-        )
-    return prompt
 
 
-def _reader_filled_worldbuilding_summary(worldbuilding_md: object) -> str:
-    """Reuse world_import_analysis sheet schema: only non-empty sheet fields."""
-    try:
-        values = world_import_analysis.parse_worldbuilding_md(worldbuilding_md)
-    except Exception:
-        return ""
-    lines: list[str] = []
-    for section in world_import_analysis.WORLD_BUILDING_SCHEMA:
-        filled: list[str] = []
-        for field_id, label in section["fields"]:
-            raw = values.get(field_id)
-            if world_import_analysis.is_field_empty(raw):
-                continue
-            text = plain_text_from_content(str(raw or "")).strip()
-            if not text:
-                continue
-            if len(text) > 220:
-                text = text[:220] + "…"
-            filled.append(f"- {label}: {text}")
-        if filled:
-            lines.append(str(section["title"]))
-            lines.extend(filled)
-    legacy = values.get("legacy") if isinstance(values, dict) else ""
-    if not world_import_analysis.is_field_empty(legacy):
-        text = plain_text_from_content(str(legacy or "")).strip()
-        if text:
-            if len(text) > 400:
-                text = text[:400] + "…"
-            lines.append("기타 · 기존 메모")
-            lines.append(f"- {text}")
-    summary = "\n".join(lines).strip()
-    if len(summary) > READER_CHAT_WORLD_CAP:
-        summary = summary[:READER_CHAT_WORLD_CAP] + "…"
-    return summary
 
 
-def _reader_project_index_block(work_id: object) -> str:
-    """Format existing project_index row for virtual-reader context (read-only)."""
-    try:
-        project_id = int(str(work_id or "").strip())
-    except (TypeError, ValueError):
-        return ""
-    if project_id <= 0:
-        return ""
-    try:
-        with database() as connection:
-            row = connection.execute(
-                "SELECT characters_json, world_rules_json, timeline_json, "
-                "open_threads_json, tracked_facts_json "
-                "FROM project_index WHERE project_id = ?",
-                (project_id,),
-            ).fetchone()
-    except sqlite3.OperationalError:
-        return ""
-    if row is None:
-        return ""
-
-    parse_list = SuperToryHandler._parse_json_list
-    normalize_facts = SuperToryHandler._normalize_tracked_facts
-    characters = [
-        str(item).strip()
-        for item in parse_list(row["characters_json"])
-        if str(item).strip()
-    ]
-    world_rules = [
-        str(item).strip()
-        for item in parse_list(row["world_rules_json"])
-        if str(item).strip()
-    ]
-    timeline = [
-        str(item).strip()
-        for item in parse_list(row["timeline_json"])
-        if str(item).strip()
-    ]
-    open_threads = SuperToryHandler._open_thread_unresolved_texts(row["open_threads_json"])
-    # tracked_facts_json NULL (pre-048) → normalize returns []; omit quietly
-    tracked_raw = None
-    try:
-        tracked_raw = row["tracked_facts_json"]
-    except (KeyError, IndexError, TypeError):
-        tracked_raw = None
-    if tracked_raw is None:
-        tracked_facts: list = []
-    else:
-        tracked_facts = normalize_facts(tracked_raw)
-
-    sections: list[str] = []
-    if timeline:
-        sections.append(
-            "[지금까지 전개 - 실제 원고 문장 아님, 요약임]\n"
-            + "\n".join(f"- {line}" for line in timeline)
-        )
-    if open_threads:
-        sections.append(
-            "[아직 안 풀린 떡밥/복선 목록]\n"
-            + "\n".join(f"- {line}" for line in open_threads)
-        )
-    if tracked_facts:
-        fact_lines: list[str] = []
-        for fact in tracked_facts:
-            if not isinstance(fact, dict):
-                continue
-            category = str(fact.get("category") or "").strip()
-            subject = str(fact.get("subject") or "").strip()
-            attribute = str(fact.get("attribute") or "").strip()
-            value = str(fact.get("value") or "").strip()
-            since = str(fact.get("since_scene") or "").strip()
-            head = " / ".join(part for part in (subject, attribute) if part)
-            bits = []
-            if category:
-                bits.append(f"[{category}]")
-            if head:
-                bits.append(head)
-            if value:
-                bits.append(f"= {value}")
-            line = " ".join(bits).strip()
-            if since:
-                line = f"{line} (since: {since})" if line else f"(since: {since})"
-            if line:
-                fact_lines.append(f"- {line}")
-        if fact_lines:
-            sections.append(
-                "[추적 중인 설정/인물 사실]\n" + "\n".join(fact_lines)
-            )
-    meta_bits: list[str] = []
-    if characters:
-        meta_bits.append("등장 인물: " + ", ".join(characters))
-    if world_rules:
-        meta_bits.append(
-            "확립된 세계관·설정:\n" + "\n".join(f"- {rule}" for rule in world_rules)
-        )
-    if meta_bits:
-        sections.append("\n".join(meta_bits))
-    if not sections:
-        return ""
-    return (
-        "[프로젝트 누적 정보]\n"
-        "아래는 회차 인덱스를 모아 둔 내부 요약입니다. 실제 원고 문장이 아니며, "
-        "설정집 시놉시스와도 별개입니다.\n\n"
-        + "\n\n".join(sections)
-    )
 
 
-def _reader_dynamic_context(
-    work_id: object, episode_content: str | None = None
-) -> str:
-    """Live work genre + settings + project_index (+ optional shared manuscript)."""
-    work_key = str(work_id or "").strip()
-    title = ""
-    main_genre = ""
-    sub_genre = ""
-    genre_detail = ""
-    synopsis_plain = ""
-    world_summary = ""
-    if work_key:
-        with database() as connection:
-            try:
-                row = connection.execute(
-                    "SELECT title, main_genre, sub_genre, genre_detail, "
-                    "description_md, worldbuilding_md "
-                    "FROM project WHERE id = ? AND deleted_at IS NULL",
-                    (work_key,),
-                ).fetchone()
-            except sqlite3.OperationalError:
-                row = connection.execute(
-                    "SELECT title, main_genre, sub_genre FROM project "
-                    "WHERE id = ? AND deleted_at IS NULL",
-                    (work_key,),
-                ).fetchone()
-        if row is not None:
-            title = str(row["title"] or "").strip()
-            main_genre = str(row["main_genre"] or "").strip()
-            sub_genre = str(row["sub_genre"] or "").strip()
-            try:
-                genre_detail = str(row["genre_detail"] or "").strip()
-            except (KeyError, IndexError, TypeError):
-                genre_detail = ""
-            try:
-                synopsis_plain = plain_text_from_content(
-                    str(row["description_md"] or "")
-                ).strip()
-            except (KeyError, IndexError, TypeError):
-                synopsis_plain = ""
-            try:
-                world_summary = _reader_filled_worldbuilding_summary(
-                    row["worldbuilding_md"]
-                )
-            except (KeyError, IndexError, TypeError):
-                world_summary = ""
-    if synopsis_plain and len(synopsis_plain) > READER_CHAT_SYNOPSIS_CAP:
-        synopsis_plain = synopsis_plain[:READER_CHAT_SYNOPSIS_CAP] + "…"
-    main_label = SuperToryHandler._genre_display_label(None, main_genre)
-    sub_label = SuperToryHandler._genre_display_label(None, sub_genre)
-    detail_label = ""
-    if genre_detail:
-        try:
-            detail_label = str(genre_clusters.genre_detail_label(genre_detail) or "").strip()
-        except Exception:
-            detail_label = ""
-        if not detail_label:
-            detail_label = SuperToryHandler._genre_display_label(None, genre_detail)
-    parts = [
-        "[작품 정보]",
-        f"작품 제목: {title or '(없음)'}",
-        f"메인 장르: {main_label}",
-        f"서브 장르: {sub_label}",
-    ]
-    if detail_label and detail_label not in {"미정", "기타"}:
-        parts.append(f"세부장르: {detail_label}")
-    # 장르 → 시놉시스 → 세계관 → 누적 인덱스 → 원고
-    settings_bits: list[str] = []
-    if synopsis_plain:
-        settings_bits.append(f"시놉시스 요약:\n{synopsis_plain}")
-    if world_summary:
-        settings_bits.append(f"세계관 설정 요약(채워진 항목만):\n{world_summary}")
-    if settings_bits:
-        parts.append("")
-        parts.append(
-            "[작품 설정 요약 — 설정집 정보이며 실제 원고 문장이 아님]\n"
-            "아래는 작가가 설정집에 적어 둔 요약입니다. 본문 장면처럼 인용하거나 "
-            "이 내용만으로 장면이 이미 쓰인 것처럼 단정하지 마세요.\n"
-            + "\n\n".join(settings_bits)
-        )
-    index_block = _reader_project_index_block(work_key)
-    if index_block:
-        parts.append("")
-        parts.append(index_block)
-    manuscript = str(episode_content or "").strip()
-    if manuscript:
-        if len(manuscript) > READER_CHAT_EPISODE_CAP:
-            manuscript = manuscript[:READER_CHAT_EPISODE_CAP] + "…"
-        parts.append("")
-        parts.append(f"다음은 작가가 공유한 원고 내용입니다:\n{manuscript}")
-    else:
-        parts.append("")
-        parts.append(
-            "[원고 미첨부]\n"
-            "지금은 특정 장면 원고 없이, 시놉시스/세계관·누적 인덱스 정보만 가지고 "
-            "대화하는 상황이다. "
-            "구체적인 장면 평가를 요구받으면 '원고를 보여주시면 더 정확하게 봐드릴 수 있어요' "
-            "같은 식으로 자연스럽게 유도해라."
-        )
-    return "\n".join(parts)
 
 
 def touch_project_opened(connection: sqlite3.Connection, project_id: int) -> str:
@@ -7349,721 +5318,67 @@ _character_analysis_lock = Lock()
 _character_analysis_thread: Thread | None = None
 IMPORT_ANALYSIS_GEMINI_GAP_SECONDS = 1.8
 # Reuse import-analysis stagger between sequential debate persona calls.
-READER_DEBATE_GEMINI_GAP_SECONDS = IMPORT_ANALYSIS_GEMINI_GAP_SECONDS
 # Free-tier RPM is 15/min; stay just above 4s between paragraph calls.
-TRANSLATION_GEMINI_GAP_SECONDS = (
-    translation_batch_service.TRANSLATION_GEMINI_GAP_SECONDS
-)
-TRANSLATION_RATE_LIMIT_RETRIES = (
-    translation_batch_service.TRANSLATION_RATE_LIMIT_RETRIES
-)
-TRANSLATION_RATE_LIMIT_DEFAULT_WAIT = (
-    translation_batch_service.TRANSLATION_RATE_LIMIT_DEFAULT_WAIT
-)
-
-
-def reader_persona_avatar_url(persona_id: object) -> str:
-    token = str(persona_id or "").strip()
-    if not token:
-        return f"{READER_AVATAR_URL_PREFIX}/.png"
-    return f"{READER_AVATAR_URL_PREFIX}/{token}.png"
-
-
-def _genre_search_needles(raw_key: object) -> list[str]:
-    """Keys/labels to look for inside persona name + identity."""
-    key = str(raw_key or "").strip()
-    needles: list[str] = []
-    if not key:
-        return needles
-    if key.startswith("custom:"):
-        custom = key[len("custom:") :].strip()
-        if custom:
-            needles.append(custom)
-    else:
-        needles.append(key)
-        label = SuperToryHandler._genre_display_label(None, key)
-        if label and label not in {"미정", "기타"} and label not in needles:
-            needles.append(label)
-    return [item for item in needles if item]
-
-
-def _persona_matches_needles(persona: dict, needles: list[str]) -> bool:
-    if not needles:
-        return False
-    haystack = f"{persona.get('name') or ''}\n{persona.get('identity') or ''}"
-    lowered = haystack.lower()
-    for needle in needles:
-        text = str(needle or "").strip()
-        if not text:
-            continue
-        if text in haystack or text.lower() in lowered:
-            return True
-    return False
-
-
-def _reader_persona_has_explicit_genre(persona: dict) -> bool:
-    category = str(persona.get("category") or "").strip()
-    persona_id = str(persona.get("id") or "").strip()
-    return (
-        category in READER_GENRE_SPECIALIST_CATEGORIES
-        or persona_id in READER_EXPLICIT_GENRE_PERSONA_IDS
-    )
-
-
-def _reader_persona_specialty(persona: dict) -> tuple[str, frozenset[str]] | None:
-    persona_id = str(persona.get("id") or "").strip()
-    mapped = READER_PERSONA_SPECIALTY.get(persona_id)
-    if mapped:
-        return mapped
-    if not _reader_persona_has_explicit_genre(persona):
-        return None
-    name = str(persona.get("name") or "").strip()
-    return (name or "자기 전문 장르", frozenset())
-
-
-def _reader_genre_token_hits(token: str, work_tokens: set[str]) -> bool:
-    raw = str(token or "").strip()
-    if not raw:
-        return False
-    lowered = raw.lower()
-    work_lower = {item.lower() for item in work_tokens if item}
-    if lowered in work_lower:
-        return True
-    # ASCII keys must match exactly so "modern" does not hit "modern_wu".
-    if raw.isascii():
-        return False
-    for item in work_tokens:
-        other = str(item or "").strip()
-        if len(raw) < 2 or len(other) < 2:
-            continue
-        if lowered in other.lower() or other.lower() in lowered:
-            return True
-    return False
-
-
-def _reader_work_genre_tokens(
-    main_genre: object = "",
-    sub_genre: object = "",
-    genre_detail: object = "",
-    extra_labels: object = None,
-) -> list[str]:
-    skip = {"", "미정", "기타", "(없음)", "tbd", "other"}
-    tokens: list[str] = []
-
-    def _add(raw: object) -> None:
-        text = str(raw or "").strip()
-        if not text or text in skip:
-            return
-        if text not in tokens:
-            tokens.append(text)
-
-    for key in (main_genre, sub_genre, genre_detail):
-        _add(key)
-        _add(SuperToryHandler._genre_display_label(None, key))
-    detail_key = str(genre_detail or "").strip()
-    if detail_key:
-        try:
-            _add(genre_clusters.genre_detail_label(detail_key))
-        except Exception:
-            pass
-    if extra_labels:
-        for label in extra_labels:
-            _add(label)
-    return tokens
-
-
-def _reader_context_genre_labels(shared_context: str) -> list[str]:
-    labels: list[str] = []
-    for line in str(shared_context or "").splitlines():
-        stripped = line.strip()
-        for prefix in ("메인 장르:", "서브 장르:", "세부장르:", "세부 장르:"):
-            if stripped.startswith(prefix):
-                labels.append(stripped[len(prefix) :].strip())
-                break
-    return labels
-
-
-def _reader_work_genre_label(tokens: list[str]) -> str:
-    skip_keys = {
-        "romance", "fantasy", "sf", "mystery", "thriller", "historical", "martial",
-        "contemporary", "youth", "literary", "romfant", "modern", "high", "low",
-        "urban", "hidden_world", "traditional", "isekai", "game", "dark", "school",
-        "classic", "new", "murim", "sports", "chaebol", "office", "blgl", "period",
-    }
-    labels = [
-        item for item in tokens
-        if item and item not in skip_keys and not item.isascii()
-    ]
-    if not labels:
-        labels = [item for item in tokens if item]
-    unique: list[str] = []
-    for item in labels:
-        if item not in unique:
-            unique.append(item)
-    return " · ".join(unique[:3]) if unique else "미정"
-
-
-def reader_persona_genre_matches(
-    persona: dict,
-    *,
-    main_genre: object = "",
-    sub_genre: object = "",
-    genre_detail: object = "",
-    shared_context: str = "",
-) -> bool | None:
-    """True=match, False=mismatch, None=not a genre-explicit persona or no work genre."""
-    if not _reader_persona_has_explicit_genre(persona):
-        return None
-    specialty = _reader_persona_specialty(persona)
-    if specialty is None:
-        return None
-    work_tokens = _reader_work_genre_tokens(
-        main_genre,
-        sub_genre,
-        genre_detail,
-        extra_labels=_reader_context_genre_labels(shared_context),
-    )
-    if not work_tokens:
-        return None
-    _expected, specialty_tokens = specialty
-    if not specialty_tokens:
-        needles = _genre_search_needles(main_genre) + _genre_search_needles(sub_genre)
-        return _persona_matches_needles(persona, needles)
-    work_set = set(work_tokens)
-    return any(_reader_genre_token_hits(token, work_set) for token in specialty_tokens)
-
-
-def _reader_genre_mismatch_block(
-    persona: dict,
-    *,
-    main_genre: object = "",
-    sub_genre: object = "",
-    genre_detail: object = "",
-    shared_context: str = "",
-) -> str:
-    matched = reader_persona_genre_matches(
-        persona,
-        main_genre=main_genre,
-        sub_genre=sub_genre,
-        genre_detail=genre_detail,
-        shared_context=shared_context,
-    )
-    if matched is not False:
-        return ""
-    specialty = _reader_persona_specialty(persona) or ("자기 전문 장르", frozenset())
-    expected, _tokens = specialty
-    actual = _reader_work_genre_label(
-        _reader_work_genre_tokens(
-            main_genre,
-            sub_genre,
-            genre_detail,
-            extra_labels=_reader_context_genre_labels(shared_context),
-        )
-    )
-    return (
-        "\n\n[장르 불일치 인지 — 이번 작품에만 적용]\n"
-        f"이 작품의 실제 장르는 '{actual}'이다. 당신은 평소 '{expected}'를 주로 읽는 독자다.\n"
-        f"이 작품을 '{expected}'라고 단정하지 마라. '{expected}' 클리셰·문법이 안 나온다고 "
-        "작품 오류처럼 말하지 마라.\n"
-        "당신이 기대와 다르다는 걸 스스로 아는 기색이 한 번 묻어나면 된다. "
-        "문장을 고정하지 말고, 매번 다른 표현을 쓰며, 이전에 썼던 대사를 반복하지 마라. "
-        "아래는 톤의 결만 참고하는 방향이다. 예시 문장을 그대로 베끼지 마라.\n"
-        f"- 제목이나 초반 설정만 보고 '{expected}'인 줄 알았다가, 읽고 나서 아니라는 걸 깨닫는 쪽\n"
-        "- '어라, 내가 생각하던 분위기랑은 다르네' 정도의 가벼운 당황\n"
-        f"- '{expected}' 쪽 용어를 꺼냈다가 스스로 정정하는 쪽\n"
-        "- 대놓고 착각을 시인하지 않고 '기대한 맛은 아닌데'로 돌려 말하는 쪽\n"
-        "그 다음엔 헛소리를 하지 말고, 원고에서 눈에 띄는 한 장면·대사·행동만 소박하게 반응해라. "
-        f"'{expected}' 전문가인 척 장르 문법을 들이밀며 비평하지 마라. "
-        f"인지한 뒤에는 '{expected}' 클리셰가 안 나온다고 아쉬워하거나 그걸 요구하지 마라. "
-        "댓글이면 1~2문장 안에 이 기색을 녹이고, 장르 불일치 설명만으로 채우지 마라.\n"
-    )
-
-
-def _normalize_exclude_persona_ids(raw: object) -> set[str]:
-    if raw is None:
-        return set()
-    if isinstance(raw, (str, bytes)):
-        token = str(raw).strip()
-        return {token} if token else set()
-    try:
-        items = list(raw)
-    except TypeError:
-        token = str(raw).strip()
-        return {token} if token else set()
-    return {str(item or "").strip() for item in items if str(item or "").strip()}
-
-
-def _load_virtual_reader_personas(connection: sqlite3.Connection) -> list[dict]:
-    rows = connection.execute(
-        "SELECT id, category, name, identity, tone, criteria, forbidden, "
-        "sample_responses, discussion_attitude, display_order "
-        "FROM virtual_reader_personas "
-        "ORDER BY display_order, id"
-    ).fetchall()
-    return [serialize_reader_persona(row) for row in rows]
-
-
-def reader_comment_refresh_count(comment_count: object) -> int:
-    n = max(0, int(comment_count or 0))
-    if n <= READER_COMMENTS_EXPECTED:
-        return 0
-    return (n - READER_COMMENTS_EXPECTED) // READER_COMMENTS_EXPECTED
-
-
-def _reader_comment_refresh_meta(
-    comment_count: object,
-    *,
-    generating: bool,
-    remaining: object,
-    last_error_code: object = None,
-    batch_count: object = 0,
-) -> dict:
-    n = max(0, int(comment_count or 0))
-    batches = max(0, int(batch_count or 0))
-    refresh_count = max(0, batches - 1) if batches else reader_comment_refresh_count(n)
-    can_refresh = (
-        n >= READER_COMMENTS_EXPECTED
-        and not generating
-        and str(last_error_code or "") != "quota"
-    )
-    return {
-        "refresh_count": refresh_count,
-        "max_refreshes": READER_COMMENTS_MAX_REFRESHES,
-        "can_refresh": can_refresh,
-    }
-
-
-def _pick_reader_comment_persona(
-    pool: list[dict],
-    used_ids: set[str],
-    rng: random.Random,
-    needles: list[str] | None = None,
-) -> dict | None:
-    available = [
-        item
-        for item in pool
-        if str(item.get("id") or "").strip() not in used_ids
-    ]
-    if not available:
-        return None
-    if needles:
-        matched = [item for item in available if _persona_matches_needles(item, needles)]
-        if matched:
-            return rng.choice(matched)
-    return rng.choice(available)
-
-
-def select_reader_comment_personas(
-    main_genre: object,
-    sub_genre: object,
-    *,
-    connection: sqlite3.Connection | None = None,
-    rng: random.Random | None = None,
-    exclude_persona_ids: object = None,
-) -> list[dict]:
-    """Pick 3 distinct virtual readers: genre, sub-genre, then a wildcard."""
-    picker = rng if rng is not None else random.Random()
-
-    if connection is None:
-        with database() as conn:
-            personas = _load_virtual_reader_personas(conn)
-    else:
-        personas = _load_virtual_reader_personas(connection)
-
-    by_category: dict[str, list[dict]] = {key: [] for key in READER_PERSONA_CATEGORIES}
-    for item in personas:
-        category = str(item.get("category") or "")
-        by_category.setdefault(category, []).append(item)
-
-    picked: list[dict] = []
-    used_ids: set[str] = _normalize_exclude_persona_ids(exclude_persona_ids)
-    genre_pick = _pick_reader_comment_persona(
-        by_category.get("genre_specialist") or [],
-        used_ids,
-        picker,
-        _genre_search_needles(main_genre),
-    )
-    if genre_pick is not None:
-        picked.append(genre_pick)
-        used_ids.add(str(genre_pick.get("id") or ""))
-    sub_pick = _pick_reader_comment_persona(
-        by_category.get("sub_genre_specialist") or [],
-        used_ids,
-        picker,
-        _genre_search_needles(sub_genre),
-    )
-    if sub_pick is not None:
-        picked.append(sub_pick)
-        used_ids.add(str(sub_pick.get("id") or ""))
-    wildcard_pool: list[dict] = []
-    for category in READER_COMMENT_WILDCARD_CATEGORIES:
-        wildcard_pool.extend(by_category.get(category) or [])
-    wild_pick = _pick_reader_comment_persona(wildcard_pool, used_ids, picker)
-    if wild_pick is not None:
-        picked.append(wild_pick)
-        used_ids.add(str(wild_pick.get("id") or ""))
-    if len(picked) < READER_COMMENTS_EXPECTED:
-        remainder = [
-            item
-            for item in personas
-            if str(item.get("id") or "").strip() not in used_ids
-        ]
-        picker.shuffle(remainder)
-        for item in remainder:
-            picked.append(item)
-            used_ids.add(str(item.get("id") or ""))
-            if len(picked) >= READER_COMMENTS_EXPECTED:
-                break
-    return picked[:READER_COMMENTS_EXPECTED]
-
-
-def select_additional_reader_comment_personas(
-    main_genre: object,
-    sub_genre: object,
-    *,
-    exclude_persona_ids: object = None,
-    connection: sqlite3.Connection | None = None,
-    rng: random.Random | None = None,
-) -> list[dict]:
-    """Pick up to 3 unused readers; ~25% of the time inject one off-genre joker."""
-    picker = rng if rng is not None else random.Random()
-    exclude = _normalize_exclude_persona_ids(exclude_persona_ids)
-
-    def _pick(conn: sqlite3.Connection) -> tuple[list[dict], list[dict]]:
-        all_personas = _load_virtual_reader_personas(conn)
-        chosen = select_reader_comment_personas(
-            main_genre,
-            sub_genre,
-            connection=conn,
-            rng=picker,
-            exclude_persona_ids=exclude,
-        )
-        return chosen, all_personas
-
-    if connection is None:
-        with database() as conn:
-            picked, all_personas = _pick(conn)
-    else:
-        picked, all_personas = _pick(connection)
-
-    if len(picked) < READER_COMMENTS_EXPECTED:
-        return picked
-    if picker.random() >= READER_COMMENT_JOKER_CHANCE:
-        return picked
-    picked_ids = {
-        str(item.get("id") or "").strip()
-        for item in picked
-        if str(item.get("id") or "").strip()
-    }
-    blocked = exclude | picked_ids
-    joker_pool = [
-        item
-        for item in all_personas
-        if str(item.get("id") or "").strip() not in blocked
-        and str(item.get("category") or "") in READER_COMMENT_WILDCARD_CATEGORIES
-    ]
-    if not joker_pool:
-        return picked
-    joker = picker.choice(joker_pool)
-    genre_slots = [
-        index
-        for index, item in enumerate(picked)
-        if str(item.get("category") or "")
-        in {"genre_specialist", "sub_genre_specialist"}
-    ]
-    slot = picker.choice(genre_slots) if genre_slots else picker.randrange(len(picked))
-    picked[slot] = joker
-    return picked
-
-
-def _reader_comment_system_prompt(
-    persona: dict,
-    shared_context: str,
-    *,
-    main_genre: object = "",
-    sub_genre: object = "",
-    genre_detail: object = "",
-) -> str:
-    return (
-        _reader_persona_system_prompt(persona)
-        + "\n"
-        + READER_COMMENT_TASK_ADDON
-        + _reader_genre_mismatch_block(
-            persona,
-            main_genre=main_genre,
-            sub_genre=sub_genre,
-            genre_detail=genre_detail,
-            shared_context=shared_context,
-        )
-        + "\n\n"
-        + shared_context
-    )
-
-
-def _reader_comment_user_prompt(reader_name: str, scene_title: str) -> str:
-    return (
-        f"웹소설 플랫폼 댓글창에 실제 독자가 남길 법한 댓글 하나를 "
-        f"'{reader_name}'로서 써 주세요.\n"
-        f"이 회차를 평가하지 말고, 댓글창에 바로 달 한 줄을 쓰세요.\n"
-        f"회차 제목: {scene_title or '(제목 없음)'}"
-    )
-
-
-def _log_reader_comment_error(scene_id: int, persona_id: object, error: object) -> None:
-    if getattr(error, "code", None) == "quota":
-        detail = f"일일 할당량 소진 ({error})"
-    else:
-        detail = str(error)
-    print(
-        "가상독자 댓글 생성 실패: "
-        f"persona={persona_id or '-'}, scene={scene_id}, error={detail}"
-    )
-
-
-def _reader_comments_generating(scene_id: int) -> bool:
-    with _reader_comments_inflight_lock:
-        return int(scene_id) in _reader_comments_inflight
-
-
-def _reader_comments_last_error_code(scene_id: int) -> str | None:
-    with _reader_comments_inflight_lock:
-        return _reader_comments_last_error.get(int(scene_id))
-
-
-def _set_reader_comments_last_error(scene_id: int, code: str | None) -> None:
-    scene_id = int(scene_id)
-    with _reader_comments_inflight_lock:
-        token = str(code or "").strip()
-        if token:
-            _reader_comments_last_error[scene_id] = token
-        else:
-            _reader_comments_last_error.pop(scene_id, None)
-
-
-def group_reader_comment_batches(comments: list[dict]) -> list[dict]:
-    """Group comments by batch_id. Newest batch first.
-
-    Rows without batch_id (pre-migration inserts) share one legacy bucket,
-    stamped with the earliest created_at in that group.
-    """
-    groups: dict[str, dict] = {}
-    order: list[str] = []
-    for item in comments:
-        raw_id = str(item.get("batch_id") or "").strip()
-        created = str(item.get("created_at") or "").strip()
-        key = raw_id or "_legacy_"
-        if key not in groups:
-            groups[key] = {
-                "batch_id": raw_id or created or key,
-                "created_at": created,
-                "comments": [],
-            }
-            order.append(key)
-        bucket = groups[key]
-        bucket["comments"].append(item)
-        if created and (not bucket["created_at"] or created < bucket["created_at"]):
-            bucket["created_at"] = created
-            if not raw_id:
-                bucket["batch_id"] = created
-    batches = [groups[key] for key in order]
-    batches.sort(
-        key=lambda batch: (
-            str(batch.get("created_at") or ""),
-            str(batch.get("batch_id") or ""),
-        ),
-        reverse=True,
-    )
-    return batches
-
-
-def _latest_batch_persona_ids(connection: sqlite3.Connection, scene_id: int) -> list[str]:
-    row = connection.execute(
-        """
-        SELECT batch_id FROM scene_reader_comments
-        WHERE scene_id = ?
-        ORDER BY created_at DESC, id DESC
-        LIMIT 1
-        """,
-        (int(scene_id),),
-    ).fetchone()
-    if row is None:
-        return []
-    batch_id = str(row[0] or "")
-    rows = connection.execute(
-        """
-        SELECT persona_id FROM scene_reader_comments
-        WHERE scene_id = ? AND batch_id = ?
-        """,
-        (int(scene_id), batch_id),
-    ).fetchall()
-    return [str(item[0] or "").strip() for item in rows if str(item[0] or "").strip()]
-
-
-def list_scene_reader_comments(scene_id: int) -> dict:
-    scene_id = int(scene_id)
-    with database() as connection:
-        scene = connection.execute(
-            "SELECT id FROM scene WHERE id = ? AND deleted_at IS NULL",
-            (scene_id,),
-        ).fetchone()
-        if scene is None:
-            raise LookupError("씬을 찾을 수 없습니다.")
-        rows = connection.execute(
-            """
-            SELECT c.id, c.scene_id, c.persona_id, c.comment_text, c.created_at,
-                   c.batch_id, p.name, p.category
-            FROM scene_reader_comments c
-            JOIN virtual_reader_personas p ON p.id = c.persona_id
-            WHERE c.scene_id = ?
-            ORDER BY c.created_at ASC, c.id ASC
-            """,
-            (scene_id,),
-        ).fetchall()
-        total = connection.execute(
-            "SELECT COUNT(*) FROM virtual_reader_personas"
-        ).fetchone()[0]
-    comments = []
-    for row in rows:
-        item = as_dict(row) or {}
-        persona_id = str(item.get("persona_id") or "").strip()
-        comments.append(
-            {
-                "id": item.get("id"),
-                "scene_id": int(item.get("scene_id") or scene_id),
-                "batch_id": str(item.get("batch_id") or "").strip(),
-                "persona_id": persona_id,
-                "persona_name": str(item.get("name") or "").strip() or "가상 독자",
-                "category": str(item.get("category") or "").strip(),
-                "avatar_url": reader_persona_avatar_url(persona_id),
-                "comment_text": str(item.get("comment_text") or ""),
-                "created_at": str(item.get("created_at") or ""),
-            }
-        )
-    batches = group_reader_comment_batches(comments)
-    generating = _reader_comments_generating(scene_id)
-    with _reader_comments_inflight_lock:
-        inflight_batch_id = str(_reader_comments_inflight_batch.get(scene_id) or "").strip()
-    if generating and inflight_batch_id:
-        known = {str(item.get("batch_id") or "") for item in batches}
-        if inflight_batch_id not in known:
-            batches.insert(
-                0,
-                {
-                    "batch_id": inflight_batch_id,
-                    "created_at": inflight_batch_id,
-                    "comments": [],
-                },
-            )
-    remaining = max(0, int(total or 0) - len(comments))
-    last_error_code = _reader_comments_last_error_code(scene_id)
-    persisted_batches = [item for item in batches if item.get("comments")]
-    meta = _reader_comment_refresh_meta(
-        len(comments),
-        generating=generating,
-        remaining=remaining,
-        last_error_code=last_error_code,
-        batch_count=len(persisted_batches),
-    )
-    latest = batches[0] if batches else None
-    return {
-        "ok": True,
-        "scene_id": scene_id,
-        "comments": comments,
-        "batches": batches,
-        "latest_batch_id": str((latest or {}).get("batch_id") or ""),
-        "has_history": bool(comments),
-        "expected": READER_COMMENTS_EXPECTED,
-        "generating": generating,
-        "last_error_code": last_error_code,
-        **meta,
-    }
-
-
-def _start_reader_comments_worker(
-    scene_id: int,
-    personas: list[dict] | None = None,
-    batch_id: str | None = None,
-) -> dict:
-    scene_id = int(scene_id)
-    batch_id = str(batch_id or "").strip() or utc_timestamp_now()
-    with _reader_comments_inflight_lock:
-        already = scene_id in _reader_comments_inflight
-        if not already:
-            _reader_comments_inflight.add(scene_id)
-            _reader_comments_inflight_batch[scene_id] = batch_id
-    if already:
-        payload = list_scene_reader_comments(scene_id)
-        payload["generating"] = True
-        payload["started"] = False
-        return payload
-    try:
-        worker = Thread(
-            target=_scene_reader_comments_worker,
-            args=(scene_id, personas, batch_id),
-            daemon=True,
-            name=f"scene-reader-comments-{scene_id}",
-        )
-        worker.start()
-    except Exception:
-        with _reader_comments_inflight_lock:
-            _reader_comments_inflight.discard(scene_id)
-            _reader_comments_inflight_batch.pop(scene_id, None)
-        raise
-    payload = list_scene_reader_comments(scene_id)
-    payload["generating"] = True
-    payload["started"] = True
-    payload["can_refresh"] = False
-    return payload
-
-
-def schedule_new_scene_reader_comment_batch(scene_id: int) -> dict:
-    """Always start a fresh batch of three comments for the scene."""
-    scene_id = int(scene_id)
-    payload = list_scene_reader_comments(scene_id)
-    if payload["generating"]:
-        payload["started"] = False
-        return payload
-    with database() as connection:
-        row = connection.execute(
-            """
-            SELECT p.main_genre, p.sub_genre
-            FROM scene s
-            JOIN project p ON p.id = s.project_id
-            WHERE s.id = ? AND s.deleted_at IS NULL AND p.deleted_at IS NULL
-            """,
-            (scene_id,),
-        ).fetchone()
-        if row is None:
-            raise LookupError("씬을 찾을 수 없습니다.")
-        exclude_ids = _latest_batch_persona_ids(connection, scene_id)
-        personas = select_reader_comment_personas(
-            row["main_genre"],
-            row["sub_genre"],
-            connection=connection,
-            exclude_persona_ids=exclude_ids,
-        )
-        if len(personas) < READER_COMMENTS_EXPECTED:
-            personas = select_reader_comment_personas(
-                row["main_genre"],
-                row["sub_genre"],
-                connection=connection,
-            )
-    if not personas:
-        payload["started"] = False
-        return payload
-    return _start_reader_comments_worker(
-        scene_id, personas, batch_id=utc_timestamp_now()
-    )
-
-
-def schedule_scene_reader_comments(scene_id: int) -> dict:
-    """Start the first batch in the background when a scene is marked complete."""
-    scene_id = int(scene_id)
-    payload = list_scene_reader_comments(scene_id)
-    if payload["comments"]:
-        payload["started"] = False
-        return payload
-    return schedule_new_scene_reader_comment_batch(scene_id)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def _set_trait_analysis_job(scene_id: int, **kwargs) -> dict:
@@ -8379,197 +5694,12 @@ def generate_scene_item_analysis(scene_id: int) -> dict:
     )
 
 
-def schedule_additional_scene_reader_comments(scene_id: int) -> dict:
-    """Start a refresh batch of unused personas (up to 3)."""
-    scene_id = int(scene_id)
-    payload = list_scene_reader_comments(scene_id)
-    n = len(payload["comments"])
-    if reader_comment_refresh_count(n) >= READER_COMMENTS_MAX_REFRESHES:
-        raise ValueError("max_refreshes_reached")
-    if payload["generating"]:
-        payload["started"] = False
-        return payload
-    used_ids = [
-        str(item.get("persona_id") or "").strip()
-        for item in payload["comments"]
-        if str(item.get("persona_id") or "").strip()
-    ]
-    with database() as connection:
-        row = connection.execute(
-            """
-            SELECT p.main_genre, p.sub_genre
-            FROM scene s
-            JOIN project p ON p.id = s.project_id
-            WHERE s.id = ? AND s.deleted_at IS NULL AND p.deleted_at IS NULL
-            """,
-            (scene_id,),
-        ).fetchone()
-        if row is None:
-            raise LookupError("씬을 찾을 수 없습니다.")
-        extra = select_additional_reader_comment_personas(
-            row["main_genre"],
-            row["sub_genre"],
-            exclude_persona_ids=used_ids,
-            connection=connection,
-        )
-    if not extra:
-        raise ValueError("no_more_personas")
-    return _start_reader_comments_worker(scene_id, extra)
 
 
-def request_scene_reader_comments(scene_id: int) -> dict:
-    """Always create a new comment batch; previous batches are kept."""
-    return schedule_new_scene_reader_comment_batch(scene_id)
 
 
-def _scene_reader_comments_worker(
-    scene_id: int,
-    personas: list[dict] | None = None,
-    batch_id: str | None = None,
-) -> None:
-    try:
-        generate_scene_reader_comments(scene_id, personas, batch_id=batch_id)
-    except Exception as error:
-        _log_reader_comment_error(scene_id, "-", error)
-    finally:
-        with _reader_comments_inflight_lock:
-            _reader_comments_inflight.discard(int(scene_id))
-            _reader_comments_inflight_batch.pop(int(scene_id), None)
 
 
-def generate_scene_reader_comments(
-    scene_id: int,
-    personas: list[dict] | None = None,
-    batch_id: str | None = None,
-) -> None:
-    """Generate virtual-reader comments; persist each as soon as it arrives."""
-    scene_id = int(scene_id)
-    batch_id = str(batch_id or "").strip() or utc_timestamp_now()
-    with database() as connection:
-        existing_ids = {
-            str(row[0] or "").strip()
-            for row in connection.execute(
-                """
-                SELECT persona_id FROM scene_reader_comments
-                WHERE scene_id = ? AND batch_id = ?
-                """,
-                (scene_id, batch_id),
-            ).fetchall()
-            if str(row[0] or "").strip()
-        }
-        row = connection.execute(
-            """
-            SELECT s.id, s.project_id, s.title, p.main_genre, p.sub_genre,
-                   p.genre_detail, r.content_md
-            FROM scene s
-            JOIN project p ON p.id = s.project_id
-            JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1
-            WHERE s.id = ? AND s.deleted_at IS NULL AND p.deleted_at IS NULL
-            """,
-            (scene_id,),
-        ).fetchone()
-        if row is None:
-            return
-        work_id = str(row["project_id"])
-        episode_plain = plain_text_from_content(str(row["content_md"] or "")).strip()
-        scene_title = str(row["title"] or "").strip()
-        main_genre = str(row["main_genre"] or "").strip()
-        sub_genre = str(row["sub_genre"] or "").strip()
-        try:
-            genre_detail = str(row["genre_detail"] or "").strip()
-        except (KeyError, IndexError, TypeError):
-            genre_detail = ""
-        if personas is None:
-            needed = READER_COMMENTS_EXPECTED - len(existing_ids)
-            if needed <= 0:
-                return
-            exclude_ids = set(existing_ids)
-            exclude_ids.update(_latest_batch_persona_ids(connection, scene_id))
-            personas = select_reader_comment_personas(
-                main_genre,
-                sub_genre,
-                connection=connection,
-                exclude_persona_ids=exclude_ids,
-            )[:needed]
-            if len(personas) < needed:
-                personas = select_reader_comment_personas(
-                    main_genre,
-                    sub_genre,
-                    connection=connection,
-                    exclude_persona_ids=existing_ids,
-                )[:needed]
-        else:
-            personas = [
-                item
-                for item in personas
-                if str(item.get("id") or "").strip()
-                and str(item.get("id") or "").strip() not in existing_ids
-            ]
-    if not personas:
-        return
-    shared_context = _reader_dynamic_context(work_id, episode_plain)
-    run_error_code: str | None = None
-    saved_any = False
-    for index, persona in enumerate(personas):
-        persona_id = str(persona.get("id") or "").strip()
-        if not persona_id:
-            continue
-        reader_name = str(persona.get("name") or "").strip() or "가상 독자"
-        system = _reader_comment_system_prompt(
-            persona,
-            shared_context,
-            main_genre=main_genre,
-            sub_genre=sub_genre,
-            genre_detail=genre_detail,
-        )
-        prompt = _reader_comment_user_prompt(reader_name, scene_title)
-        if index > 0 and READER_DEBATE_GEMINI_GAP_SECONDS > 0:
-            time.sleep(READER_DEBATE_GEMINI_GAP_SECONDS)
-        try:
-            reply = gemini_client.generate_text(
-                prompt,
-                system=system,
-                temperature=0.9,
-                max_output_tokens=512,
-            )
-        except gemini_client.GeminiError as error:
-            _log_reader_comment_error(scene_id, persona_id, error)
-            if error.code == "quota":
-                run_error_code = "quota"
-                break
-            if run_error_code != "quota":
-                run_error_code = error.code or "unknown"
-            continue
-        except Exception as error:
-            _log_reader_comment_error(scene_id, persona_id, error)
-            if run_error_code != "quota":
-                run_error_code = "unknown"
-            continue
-        reply_text = str(reply or "").strip()
-        if not reply_text:
-            _log_reader_comment_error(scene_id, persona_id, "empty_response")
-            if run_error_code != "quota":
-                run_error_code = "empty"
-            continue
-        try:
-            with database() as connection:
-                connection.execute(
-                    """
-                    INSERT OR IGNORE INTO scene_reader_comments
-                        (scene_id, batch_id, persona_id, comment_text, created_at)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (scene_id, batch_id, persona_id, reply_text, utc_timestamp_now()),
-                )
-            saved_any = True
-        except sqlite3.Error as error:
-            _log_reader_comment_error(scene_id, persona_id, error)
-            if run_error_code != "quota":
-                run_error_code = "unknown"
-    if run_error_code:
-        _set_reader_comments_last_error(scene_id, run_error_code)
-    elif saved_any:
-        _set_reader_comments_last_error(scene_id, None)
 
 
 _cast_candidate_lock = Lock()
@@ -9138,100 +6268,22 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(gemini_client.status())
                 return
 
-            if path == "/api/gitsi/rooms/default":
-                self.send_json({"room": get_default_gitsi_room()})
+            if gitsi_api.try_handle_get(self, path):
                 return
 
-            if path == "/api/gitsi/rooms":
-                self.send_json({"rooms": list_gitsi_rooms()})
+            if ambient_api.try_handle_get(self, path):
                 return
 
-            if path == "/api/gitsi/suggest-code":
-                self.send_json({"room_code": generate_gitsi_room_code()})
+            if account_api.try_handle_get(self, path):
                 return
 
-            if path == "/api/ambient-tracks":
-                self.send_json(list_ambient_sound_catalog())
-                return
-
-            match = re.fullmatch(r"/api/ambient-file/([0-9a-fA-F]+)", path)
-            if match:
-                self.serve_ambient_file(match.group(1))
-                return
-
-            if path == "/api/auth/me":
-                self.send_json({"user": get_current_user()})
-                return
-
-            if path == "/api/user-settings":
-                query = parse_qs(urlparse(self.path).query)
-                device_type = (query.get("device_type") or [""])[0]
-                payload = current_user_settings_payload(device_type)
-                if payload.get("error") == "sync_not_configured":
-                    self.send_json(
-                        {"error": "sync_not_configured"},
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                    )
-                    return
-                self.send_json(payload)
-                return
-
-            if path == "/api/pairing/code":
-                if get_supabase_client() is None:
-                    self.send_json(
-                        {"error": "sync_not_configured"},
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                    )
-                    return
-                result = generate_pairing_code(get_desktop_device_id())
-                if not result:
-                    self.api_error(
-                        "페어링 코드를 만들지 못했습니다.",
-                        HTTPStatus.INTERNAL_SERVER_ERROR,
-                    )
-                    return
-                self.send_json(result)
-                return
-
-            if path == "/api/reader-personas":
-                self.send_json(self.list_reader_personas())
-                return
-
-            if path == "/api/reader-chat/history":
-                query = parse_qs(urlparse(self.path).query)
-                work_id = (query.get("work_id") or [""])[0]
-                persona_id = (query.get("persona_id") or [""])[0]
-                self.send_json(self.reader_chat_history(work_id, persona_id))
-                return
-
-            if path == "/api/reader-debate/history":
-                query = parse_qs(urlparse(self.path).query)
-                work_id = (query.get("work_id") or [""])[0]
-                persona_ids = (query.get("persona_ids") or [""])[0]
-                self.send_json(self.reader_debate_history(work_id, persona_ids))
+            if reader_api.try_handle_get(self, path):
                 return
 
             if glump_api.try_handle_get(self, path):
                 return
 
-            if path == "/api/success-pattern/profiles":
-                self.send_json(self.list_success_pattern_profiles())
-                return
-
-            match = re.fullmatch(r"/api/success-pattern/profiles/(\d+)", path)
-            if match:
-                self.send_json(self.get_success_pattern_profile(int(match.group(1))))
-                return
-
-            if path == "/api/success-pattern/meta":
-                self.send_json({
-                    "max_total_episodes": success_pattern.MAX_TOTAL_EPISODES,
-                    "recommended_total_episodes": success_pattern.RECOMMENDED_TOTAL_EPISODES,
-                    "max_total_chars": success_pattern.MAX_TOTAL_CHARS,
-                    "recommended_total_chars": success_pattern.RECOMMENDED_TOTAL_CHARS,
-                    "default_window": success_pattern.DEFAULT_WINDOW,
-                    "section_labels": success_pattern.SECTION_LABELS,
-                })
+            if success_pattern_api.try_handle_get(self, path):
                 return
 
             if path == "/api/proof-parsers":
@@ -9487,11 +6539,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.list_dictionary_terms(int(match.group(1))))
                 return
 
-            match = re.fullmatch(r"/api/projects/(\d+)/reader-favorites", path)
-            if match:
-                self.send_json(self.list_project_reader_favorites(int(match.group(1))))
-                return
-
             match = re.fullmatch(r"/api/projects/(\d+)/ideas", path)
             if match:
                 self.send_json(self.list_ideas(int(match.group(1))))
@@ -9500,11 +6547,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/(\d+)/baits", path)
             if match:
                 self.send_json(self.list_baits(int(match.group(1))))
-                return
-
-            match = re.fullmatch(r"/api/scenes/(\d+)/reader-comments", path)
-            if match:
-                self.send_json(list_scene_reader_comments(int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/scenes/(\d+)/trait-analysis", path)
@@ -9760,62 +6802,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/")
         _note_scene_api("POST", path)
         try:
-            if path == "/api/ambient/upload":
-                self.send_json(upload_custom_ambient_track_from_request(self), HTTPStatus.CREATED)
+            if ambient_api.try_handle_post(self, path):
                 return
             body = self.read_json()
             if feedback_api.try_handle_post(self, path, body):
                 return
-            if path == "/api/auth/signup":
-                result = sign_up(
-                    str(body.get("email") or ""),
-                    str(body.get("password") or ""),
-                )
-                if not result.get("ok"):
-                    status = result.get("status") or HTTPStatus.BAD_REQUEST
-                    self.api_error(
-                        str(result.get("error") or "회원가입에 실패했습니다."),
-                        HTTPStatus(int(status)),
-                    )
-                    return
-                self.send_json(result)
+            if account_api.try_handle_post(self, path, body):
                 return
 
-            if path == "/api/auth/login":
-                result = sign_in(
-                    str(body.get("email") or ""),
-                    str(body.get("password") or ""),
-                )
-                if not result.get("ok"):
-                    status = result.get("status") or HTTPStatus.BAD_REQUEST
-                    self.api_error(
-                        str(result.get("error") or "로그인에 실패했습니다."),
-                        HTTPStatus(int(status)),
-                    )
-                    return
-                self.send_json({"ok": True, "user": result.get("user")})
-                return
-
-            if path == "/api/auth/logout":
-                self.send_json(sign_out())
-                return
-
-            if path == "/api/gitsi/rooms/default":
-                body = body or {}
-                enabled = body.get("is_default")
-                if enabled is None:
-                    enabled = True
-                creator = str(body.get("created_by") or "").strip() or gitsi_creator_label()
-                result = set_gitsi_room_default(body.get("room_code"), bool(enabled), creator)
-                self.send_json(result)
-                return
-
-            if path == "/api/gitsi/rooms":
-                body = body or {}
-                creator = str(body.get("created_by") or "").strip() or gitsi_creator_label()
-                result = upsert_gitsi_room(body.get("room_code"), creator)
-                status = HTTPStatus.CREATED if result.get("created") else HTTPStatus.OK
-                self.send_json(result, status)
+            if gitsi_api.try_handle_post(self, path, body):
                 return
 
             if path in {"/api/index/rebuild", "/api/index-rebuild"}:
@@ -9827,25 +6822,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.extract_reference_text(body))
                 return
 
-            if path == "/api/success-pattern/recommend-ranges":
-                total = body.get("total_chapters") or body.get("totalChapters") or 1
-                window = body.get("window") or success_pattern.DEFAULT_WINDOW
-                self.send_json({
-                    "total_chapters": max(1, int(total)),
-                    "ranges": success_pattern.recommend_ranges(int(total), int(window)),
-                })
-                return
-
-            if path == "/api/success-pattern/parse":
-                self.send_json(self.parse_success_pattern_document(body))
-                return
-
-            if path == "/api/success-pattern/check-budget":
-                self.send_json(self.check_success_pattern_budget(body))
-                return
-
-            if path == "/api/success-pattern/run":
-                self.send_json(self.run_success_pattern_analysis(body))
+            if success_pattern_api.try_handle_post(self, path, body):
                 return
 
             # Export a single plain document (edited reference material, not full manuscript).
@@ -10508,16 +7485,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 )
                 return
 
-            match = re.fullmatch(r"/api/projects/(\d+)/reader-favorites/([^/]+)", path)
-            if match:
-                self.send_json(
-                    self.add_project_reader_favorite(
-                        int(match.group(1)),
-                        unquote(match.group(2)),
-                    )
-                )
-                return
-
             match = re.fullmatch(r"/api/projects/(\d+)/ideas", path)
             if match:
                 self.send_json(self.create_idea(int(match.group(1)), body), HTTPStatus.CREATED)
@@ -10655,12 +7622,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.ai_assist(body))
                 return
 
-            if path == "/api/reader-chat":
-                self.send_json(self.reader_chat(body))
-                return
-
-            if path == "/api/reader-debate":
-                self.send_json(self.reader_debate(body))
+            if reader_api.try_handle_post(self, path, body):
                 return
 
             if glump_api.try_handle_post(self, path, body):
@@ -10744,22 +7706,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/scenes/(\d+)/cast-candidates", path)
             if match:
                 self.send_json(self.suggest_scene_cast_candidates(int(match.group(1)), body or {}))
-                return
-
-            match = re.fullmatch(r"/api/scenes/(\d+)/reader-comments/generate", path)
-            if match:
-                result = request_scene_reader_comments(int(match.group(1)))
-                status = (
-                    HTTPStatus.ACCEPTED
-                    if result.get("started") or result.get("generating")
-                    else HTTPStatus.OK
-                )
-                self.send_json(result, status)
-                return
-
-            match = re.fullmatch(r"/api/scenes/(\d+)/reader-comments-started", path)
-            if match:
-                self.send_json(self.mark_reader_comments_started(int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/scenes/(\d+)/summarize", path)
@@ -11220,37 +8166,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             body = self.read_json()
             if feedback_api.try_handle_put(self, path, body):
                 return
-            if path == "/api/user-settings":
-                user = get_current_user()
-                if not user or not str(user.get("id") or "").strip():
-                    self.api_error("로그인해 주세요.", HTTPStatus.UNAUTHORIZED)
-                    return
-                if get_supabase_client() is None:
-                    self.send_json(
-                        {"error": "sync_not_configured"},
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                    )
-                    return
-                try:
-                    settings = save_user_settings(
-                        str(user["id"]),
-                        str(body.get("primary_device_type") or ""),
-                        agree=bool(body.get("agree")),
-                    )
-                except RuntimeError as error:
-                    message = str(error or "").strip()
-                    if message == "sync_not_configured":
-                        self.send_json(
-                            {"error": "sync_not_configured"},
-                            HTTPStatus.SERVICE_UNAVAILABLE,
-                        )
-                        return
-                    self.api_error(
-                        message or "우선 기기 설정을 저장하지 못했습니다.",
-                        HTTPStatus.INTERNAL_SERVER_ERROR,
-                    )
-                    return
-                self.send_json({"ok": True, "settings": settings})
+            if account_api.try_handle_put(self, path, body):
                 return
 
             match = re.fullmatch(r"/api/typeset/presets/([^/]+)", path)
@@ -11261,11 +8177,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 ))
                 return
 
-            match = re.fullmatch(r"/api/success-pattern/profiles/(\d+)", path)
-            if match:
-                self.send_json(
-                    self.rename_success_pattern_profile(int(match.group(1)), body)
-                )
+            if success_pattern_api.try_handle_put(self, path, body):
                 return
 
             match = re.fullmatch(r"/api/scenes/(\d+)", path)
@@ -11377,14 +8289,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.save_tory_check(int(match.group(1)), body or {}))
                 return
 
-            match = re.fullmatch(r"/api/projects/(\d+)/reader-favorites", path)
-            if match:
-                self.send_json(
-                    self.replace_project_reader_favorites(
-                        int(match.group(1)),
-                        body or {},
-                    )
-                )
+            if reader_api.try_handle_put(self, path, body):
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/title", path)
@@ -11425,9 +8330,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         _note_scene_api("PATCH", path)
         try:
             body = self.read_json()
-            match = re.fullmatch(r"/api/ambient/overrides/(.+)", path)
-            if match:
-                self.send_json(upsert_ambient_track_override(unquote(match.group(1)), body))
+            if ambient_api.try_handle_patch(self, path, body):
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/open-threads", path)
@@ -11468,17 +8371,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 ))
                 return
 
-            match = re.fullmatch(r"/api/success-pattern/profiles/(\d+)", path)
-            if match:
-                self.send_json(
-                    self.delete_success_pattern_profile(int(match.group(1)))
-                )
+            if success_pattern_api.try_handle_delete(self, path):
                 return
 
-            match = re.fullmatch(r"/api/gitsi/rooms/([^/]+)", path)
-            if match:
-                result = deactivate_gitsi_room(unquote(match.group(1)))
-                self.send_json({"ok": True, "room": result})
+            if gitsi_api.try_handle_delete(self, path):
                 return
 
             match = re.fullmatch(r"/api/illustrations/(\d+)", path)
@@ -11487,9 +8383,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json({"ok": True})
                 return
 
-            match = re.fullmatch(r"/api/ambient/custom/(\d+)", path)
-            if match:
-                self.send_json(delete_custom_ambient_track(int(match.group(1))))
+            if ambient_api.try_handle_delete(self, path):
                 return
 
             match = re.fullmatch(r"/api/ideas/(\d+)", path)
@@ -11514,14 +8408,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.purge_scene(int(match.group(1))))
                 return
 
-            match = re.fullmatch(r"/api/projects/(\d+)/reader-favorites/([^/]+)", path)
-            if match:
-                self.send_json(
-                    self.delete_project_reader_favorite(
-                        int(match.group(1)),
-                        unquote(match.group(2)),
-                    )
-                )
+            if reader_api.try_handle_delete(self, path):
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/trash", path)
@@ -11714,643 +8601,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 ) from fallback_error
             raise ValueError(f"Gemini 맞춤법 검사 실패: {fallback_error}") from fallback_error
 
-    def list_reader_personas(self) -> dict:
-        grouped = {key: [] for key in READER_PERSONA_CATEGORIES}
-        with database() as connection:
-            rows = connection.execute(
-                "SELECT id, category, name, identity, tone, criteria, forbidden, "
-                "sample_responses, discussion_attitude, display_order "
-                "FROM virtual_reader_personas "
-                "ORDER BY display_order, id"
-            ).fetchall()
-        for row in rows:
-            item = serialize_reader_persona(row)
-            category = str(item.get("category") or "")
-            if category not in grouped:
-                grouped[category] = []
-            grouped[category].append(item)
-        return grouped
 
-    def _load_reader_favorite_ids(
-        self, connection: sqlite3.Connection, project_id: int
-    ) -> list[str]:
-        rows = connection.execute(
-            "SELECT persona_id FROM project_reader_favorites "
-            "WHERE project_id = ? ORDER BY sort_order ASC, persona_id ASC",
-            (int(project_id),),
-        ).fetchall()
-        return [str(row["persona_id"]) for row in rows]
 
-    def _assert_reader_persona(
-        self, connection: sqlite3.Connection, persona_id: object
-    ) -> str:
-        key = str(persona_id or "").strip()
-        if not key:
-            raise ValueError("가상 독자를 선택해 주세요.")
-        row = connection.execute(
-            "SELECT id FROM virtual_reader_personas WHERE id = ?",
-            (key,),
-        ).fetchone()
-        if row is None:
-            raise LookupError("가상 독자를 찾을 수 없습니다.")
-        return key
 
-    def list_project_reader_favorites(self, project_id: int) -> dict:
-        with database() as connection:
-            self.require_project(connection, project_id)
-            return {"persona_ids": self._load_reader_favorite_ids(connection, project_id)}
 
-    def replace_project_reader_favorites(self, project_id: int, body: dict) -> dict:
-        raw = []
-        if isinstance(body, dict):
-            raw = body.get("persona_ids") or body.get("ids") or []
-        if not isinstance(raw, list):
-            raise ValueError("즐겨찾기 목록이 올바르지 않습니다.")
-        ids: list[str] = []
-        seen: set[str] = set()
-        for item in raw:
-            persona_id = str(item or "").strip()
-            if not persona_id or persona_id in seen:
-                continue
-            seen.add(persona_id)
-            ids.append(persona_id)
-        if len(ids) > READER_FAVORITE_MAX:
-            raise ValueError("즐겨찾기는 최대 6명까지 등록할 수 있어요")
-        with database() as connection:
-            self.require_project(connection, project_id)
-            for persona_id in ids:
-                self._assert_reader_persona(connection, persona_id)
-            connection.execute(
-                "DELETE FROM project_reader_favorites WHERE project_id = ?",
-                (int(project_id),),
-            )
-            for order, persona_id in enumerate(ids):
-                connection.execute(
-                    "INSERT INTO project_reader_favorites"
-                    "(project_id, persona_id, sort_order) VALUES (?, ?, ?)",
-                    (int(project_id), persona_id, order),
-                )
-            return {"persona_ids": self._load_reader_favorite_ids(connection, project_id)}
 
-    def add_project_reader_favorite(self, project_id: int, persona_id: str) -> dict:
-        with database() as connection:
-            self.require_project(connection, project_id)
-            key = self._assert_reader_persona(connection, persona_id)
-            current = self._load_reader_favorite_ids(connection, project_id)
-            if key in current:
-                return {"persona_ids": current}
-            if len(current) >= READER_FAVORITE_MAX:
-                raise ValueError("즐겨찾기는 최대 6명까지 등록할 수 있어요")
-            row = connection.execute(
-                "SELECT COALESCE(MAX(sort_order), -1) AS max_order "
-                "FROM project_reader_favorites WHERE project_id = ?",
-                (int(project_id),),
-            ).fetchone()
-            next_order = int(row["max_order"] if row is not None else -1) + 1
-            connection.execute(
-                "INSERT INTO project_reader_favorites"
-                "(project_id, persona_id, sort_order) VALUES (?, ?, ?)",
-                (int(project_id), key, next_order),
-            )
-            return {"persona_ids": self._load_reader_favorite_ids(connection, project_id)}
 
-    def delete_project_reader_favorite(self, project_id: int, persona_id: str) -> dict:
-        with database() as connection:
-            self.require_project(connection, project_id)
-            key = str(persona_id or "").strip()
-            if key:
-                connection.execute(
-                    "DELETE FROM project_reader_favorites "
-                    "WHERE project_id = ? AND persona_id = ?",
-                    (int(project_id), key),
-                )
-            return {"persona_ids": self._load_reader_favorite_ids(connection, project_id)}
 
-    def reader_chat_history(self, work_id: object, persona_id: object) -> dict:
-        work_key = str(work_id or "").strip()
-        persona_key = str(persona_id or "").strip()
-        if not work_key:
-            raise ValueError("작품을 선택해 주세요.")
-        if not persona_key:
-            raise ValueError("가상 독자를 선택해 주세요.")
-        session_key = reader_chat_session_key(work_key, persona_key)
-        with database() as connection:
-            persona = connection.execute(
-                "SELECT id, name FROM virtual_reader_personas WHERE id = ?",
-                (persona_key,),
-            ).fetchone()
-            if persona is None:
-                raise LookupError("가상 독자를 찾을 수 없습니다.")
-            session = connection.execute(
-                "SELECT id, work_id, persona_id, session_key, created_at, updated_at "
-                "FROM reader_chat_sessions WHERE session_key = ?",
-                (session_key,),
-            ).fetchone()
-            messages = []
-            session_id = None
-            if session is not None:
-                session_id = session["id"]
-                message_rows = connection.execute(
-                    "SELECT id, role, content, created_at FROM reader_chat_messages "
-                    "WHERE session_id = ? ORDER BY created_at ASC, id ASC",
-                    (session_id,),
-                ).fetchall()
-                messages = [as_dict(row) for row in message_rows]
-        return {
-            "session_id": session_id,
-            "work_id": work_key,
-            "persona_id": persona_key,
-            "persona_name": persona["name"],
-            "messages": messages,
-        }
 
-    def reader_chat(self, body: dict) -> dict:
-        work_id = str(body.get("work_id") or body.get("project_id") or "").strip()
-        persona_id = str(body.get("persona_id") or "").strip()
-        user_message = str(
-            body.get("user_message") or body.get("message") or ""
-        ).strip()
-        session_id = str(body.get("session_id") or "").strip()
-        episode_raw = body.get("episode_content")
-        episode_content = None
-        if episode_raw is not None and str(episode_raw).strip():
-            episode_content = str(episode_raw).strip()
-        if not work_id:
-            raise ValueError("작품을 선택해 주세요.")
-        if not persona_id:
-            raise ValueError("가상 독자를 선택해 주세요.")
-        if not user_message:
-            raise ValueError("메시지를 입력해 주세요.")
 
-        with database() as connection:
-            persona_row = connection.execute(
-                "SELECT * FROM virtual_reader_personas WHERE id = ?",
-                (persona_id,),
-            ).fetchone()
-            if persona_row is None:
-                raise LookupError("가상 독자를 찾을 수 없습니다.")
-            persona = serialize_reader_persona(persona_row)
-            project = connection.execute(
-                "SELECT id FROM project WHERE id = ? AND deleted_at IS NULL",
-                (work_id,),
-            ).fetchone()
-            if project is None:
-                raise LookupError("소설을 찾을 수 없습니다.")
-            if session_id:
-                session = connection.execute(
-                    "SELECT id, work_id, persona_id FROM reader_chat_sessions "
-                    "WHERE id = ?",
-                    (session_id,),
-                ).fetchone()
-                if session is None:
-                    raise LookupError("대화 세션을 찾을 수 없습니다.")
-            else:
-                session_key = reader_chat_session_key(work_id, persona_id)
-                session = connection.execute(
-                    "SELECT id, work_id, persona_id FROM reader_chat_sessions "
-                    "WHERE session_key = ?",
-                    (session_key,),
-                ).fetchone()
-                if session is None:
-                    stamp = utc_timestamp_now()
-                    session_id = uuid.uuid4().hex
-                    connection.execute(
-                        """
-                        INSERT INTO reader_chat_sessions
-                            (id, work_id, persona_id, session_key, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            session_id,
-                            str(work_id),
-                            persona_id,
-                            session_key,
-                            stamp,
-                            stamp,
-                        ),
-                    )
-                    session = connection.execute(
-                        "SELECT id, work_id, persona_id FROM reader_chat_sessions "
-                        "WHERE id = ?",
-                        (session_id,),
-                    ).fetchone()
-            session_id = str(session["id"])
-            history_rows = connection.execute(
-                """
-                SELECT role, content FROM reader_chat_messages
-                WHERE session_id = ?
-                ORDER BY created_at DESC, id DESC
-                LIMIT ?
-                """,
-                (session_id, READER_CHAT_HISTORY_LIMIT),
-            ).fetchall()
 
-        history_rows = list(reversed(history_rows))
-        history_lines: list[str] = []
-        reader_name = str(persona.get("name") or "가상 독자")
-        for item in history_rows:
-            role = str(item["role"] or "").strip().lower()
-            content = str(item["content"] or "").strip()
-            if not content:
-                continue
-            if len(content) > 4000:
-                content = content[:4000] + "…"
-            who = "작가" if role == "user" else reader_name
-            history_lines.append(f"{who}: {content}")
-        transcript = "\n".join(history_lines) if history_lines else "(이전 대화 없음)"
-        shared_context = _reader_dynamic_context(work_id, episode_content)
-        system = (
-            _reader_persona_system_prompt(persona)
-            + _reader_genre_mismatch_block(
-                persona,
-                shared_context=shared_context,
-            )
-            + "\n\n"
-            + shared_context
-        )
-        full_prompt = (
-            f"아래는 작가와 '{reader_name}'의 이전 대화, 그리고 작가의 새 메시지입니다. "
-            f"{reader_name}로서 새 메시지에만 이어서 답하세요. 이름 접두어는 붙이지 마세요.\n\n"
-            f"[이전 대화]\n{transcript}\n\n"
-            f"[작가의 새 메시지]\n{user_message}"
-        )
-        try:
-            reply = gemini_client.generate_text(
-                full_prompt, system=system, temperature=0.9
-            )
-        except gemini_client.GeminiError as error:
-            raise ValueError(str(error)) from error
-
-        user_stamp = utc_timestamp_now()
-        assistant_stamp = utc_timestamp_now()
-        with database() as connection:
-            connection.execute(
-                """
-                INSERT INTO reader_chat_messages
-                    (id, session_id, role, content, created_at)
-                VALUES (?, ?, 'user', ?, ?)
-                """,
-                (uuid.uuid4().hex, session_id, user_message, user_stamp),
-            )
-            connection.execute(
-                """
-                INSERT INTO reader_chat_messages
-                    (id, session_id, role, content, created_at)
-                VALUES (?, ?, 'assistant', ?, ?)
-                """,
-                (uuid.uuid4().hex, session_id, reply, assistant_stamp),
-            )
-            connection.execute(
-                "UPDATE reader_chat_sessions SET updated_at = ? WHERE id = ?",
-                (assistant_stamp, session_id),
-            )
-        return {
-            "session_id": session_id,
-            "persona_name": reader_name,
-            "reply": reply,
-        }
-
-    def reader_debate_history(self, work_id: object, persona_ids: object) -> dict:
-        work_key = str(work_id or "").strip()
-        order = parse_reader_debate_persona_ids(persona_ids)
-        if not work_key:
-            raise ValueError("작품을 선택해 주세요.")
-        if not order:
-            raise ValueError("토론에 참여할 가상 독자를 선택해 주세요.")
-        ids_key = reader_debate_persona_ids_key(order)
-        with database() as connection:
-            session = connection.execute(
-                """
-                SELECT id, work_id, persona_ids_key, persona_order_json,
-                       created_at, updated_at
-                FROM reader_debate_sessions
-                WHERE work_id = ? AND persona_ids_key = ?
-                """,
-                (work_key, ids_key),
-            ).fetchone()
-            if session is None:
-                return {
-                    "session_id": None,
-                    "work_id": work_key,
-                    "persona_ids_key": ids_key,
-                    "persona_order": order,
-                    "rounds": [],
-                }
-            session_id = str(session["id"])
-            try:
-                stored_order = json.loads(str(session["persona_order_json"] or "[]"))
-            except json.JSONDecodeError:
-                stored_order = []
-            if not isinstance(stored_order, list):
-                stored_order = []
-            stored_order = [str(pid).strip() for pid in stored_order if str(pid).strip()]
-            message_rows = connection.execute(
-                """
-                SELECT id, round_number, speaker_type, persona_id, message,
-                       turn_order, created_at
-                FROM reader_debate_messages
-                WHERE session_id = ?
-                ORDER BY round_number ASC, turn_order ASC, created_at ASC, id ASC
-                """,
-                (session_id,),
-            ).fetchall()
-            persona_name_map: dict[str, str] = {}
-            persona_ids_needed = {
-                str(row["persona_id"] or "").strip()
-                for row in message_rows
-                if str(row["speaker_type"] or "").strip().lower() == "persona"
-                and str(row["persona_id"] or "").strip()
-            }
-            for pid in persona_ids_needed | set(stored_order):
-                name_row = connection.execute(
-                    "SELECT name FROM virtual_reader_personas WHERE id = ?",
-                    (pid,),
-                ).fetchone()
-                if name_row is not None:
-                    persona_name_map[pid] = str(name_row["name"] or "").strip() or pid
-            rounds_map: dict[int, list[dict]] = {}
-            for row in message_rows:
-                item = as_dict(row) or {}
-                rn = int(item.get("round_number") or 0)
-                pid = str(item.get("persona_id") or "").strip() or None
-                item["persona_id"] = pid
-                item["persona_name"] = (
-                    persona_name_map.get(pid) if pid else None
-                )
-                rounds_map.setdefault(rn, []).append(item)
-        rounds = [
-            {"round_number": rn, "messages": rounds_map[rn]}
-            for rn in sorted(rounds_map)
-        ]
-        return {
-            "session_id": session_id,
-            "work_id": work_key,
-            "persona_ids_key": str(session["persona_ids_key"]),
-            "persona_order": stored_order or order,
-            "created_at": session["created_at"],
-            "updated_at": session["updated_at"],
-            "rounds": rounds,
-        }
-
-    def reader_debate(self, body: dict) -> dict:
-        work_id = str(body.get("work_id") or body.get("project_id") or "").strip()
-        persona_ids = parse_reader_debate_persona_ids(body.get("persona_ids"))
-        user_message = str(
-            body.get("user_message") or body.get("message") or ""
-        ).strip()
-        episode_raw = body.get("episode_content")
-        episode_content = None
-        if episode_raw is not None and str(episode_raw).strip():
-            episode_content = str(episode_raw).strip()
-        if not work_id:
-            raise ValueError("작품을 선택해 주세요.")
-        if not user_message:
-            raise ValueError("메시지를 입력해 주세요.")
-        if len(persona_ids) < READER_DEBATE_MIN_PERSONAS:
-            raise ValueError(
-                f"토론에는 가상 독자를 최소 {READER_DEBATE_MIN_PERSONAS}명 골라 주세요."
-            )
-        if len(persona_ids) > READER_DEBATE_MAX_PERSONAS:
-            raise ValueError(
-                f"토론에는 가상 독자를 최대 {READER_DEBATE_MAX_PERSONAS}명까지 고를 수 있어요."
-            )
-        if len(persona_ids) != len(set(persona_ids)):
-            raise ValueError("같은 가상 독자를 중복으로 고를 수 없습니다.")
-        ids_key = reader_debate_persona_ids_key(persona_ids)
-
-        with database() as connection:
-            project = connection.execute(
-                "SELECT id FROM project WHERE id = ? AND deleted_at IS NULL",
-                (work_id,),
-            ).fetchone()
-            if project is None:
-                raise LookupError("소설을 찾을 수 없습니다.")
-            personas_by_id: dict[str, dict] = {}
-            for pid in persona_ids:
-                persona_row = connection.execute(
-                    "SELECT * FROM virtual_reader_personas WHERE id = ?",
-                    (pid,),
-                ).fetchone()
-                if persona_row is None:
-                    raise LookupError(f"가상 독자를 찾을 수 없습니다: {pid}")
-                personas_by_id[pid] = serialize_reader_persona(persona_row)
-            session = connection.execute(
-                """
-                SELECT id, work_id, persona_ids_key, persona_order_json
-                FROM reader_debate_sessions
-                WHERE work_id = ? AND persona_ids_key = ?
-                """,
-                (work_id, ids_key),
-            ).fetchone()
-            if session is None:
-                stamp = utc_timestamp_now()
-                session_id = uuid.uuid4().hex
-                connection.execute(
-                    """
-                    INSERT INTO reader_debate_sessions
-                        (id, work_id, persona_ids_key, persona_order_json,
-                         created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        session_id,
-                        work_id,
-                        ids_key,
-                        json.dumps(persona_ids, ensure_ascii=False),
-                        stamp,
-                        stamp,
-                    ),
-                )
-                speaking_order = list(persona_ids)
-            else:
-                session_id = str(session["id"])
-                try:
-                    stored = json.loads(str(session["persona_order_json"] or "[]"))
-                except json.JSONDecodeError:
-                    stored = []
-                if isinstance(stored, list) and stored:
-                    speaking_order = [
-                        str(pid).strip() for pid in stored if str(pid).strip()
-                    ]
-                else:
-                    speaking_order = list(persona_ids)
-                # Fill any missing ids from the request (should not happen for same key).
-                for pid in persona_ids:
-                    if pid not in speaking_order:
-                        speaking_order.append(pid)
-            max_round = connection.execute(
-                """
-                SELECT COALESCE(MAX(round_number), 0)
-                FROM reader_debate_messages
-                WHERE session_id = ?
-                """,
-                (session_id,),
-            ).fetchone()[0]
-            round_number = int(max_round or 0) + 1
-            user_stamp = utc_timestamp_now()
-            connection.execute(
-                """
-                INSERT INTO reader_debate_messages
-                    (id, session_id, round_number, speaker_type, persona_id,
-                     message, turn_order, created_at)
-                VALUES (?, ?, ?, 'user', NULL, ?, 0, ?)
-                """,
-                (
-                    uuid.uuid4().hex,
-                    session_id,
-                    round_number,
-                    user_message,
-                    user_stamp,
-                ),
-            )
-            history_rows = connection.execute(
-                """
-                SELECT speaker_type, persona_id, message
-                FROM reader_debate_messages
-                WHERE session_id = ?
-                ORDER BY round_number ASC, turn_order ASC, created_at ASC, id ASC
-                """,
-                (session_id,),
-            ).fetchall()
-            connection.execute(
-                "UPDATE reader_debate_sessions SET updated_at = ? WHERE id = ?",
-                (user_stamp, session_id),
-            )
-
-        persona_names = {
-            pid: str(personas_by_id[pid].get("name") or "").strip() or "가상 독자"
-            for pid in speaking_order
-            if pid in personas_by_id
-        }
-        # Personas from stored order may include ids not in this request — load names.
-        for pid in speaking_order:
-            if pid in persona_names:
-                continue
-            with database() as connection:
-                row = connection.execute(
-                    "SELECT * FROM virtual_reader_personas WHERE id = ?",
-                    (pid,),
-                ).fetchone()
-            if row is None:
-                continue
-            personas_by_id[pid] = serialize_reader_persona(row)
-            persona_names[pid] = (
-                str(personas_by_id[pid].get("name") or "").strip() or "가상 독자"
-            )
-
-        transcript_rows = [as_dict(row) or {} for row in history_rows]
-        transcript_lines = _reader_debate_transcript_lines(
-            transcript_rows, persona_names
-        )
-        shared_context = _reader_dynamic_context(work_id, episode_content)
-        replies: list[dict] = []
-        gemini_calls = 0
-
-        for turn_index, persona_id in enumerate(speaking_order, start=1):
-            persona = personas_by_id.get(persona_id)
-            if persona is None:
-                replies.append(
-                    {
-                        "persona_id": persona_id,
-                        "persona_name": persona_id,
-                        "message": "",
-                        "turn_order": turn_index,
-                        "ok": False,
-                        "skipped": True,
-                        "error": "가상 독자를 찾을 수 없습니다.",
-                    }
-                )
-                continue
-            reader_name = persona_names.get(persona_id) or "가상 독자"
-            transcript = (
-                "\n".join(transcript_lines) if transcript_lines else "(이전 발언 없음)"
-            )
-            system = _reader_debate_system_prompt(
-                persona,
-                shared_context,
-            )
-            full_prompt = _reader_debate_user_prompt(
-                reader_name, transcript, user_message
-            )
-            if gemini_calls > 0 and READER_DEBATE_GEMINI_GAP_SECONDS > 0:
-                time.sleep(READER_DEBATE_GEMINI_GAP_SECONDS)
-            try:
-                gemini_calls += 1
-                reply = gemini_client.generate_text(
-                    full_prompt, system=system, temperature=0.9
-                )
-            except gemini_client.GeminiError as error:
-                if not is_gemini_quota_error(error):
-                    print(f"가상독자 토론 건너뜀 ({reader_name}): {error}")
-                replies.append(
-                    {
-                        "persona_id": persona_id,
-                        "persona_name": reader_name,
-                        "message": "",
-                        "turn_order": turn_index,
-                        "ok": False,
-                        "skipped": True,
-                        "error": str(error),
-                    }
-                )
-                continue
-            reply_text = str(reply or "").strip()
-            if not reply_text:
-                replies.append(
-                    {
-                        "persona_id": persona_id,
-                        "persona_name": reader_name,
-                        "message": "",
-                        "turn_order": turn_index,
-                        "ok": False,
-                        "skipped": True,
-                        "error": "빈 응답",
-                    }
-                )
-                continue
-            reply_stamp = utc_timestamp_now()
-            with database() as connection:
-                connection.execute(
-                    """
-                    INSERT INTO reader_debate_messages
-                        (id, session_id, round_number, speaker_type, persona_id,
-                         message, turn_order, created_at)
-                    VALUES (?, ?, ?, 'persona', ?, ?, ?, ?)
-                    """,
-                    (
-                        uuid.uuid4().hex,
-                        session_id,
-                        round_number,
-                        persona_id,
-                        reply_text,
-                        turn_index,
-                        reply_stamp,
-                    ),
-                )
-                connection.execute(
-                    "UPDATE reader_debate_sessions SET updated_at = ? WHERE id = ?",
-                    (reply_stamp, session_id),
-                )
-            transcript_lines.append(f"{reader_name}: {reply_text}")
-            replies.append(
-                {
-                    "persona_id": persona_id,
-                    "persona_name": reader_name,
-                    "message": reply_text,
-                    "turn_order": turn_index,
-                    "ok": True,
-                    "skipped": False,
-                }
-            )
-
-        return {
-            "session_id": session_id,
-            "work_id": work_id,
-            "persona_ids_key": ids_key,
-            "persona_order": speaking_order,
-            "round_number": round_number,
-            "replies": replies,
-        }
 
 
 
@@ -17484,27 +13744,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     # ── success pattern (흥행 공식 분석) ─────────────────────────────────
 
-    def parse_success_pattern_document(self, body: dict) -> dict:
-        filename = str(body.get("filename") or body.get("file_name") or "upload.txt")
-        raw_b64 = body.get("content_base64") or body.get("contentBase64") or ""
-        if not raw_b64:
-            raise ValueError("파일 내용이 없어요.")
-        try:
-            data = base64.b64decode(str(raw_b64), validate=False)
-        except (binascii.Error, ValueError) as error:
-            raise ValueError("파일 데이터를 읽지 못했어요.") from error
-        split_mode = str(body.get("split_mode") or body.get("splitMode") or "headings")
-        episodes = success_pattern.parse_document_to_episodes(
-            filename, data, split_mode=split_mode
-        )
-        total_chars = sum(int(ep.get("length") or 0) for ep in episodes)
-        return {
-            "ok": True,
-            "filename": filename,
-            "episode_count": len(episodes),
-            "total_chars": total_chars,
-            "episodes": episodes,
-        }
 
     def _normalize_uploaded_sections(self, body: dict) -> list[success_pattern.UploadedSection]:
         raw_sections = body.get("sections") or body.get("uploaded_sections") or []
@@ -17553,267 +13792,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             raise ValueError("업로드된 구간이 없어요.")
         return sections
 
-    def check_success_pattern_budget(self, body: dict) -> dict:
-        sections = self._normalize_uploaded_sections(body)
-        episode_total = sum(max(s.uploaded_count, s.episode_count) for s in sections)
-        # Prefer actual uploaded episode counts when present
-        uploaded_eps = sum(s.uploaded_count for s in sections)
-        if uploaded_eps:
-            episode_total = uploaded_eps
-        ep_budget = success_pattern.check_episode_budget(episode_total)
-        char_budget = success_pattern.check_character_budget(sections)
-        stats = success_pattern.compute_quantitative_stats(sections)
-        status = "ok"
-        if ep_budget["status"] == "blocked" or char_budget["status"] == "blocked":
-            status = "blocked"
-        elif ep_budget["status"] == "warning" or char_budget["status"] == "warning":
-            status = "warning"
-        return {
-            "status": status,
-            "episode_budget": ep_budget,
-            "character_budget": char_budget,
-            "stats": stats,
-        }
 
-    def run_success_pattern_analysis(self, body: dict) -> dict:
-        work_title = str(body.get("work_title") or body.get("workTitle") or "").strip()
-        prompt_cluster_id = genre_clusters.resolve_cluster_id(
-            cluster_id=body.get("cluster_id"),
-            purpose=body.get("purpose"),
-            main_genre=body.get("main_genre"),
-            sub_genre=body.get("sub_genre"),
-        )
-        if not work_title:
-            raise ValueError("작품명을 입력해 주세요.")
-        try:
-            total_chapters = int(body.get("total_chapters") or body.get("totalChapters") or 0)
-        except (TypeError, ValueError) as error:
-            raise ValueError("총 회차 수가 올바르지 않아요.") from error
-        if total_chapters < 1:
-            raise ValueError("총 회차 수를 1 이상으로 입력해 주세요.")
 
-        sections = self._normalize_uploaded_sections(body)
-        uploaded_eps = sum(s.uploaded_count for s in sections)
-        if uploaded_eps < 1:
-            raise ValueError("분석할 회차 본문이 없어요. 구간 파일을 올려 주세요.")
 
-        ep_budget = success_pattern.check_episode_budget(uploaded_eps)
-        if ep_budget["status"] == "blocked":
-            raise ValueError(ep_budget["message"])
-        char_budget = success_pattern.check_character_budget(sections)
-        if char_budget["status"] == "blocked":
-            raise ValueError(char_budget["message"])
 
-        dry_run = bool(body.get("dry_run") or body.get("dryRun"))
-        # Cap per-episode text sent to model
-        max_scene_chars = 12000
-        chapter_notes: list[dict] = []
-        for section in sections:
-            for ep in section.episodes:
-                content = ep.text or ""
-                if len(content) > max_scene_chars:
-                    content = content[:max_scene_chars] + "\n…(이하 생략)"
-                prompt = success_pattern.build_structural_observation_prompt(
-                    content, cluster_id=prompt_cluster_id
-                )
-                if dry_run or not gemini_client.is_configured():
-                    note = success_pattern.mock_observation_note(ep.text or "")
-                    used_mock = True
-                else:
-                    try:
-                        # Task-only: no Tory Core Identity system block.
-                        raw = gemini_client.generate_text(
-                            prompt,
-                            system=None,
-                            temperature=0.35,
-                            max_output_tokens=1024,
-                        )
-                        note = success_pattern.extract_json_object(raw)
-                        used_mock = False
-                    except Exception:
-                        note = success_pattern.mock_observation_note(ep.text or "")
-                        used_mock = True
-                chapter_notes.append({
-                    "section_key": section.key,
-                    "section_label": section.label,
-                    "episode_title": ep.title,
-                    "episode_index": ep.index,
-                    "char_count": ep.length,
-                    "observation": note,
-                    "mock": used_mock,
-                })
 
-        quantitative = success_pattern.compute_quantitative_stats(sections)
-        merge_prompt = success_pattern.build_success_pattern_merge_prompt(
-            quantitative, chapter_notes, cluster_id=prompt_cluster_id
-        )
-        profile_mock = True
-        if dry_run or not gemini_client.is_configured() or any(n.get("mock") for n in chapter_notes):
-            profile = success_pattern.mock_merge_profile(quantitative, chapter_notes)
-        else:
-            try:
-                raw_profile = gemini_client.generate_text(
-                    merge_prompt,
-                    system=None,
-                    temperature=0.4,
-                    max_output_tokens=2048,
-                )
-                profile = success_pattern.extract_json_object(raw_profile)
-                profile_mock = False
-            except Exception:
-                profile = success_pattern.mock_merge_profile(quantitative, chapter_notes)
-                profile_mock = True
 
-        profile = success_pattern.normalize_merge_profile(profile)
-        analyzed_sections = [
-            {
-                "key": s.key,
-                "label": s.label,
-                "start_ep": s.start_ep,
-                "end_ep": s.end_ep,
-                "episode_count": s.uploaded_count,
-                "char_count": s.char_count,
-            }
-            for s in sections
-        ]
-
-        with database() as connection:
-            cursor = connection.execute(
-                "INSERT INTO success_pattern_profile("
-                "work_title, total_chapters, analyzed_sections_json, profile_json, quantitative_json"
-                ") VALUES (?, ?, ?, ?, ?)",
-                (
-                    work_title[:200],
-                    total_chapters,
-                    json.dumps(analyzed_sections, ensure_ascii=False),
-                    json.dumps(profile, ensure_ascii=False),
-                    json.dumps(quantitative, ensure_ascii=False),
-                ),
-            )
-            profile_id = int(cursor.lastrowid)
-            connection.executemany(
-                "INSERT INTO success_pattern_chapter_notes("
-                "profile_id, note_order, section_key, section_label, episode_title, "
-                "episode_index, char_count, observation_json, used_mock"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [
-                    (
-                        profile_id,
-                        note_order,
-                        str(note.get("section_key") or ""),
-                        str(note.get("section_label") or ""),
-                        str(note.get("episode_title") or ""),
-                        (
-                            int(note["episode_index"])
-                            if note.get("episode_index") is not None
-                            else None
-                        ),
-                        max(0, int(note.get("char_count") or 0)),
-                        json.dumps(
-                            note.get("observation")
-                            if isinstance(note.get("observation"), dict)
-                            else {},
-                            ensure_ascii=False,
-                        ),
-                        1 if note.get("mock") else 0,
-                    )
-                    for note_order, note in enumerate(chapter_notes)
-                ],
-            )
-            row = connection.execute(
-                "SELECT id, work_title, total_chapters, analyzed_sections_json, profile_json, "
-                "quantitative_json, built_at FROM success_pattern_profile WHERE id = ?",
-                (profile_id,),
-            ).fetchone()
-        return {
-            "ok": True,
-            "profile": self._serialize_success_pattern_row(row),
-            "chapter_notes": chapter_notes,
-            "used_mock": profile_mock,
-            "cluster_id": prompt_cluster_id,
-            "episode_budget": ep_budget,
-            "character_budget": char_budget,
-        }
-
-    def _serialize_success_pattern_row(self, row: sqlite3.Row | dict | None) -> dict:
-        if row is None:
-            raise ValueError("프로파일을 찾을 수 없습니다.")
-        item = as_dict(row) or {}
-
-        def _loads(key: str, default):
-            raw = item.get(key)
-            if isinstance(raw, (dict, list)):
-                return raw
-            try:
-                return json.loads(raw or ("[]" if isinstance(default, list) else "{}"))
-            except (json.JSONDecodeError, TypeError):
-                return default
-
-        return {
-            "id": int(item.get("id") or 0),
-            "work_title": item.get("work_title") or "",
-            "total_chapters": item.get("total_chapters"),
-            "analyzed_sections": _loads("analyzed_sections_json", []),
-            "profile": _loads("profile_json", {}),
-            "quantitative": _loads("quantitative_json", {}),
-            "built_at": item.get("built_at") or "",
-        }
-
-    def list_success_pattern_profiles(self) -> list[dict]:
-        with database() as connection:
-            rows = connection.execute(
-                "SELECT id, work_title, total_chapters, analyzed_sections_json, profile_json, "
-                "quantitative_json, built_at FROM success_pattern_profile "
-                "ORDER BY datetime(built_at) DESC, id DESC LIMIT 100"
-            ).fetchall()
-        return [self._serialize_success_pattern_row(r) for r in rows]
-
-    def get_success_pattern_profile(self, profile_id: int) -> dict:
-        with database() as connection:
-            row = connection.execute(
-                "SELECT id, work_title, total_chapters, analyzed_sections_json, profile_json, "
-                "quantitative_json, built_at FROM success_pattern_profile WHERE id = ?",
-                (profile_id,),
-            ).fetchone()
-        return self._serialize_success_pattern_row(row)
-
-    def rename_success_pattern_profile(self, profile_id: int, body: dict) -> dict:
-        work_title = str(body.get("work_title") or body.get("title") or "").strip()
-        if not work_title:
-            raise ValueError("프로파일 이름을 입력해 주세요.")
-        if len(work_title) > 200:
-            raise ValueError("프로파일 이름은 200자 이하로 입력해 주세요.")
-        with database() as connection:
-            cursor = connection.execute(
-                "UPDATE success_pattern_profile SET work_title = ? WHERE id = ?",
-                (work_title, int(profile_id)),
-            )
-            if cursor.rowcount < 1:
-                raise LookupError("프로파일을 찾을 수 없습니다.")
-            row = connection.execute(
-                "SELECT id, work_title, total_chapters, analyzed_sections_json, profile_json, "
-                "quantitative_json, built_at FROM success_pattern_profile WHERE id = ?",
-                (int(profile_id),),
-            ).fetchone()
-        return self._serialize_success_pattern_row(row)
-
-    def delete_success_pattern_profile(self, profile_id: int) -> dict:
-        with database() as connection:
-            linked_count = int(connection.execute(
-                "SELECT COUNT(*) FROM project WHERE linked_success_profile_id = ?",
-                (int(profile_id),),
-            ).fetchone()[0])
-            cursor = connection.execute(
-                "DELETE FROM success_pattern_profile WHERE id = ?",
-                (int(profile_id),),
-            )
-            if cursor.rowcount < 1:
-                raise LookupError("프로파일을 찾을 수 없습니다.")
-        return {
-            "ok": True,
-            "id": int(profile_id),
-            "unlinked_projects": linked_count,
-        }
 
     def save_chapter(self, chapter_id: int, body: dict) -> None:
         """Rename a chapter folder.
@@ -23214,26 +19198,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         detail["reader_comments_started"] = int(detail.get("reader_comments_started") or 0)
         return detail
 
-    def mark_reader_comments_started(self, scene_id: int) -> dict:
-        """Record that the virtual-reader comments flow was opened for this scene.
-
-        Sets ``updated_at`` so ``scene_touch`` does not bump ``row_version``
-        (same pattern as ``save_scene_goal`` — avoids rejecting an in-flight manuscript save).
-        """
-        with database() as connection:
-            scene = connection.execute(
-                "SELECT id FROM scene WHERE id = ? AND deleted_at IS NULL",
-                (scene_id,),
-            ).fetchone()
-            if scene is None:
-                raise ValueError("씬을 찾을 수 없습니다.")
-            connection.execute(
-                "UPDATE scene SET reader_comments_started = 1, "
-                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
-                "WHERE id = ?",
-                (scene_id,),
-            )
-        return {"ok": True, "reader_comments_started": 1}
 
     def duplicate_scene(self, scene_id: int) -> dict:
         """Clone a scene (content, cast, links, illustrations) right after the source."""
@@ -23874,27 +19838,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             except OSError:
                 pass
 
-    def serve_ambient_file(self, token: str) -> None:
-        try:
-            relative = bytes.fromhex(token).decode("utf-8")
-        except (ValueError, UnicodeDecodeError) as error:
-            raise ValueError("배경음 파일을 찾을 수 없습니다.") from error
-        folder, sep, filename = relative.partition("/")
-        if not sep:
-            raise ValueError("배경음 파일을 찾을 수 없습니다.")
-        path = resolve_ambient_sound_file(folder, filename)
-        if path is None:
-            raise ValueError("배경음 파일을 찾을 수 없습니다.")
-        data = path.read_bytes()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "audio/mpeg")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header(
-            "Cache-Control",
-            "private, no-store" if folder == CUSTOM_AMBIENT_FOLDER else "private, max-age=86400",
-        )
-        self.end_headers()
-        self.wfile.write(data)
 
     def serve_illustration_image(self, illustration_id: int) -> None:
         with database() as connection:
@@ -25542,7 +21485,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 pass
         if payload.get("status") == "complete" and payload.get("previous_status") != "complete":
             try:
-                schedule_scene_reader_comments(scene_id)
+                reader_api.schedule_scene_reader_comments(scene_id)
             except Exception:
                 pass
             try:

@@ -183,11 +183,16 @@ class IslandDesignContractTests(unittest.TestCase):
             self.assertEqual(missing, [], f"{lc} missing {missing}")
 
     def test_island_css_uses_theme_variables_not_brand_hex(self) -> None:
-        # 색은 기존 테마 변수로. 팔레트 정의 블록(html[data-theme="light"])과 그림자·링은 예외.
-        body = re.sub(r'html\[data-theme="light"\]\s*\{.*?\}', "", self.css, flags=re.S)
+        # 색은 기존 테마 변수로. 라이트 팔레트 정의 블록과 그림자·링은 예외.
+        body = re.sub(
+            r'html\[data-theme="light"\](?:,\s*body\[data-ui-theme="light"\])?\s*\{.*?\}',
+            "",
+            self.css,
+            flags=re.S,
+        )
         body = re.sub(r"rgba?\([^)]*\)", "", body)
         hexes = re.findall(r"#[0-9a-fA-F]{3,8}\b", body)
-        # var() 대체값(fallback) 정도만 허용
+        # var() 대체값(fallback)과 상태 점 토큰 정도만 허용
         self.assertLessEqual(len(hexes), 12, hexes)
 
 

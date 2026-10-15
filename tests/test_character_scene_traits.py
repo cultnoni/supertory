@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import app
+from routes import reader_api
 import character_import_analysis
 import character_scene_traits
 import gemini_client
@@ -79,8 +80,8 @@ class CharacterSceneTraitHttpTests(unittest.TestCase):
         self.original_database_path = app.DATABASE_PATH
         app.DATA_DIR = Path(self.temporary_directory.name) / "data"
         app.DATABASE_PATH = app.DATA_DIR / "supertory.sqlite3"
-        self.original_gap = app.READER_DEBATE_GEMINI_GAP_SECONDS
-        app.READER_DEBATE_GEMINI_GAP_SECONDS = 0
+        self.original_gap = reader_api.READER_DEBATE_GEMINI_GAP_SECONDS
+        reader_api.READER_DEBATE_GEMINI_GAP_SECONDS = 0
         app.initialise_database()
         app.reset_trait_analysis_state()
         self.server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.SuperToryHandler)
@@ -90,8 +91,8 @@ class CharacterSceneTraitHttpTests(unittest.TestCase):
     def tearDown(self) -> None:
         deadline = time.time() + 3
         while time.time() < deadline:
-            with app._reader_comments_inflight_lock:
-                comments_busy = bool(app._reader_comments_inflight)
+            with reader_api._reader_comments_inflight_lock:
+                comments_busy = bool(reader_api._reader_comments_inflight)
             with app._trait_analysis_lock:
                 traits_busy = bool(app._trait_analysis_inflight)
             if not comments_busy and not traits_busy:
@@ -101,7 +102,7 @@ class CharacterSceneTraitHttpTests(unittest.TestCase):
         self.server.shutdown()
         self.thread.join()
         self.server.server_close()
-        app.READER_DEBATE_GEMINI_GAP_SECONDS = self.original_gap
+        reader_api.READER_DEBATE_GEMINI_GAP_SECONDS = self.original_gap
         app.DATA_DIR = self.original_data_dir
         app.DATABASE_PATH = self.original_database_path
         self.temporary_directory.cleanup()

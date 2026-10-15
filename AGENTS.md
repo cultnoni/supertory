@@ -117,7 +117,7 @@ Prefer reusing existing serializers and word-count helpers rather than inventing
 
 - Sidebar boxes: `data-settings-section`, toggle + optional **→ 메인에서 보기** (`data-settings-main`)  
 - Main views: idea board, keyword board, character board, settings-doc main (`synopsisWorkspace`), etc.  
-- When adding “open on main”, register in `SETTINGS_BOOKMARK_META` and hide other center panes consistently (`ideaBoardOpen`, `keywordBoardOpen`, `characterBoardOpen`, synopsis main)
+- When adding “open on main”, register in `SETTINGS_BOOKMARK_META` and in `MAIN_PANES`, then open with `showMainPane(key)` so peer center panes stay consistent
 
 ### 디자인 (섬과 종이)
 

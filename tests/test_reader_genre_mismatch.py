@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import app
+from routes import reader_api
 import gemini_client
 
 MISMATCH_MARKER = "장르 불일치 인지"
@@ -18,7 +19,7 @@ def _persona(connection, persona_id: str) -> dict:
         (persona_id,),
     ).fetchone()
     assert row is not None, persona_id
-    return app.serialize_reader_persona(row)
+    return reader_api.serialize_reader_persona(row)
 
 
 class ReaderGenreMismatchTests(unittest.TestCase):
@@ -26,14 +27,14 @@ class ReaderGenreMismatchTests(unittest.TestCase):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.original_data_dir = app.DATA_DIR
         self.original_database_path = app.DATABASE_PATH
-        self.original_gap = app.READER_DEBATE_GEMINI_GAP_SECONDS
+        self.original_gap = reader_api.READER_DEBATE_GEMINI_GAP_SECONDS
         app.DATA_DIR = Path(self.temporary_directory.name) / "data"
         app.DATABASE_PATH = app.DATA_DIR / "supertory.sqlite3"
-        app.READER_DEBATE_GEMINI_GAP_SECONDS = 0
+        reader_api.READER_DEBATE_GEMINI_GAP_SECONDS = 0
         app.initialise_database()
 
     def tearDown(self) -> None:
-        app.READER_DEBATE_GEMINI_GAP_SECONDS = self.original_gap
+        reader_api.READER_DEBATE_GEMINI_GAP_SECONDS = self.original_gap
         app.DATA_DIR = self.original_data_dir
         app.DATABASE_PATH = self.original_database_path
         self.temporary_directory.cleanup()
@@ -44,7 +45,7 @@ class ReaderGenreMismatchTests(unittest.TestCase):
         shared = (
             "[작품 정보]\n작품 제목: 사이다\n메인 장르: 로판\n서브 장르: 하이루판\n"
         )
-        system = app._reader_comment_system_prompt(
+        system = reader_api._reader_comment_system_prompt(
             cider,
             shared,
             main_genre="romfant",
@@ -56,7 +57,7 @@ class ReaderGenreMismatchTests(unittest.TestCase):
     def test_mismatch_injects_nuance_not_fixed_lines(self) -> None:
         with app.database() as connection:
             academy = _persona(connection, "academy_immersive")
-        system = app._reader_comment_system_prompt(
+        system = reader_api._reader_comment_system_prompt(
             academy,
             "[작품 정보]\n메인 장르: 무협\n서브 장르: 정통무협\n",
             main_genre="martial",
@@ -85,13 +86,13 @@ class ReaderGenreMismatchTests(unittest.TestCase):
             )
             personas = [_persona(connection, persona_id) for persona_id in ids]
         for persona in personas:
-            matched = app.reader_persona_genre_matches(
+            matched = reader_api.reader_persona_genre_matches(
                 persona,
                 main_genre="martial",
                 sub_genre="classic",
             )
             self.assertIsNone(matched, persona.get("id"))
-            block = app._reader_genre_mismatch_block(
+            block = reader_api._reader_genre_mismatch_block(
                 persona,
                 main_genre="martial",
                 sub_genre="classic",
@@ -116,7 +117,7 @@ class ReaderGenreMismatchTests(unittest.TestCase):
         with app.database() as connection:
             for persona_id, main, sub, detail, expect in cases:
                 persona = _persona(connection, persona_id)
-                matched = app.reader_persona_genre_matches(
+                matched = reader_api.reader_persona_genre_matches(
                     persona,
                     main_genre=main,
                     sub_genre=sub,
@@ -132,7 +133,7 @@ class ReaderGenreMismatchTests(unittest.TestCase):
         with app.database() as connection:
             cider = _persona(connection, "roppan_cider")
         self.assertIs(
-            app.reader_persona_genre_matches(
+            reader_api.reader_persona_genre_matches(
                 cider,
                 main_genre="martial",
                 sub_genre="modern_wu",
@@ -143,20 +144,20 @@ class ReaderGenreMismatchTests(unittest.TestCase):
     def test_missing_work_genre_does_not_inject_block(self) -> None:
         with app.database() as connection:
             cider = _persona(connection, "roppan_cider")
-        self.assertIsNone(app.reader_persona_genre_matches(cider))
-        self.assertEqual(app._reader_genre_mismatch_block(cider), "")
+        self.assertIsNone(reader_api.reader_persona_genre_matches(cider))
+        self.assertEqual(reader_api._reader_genre_mismatch_block(cider), "")
 
     def test_labels_in_shared_context_are_enough(self) -> None:
         with app.database() as connection:
             academy = _persona(connection, "academy_immersive")
         shared = "[작품 정보]\n메인 장르: 무협\n서브 장르: 정통무협\n"
         self.assertIs(
-            app.reader_persona_genre_matches(academy, shared_context=shared),
+            reader_api.reader_persona_genre_matches(academy, shared_context=shared),
             False,
         )
         self.assertIn(
             MISMATCH_MARKER,
-            app._reader_genre_mismatch_block(academy, shared_context=shared),
+            reader_api._reader_genre_mismatch_block(academy, shared_context=shared),
         )
 
     def _make_scene(self, *, title: str, main_genre: str, sub_genre: str, body: str) -> int:
@@ -206,7 +207,7 @@ class ReaderGenreMismatchTests(unittest.TestCase):
             with app.database() as connection:
                 academy = _persona(connection, "academy_immersive")
                 plot = _persona(connection, "plausibility_absolutist")
-            app.generate_scene_reader_comments(
+            reader_api.generate_scene_reader_comments(
                 scene_id, [academy, plot], batch_id="batch-a"
             )
         finally:
@@ -235,7 +236,7 @@ class ReaderGenreMismatchTests(unittest.TestCase):
             )
             with app.database() as connection:
                 cider = _persona(connection, "roppan_cider")
-            app.generate_scene_reader_comments(scene_id, [cider], batch_id="batch-b")
+            reader_api.generate_scene_reader_comments(scene_id, [cider], batch_id="batch-b")
         finally:
             gemini_client.generate_text = original  # type: ignore[method-assign]
         self.assertEqual(len(captured), 1)
@@ -246,10 +247,10 @@ class ReaderGenreMismatchTests(unittest.TestCase):
             cider = _persona(connection, "roppan_cider")
             plot = _persona(connection, "plausibility_absolutist")
         shared = "[작품 정보]\n메인 장르: 무협\n서브 장르: 정통무협\n"
-        cider_prompt = app._reader_debate_system_prompt(
+        cider_prompt = reader_api._reader_debate_system_prompt(
             cider, shared, main_genre="martial", sub_genre="classic"
         )
-        plot_prompt = app._reader_debate_system_prompt(
+        plot_prompt = reader_api._reader_debate_system_prompt(
             plot, shared, main_genre="martial", sub_genre="classic"
         )
         self.assertIn(MISMATCH_MARKER, cider_prompt)
@@ -284,13 +285,13 @@ class ReaderGenreMismatchLiveTests(unittest.TestCase):
                         "다음은 작가가 공유한 원고 내용입니다:\n"
                         "주인공이 문을 열고 나가자 비가 내리고 있었다.\n"
                     )
-                    system = app._reader_comment_system_prompt(
+                    system = reader_api._reader_comment_system_prompt(
                         persona,
                         shared,
                         main_genre=main,
                         sub_genre=sub,
                     )
-                    prompt = app._reader_comment_user_prompt(
+                    prompt = reader_api._reader_comment_user_prompt(
                         str(persona.get("name") or ""),
                         "1화",
                     )

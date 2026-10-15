@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest import mock
 
 import app
+from routes import reader_api
 import gemini_client
 
 
@@ -23,10 +24,10 @@ class SceneReaderCommentsTests(unittest.TestCase):
         self.original_data_dir = app.DATA_DIR
         self.original_database_path = app.DATABASE_PATH
         self.original_generate = gemini_client.generate_text
-        self.original_gap = app.READER_DEBATE_GEMINI_GAP_SECONDS
+        self.original_gap = reader_api.READER_DEBATE_GEMINI_GAP_SECONDS
         app.DATA_DIR = Path(self.temporary_directory.name) / "data"
         app.DATABASE_PATH = app.DATA_DIR / "supertory.sqlite3"
-        app.READER_DEBATE_GEMINI_GAP_SECONDS = 0
+        reader_api.READER_DEBATE_GEMINI_GAP_SECONDS = 0
         app.initialise_database()
         self.server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.SuperToryHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -47,11 +48,11 @@ class SceneReaderCommentsTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         gemini_client.generate_text = self.original_generate  # type: ignore[method-assign]
-        app.READER_DEBATE_GEMINI_GAP_SECONDS = self.original_gap
-        with app._reader_comments_inflight_lock:
-            app._reader_comments_inflight.clear()
-            app._reader_comments_inflight_batch.clear()
-            app._reader_comments_last_error.clear()
+        reader_api.READER_DEBATE_GEMINI_GAP_SECONDS = self.original_gap
+        with reader_api._reader_comments_inflight_lock:
+            reader_api._reader_comments_inflight.clear()
+            reader_api._reader_comments_inflight_batch.clear()
+            reader_api._reader_comments_last_error.clear()
         self.server.shutdown()
         self.thread.join()
         self.server.server_close()
@@ -136,7 +137,7 @@ class SceneReaderCommentsTests(unittest.TestCase):
 
     def test_select_prefers_genre_strings_in_name(self) -> None:
         with app.database() as connection:
-            picked = app.select_reader_comment_personas(
+            picked = reader_api.select_reader_comment_personas(
                 "romfant",
                 "sf",
                 connection=connection,
@@ -156,7 +157,7 @@ class SceneReaderCommentsTests(unittest.TestCase):
 
     def test_select_falls_back_when_genre_does_not_match(self) -> None:
         with app.database() as connection:
-            picked = app.select_reader_comment_personas(
+            picked = reader_api.select_reader_comment_personas(
                 "zzzz_unknown",
                 "yyyy_unknown",
                 connection=connection,
@@ -179,7 +180,7 @@ class SceneReaderCommentsTests(unittest.TestCase):
 
         gemini_client.generate_text = _flaky  # type: ignore[method-assign]
         try:
-            app.generate_scene_reader_comments(scene_id)
+            reader_api.generate_scene_reader_comments(scene_id)
         finally:
             gemini_client.generate_text = original  # type: ignore[method-assign]
         status, data = self.request("GET", f"/api/scenes/{scene_id}/reader-comments")
@@ -260,7 +261,7 @@ class SceneReaderCommentsTests(unittest.TestCase):
                 ).fetchone()
             )
         shared = "[프로젝트 누적 정보]\n[아직 안 풀린 떡밥/복선 목록]\n- 열쇠"
-        system = app._reader_comment_system_prompt(persona, shared)
+        system = reader_api._reader_comment_system_prompt(persona, shared)
         self.assertIn("웹소설 플랫폼 댓글창에 이 독자가 남길 법한 댓글", system)
         self.assertIn("이 회차를 평가하지 마세요", system)
         self.assertIn("1~2문장", system)
@@ -280,7 +281,7 @@ class SceneReaderCommentsTests(unittest.TestCase):
         self.assertIn("이 독자의 [말투]에 가까운 결만 참고", system)
         self.assertNotIn("2~5문장", system)
         self.assertNotIn("장르 불일치 인지", system)
-        user = app._reader_comment_user_prompt("사이다 중독자", "완성 회차")
+        user = reader_api._reader_comment_user_prompt("사이다 중독자", "완성 회차")
         self.assertIn("웹소설 플랫폼 댓글창에 실제 독자가 남길 법한 댓글", user)
         self.assertIn("사이다 중독자", user)
         self.assertIn("완성 회차", user)
@@ -314,7 +315,7 @@ class SceneReaderCommentsTests(unittest.TestCase):
                 ),
             )
         before = len(self.calls)
-        app.generate_scene_reader_comments(scene_id)
+        reader_api.generate_scene_reader_comments(scene_id)
         systems = "\n".join(call["system"] for call in self.calls[before:])
         self.assertIn("[프로젝트 누적 정보]", systems)
         self.assertIn("[지금까지 전개 - 실제 원고 문장 아님, 요약임]", systems)
@@ -354,14 +355,14 @@ class SceneReaderCommentsTests(unittest.TestCase):
 
     def test_select_excludes_existing_persona_ids(self) -> None:
         with app.database() as connection:
-            first = app.select_reader_comment_personas(
+            first = reader_api.select_reader_comment_personas(
                 "romfant",
                 "sf",
                 connection=connection,
                 rng=random.Random(7),
             )
             first_ids = [str(item["id"]) for item in first]
-            second = app.select_reader_comment_personas(
+            second = reader_api.select_reader_comment_personas(
                 "romfant",
                 "sf",
                 connection=connection,
@@ -377,7 +378,7 @@ class SceneReaderCommentsTests(unittest.TestCase):
         keep = ids[-2:]
         exclude = ids[:-2]
         with app.database() as connection:
-            picked = app.select_additional_reader_comment_personas(
+            picked = reader_api.select_additional_reader_comment_personas(
                 "romfant",
                 "sf",
                 exclude_persona_ids=exclude,
@@ -388,25 +389,25 @@ class SceneReaderCommentsTests(unittest.TestCase):
         self.assertEqual({item["id"] for item in picked}, set(keep))
 
     def test_select_additional_injects_joker_about_a_quarter_of_the_time(self) -> None:
-        original_chance = app.READER_COMMENT_JOKER_CHANCE
+        original_chance = reader_api.READER_COMMENT_JOKER_CHANCE
         try:
             with app.database() as connection:
-                app.READER_COMMENT_JOKER_CHANCE = 0
-                baseline = app.select_additional_reader_comment_personas(
+                reader_api.READER_COMMENT_JOKER_CHANCE = 0
+                baseline = reader_api.select_additional_reader_comment_personas(
                     "romfant",
                     "sf",
                     connection=connection,
                     rng=random.Random(7),
                 )
-                app.READER_COMMENT_JOKER_CHANCE = 1
-                jokered = app.select_additional_reader_comment_personas(
+                reader_api.READER_COMMENT_JOKER_CHANCE = 1
+                jokered = reader_api.select_additional_reader_comment_personas(
                     "romfant",
                     "sf",
                     connection=connection,
                     rng=random.Random(7),
                 )
         finally:
-            app.READER_COMMENT_JOKER_CHANCE = original_chance
+            reader_api.READER_COMMENT_JOKER_CHANCE = original_chance
         base_ids = {str(item["id"]) for item in baseline}
         joker_ids = {str(item["id"]) for item in jokered}
         self.assertEqual(len(baseline), 3)
@@ -416,7 +417,7 @@ class SceneReaderCommentsTests(unittest.TestCase):
         self.assertEqual(len(swapped), 1)
         swapped_id = next(iter(swapped))
         swapped_persona = next(item for item in jokered if item["id"] == swapped_id)
-        self.assertIn(swapped_persona["category"], app.READER_COMMENT_WILDCARD_CATEGORIES)
+        self.assertIn(swapped_persona["category"], reader_api.READER_COMMENT_WILDCARD_CATEGORIES)
 
     def test_get_comments_includes_refresh_fields(self) -> None:
         scene_id = self._make_scene()
@@ -466,8 +467,8 @@ class SceneReaderCommentsTests(unittest.TestCase):
     def test_refresh_returns_no_more_personas_when_pool_empty(self) -> None:
         scene_id = self._make_scene()
         self._insert_comments(scene_id, self._persona_ids()[:3], batch_id="legacy-one")
-        original = app.select_reader_comment_personas
-        app.select_reader_comment_personas = (  # type: ignore[method-assign]
+        original = reader_api.select_reader_comment_personas
+        reader_api.select_reader_comment_personas = (  # type: ignore[method-assign]
             lambda *args, **kwargs: []
         )
         try:
@@ -475,7 +476,7 @@ class SceneReaderCommentsTests(unittest.TestCase):
                 "POST", f"/api/scenes/{scene_id}/reader-comments/generate"
             )
         finally:
-            app.select_reader_comment_personas = original  # type: ignore[method-assign]
+            reader_api.select_reader_comment_personas = original  # type: ignore[method-assign]
         self.assertEqual(status, 200, data)
         self.assertFalse(data.get("started"))
         self.assertEqual(len(data["comments"]), 3)
@@ -519,7 +520,7 @@ class SceneReaderCommentsTests(unittest.TestCase):
         buf = io.StringIO()
         try:
             with mock.patch("sys.stdout", buf):
-                app.generate_scene_reader_comments(scene_id)
+                reader_api.generate_scene_reader_comments(scene_id)
         finally:
             gemini_client.generate_text = previous  # type: ignore[method-assign]
         text = buf.getvalue()
@@ -549,7 +550,7 @@ class SceneReaderCommentsTests(unittest.TestCase):
 
         gemini_client.generate_text = _fail  # type: ignore[method-assign]
         try:
-            app.generate_scene_reader_comments(scene_id)
+            reader_api.generate_scene_reader_comments(scene_id)
         finally:
             gemini_client.generate_text = previous  # type: ignore[method-assign]
         self.assertEqual(calls["n"], 3)
@@ -567,13 +568,13 @@ class SceneReaderCommentsTests(unittest.TestCase):
 
         gemini_client.generate_text = _fail  # type: ignore[method-assign]
         try:
-            app.generate_scene_reader_comments(scene_id)
+            reader_api.generate_scene_reader_comments(scene_id)
         finally:
             gemini_client.generate_text = previous  # type: ignore[method-assign]
         status, failed = self.request("GET", f"/api/scenes/{scene_id}/reader-comments")
         self.assertEqual(status, 200, failed)
         self.assertEqual(failed.get("last_error_code"), "quota")
-        app.generate_scene_reader_comments(scene_id)
+        reader_api.generate_scene_reader_comments(scene_id)
         status, data = self.request("GET", f"/api/scenes/{scene_id}/reader-comments")
         self.assertEqual(status, 200, data)
         self.assertEqual(len(data["comments"]), 3)

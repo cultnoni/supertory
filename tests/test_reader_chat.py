@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 import app
+from routes import reader_api
 import gemini_client
 
 
@@ -80,7 +81,7 @@ class ReaderChatTests(unittest.TestCase):
                 "SELECT * FROM virtual_reader_personas WHERE id = ?",
                 ("roppan_cider",),
             ).fetchone()
-        prompt = app._reader_persona_system_prompt(dict(row))
+        prompt = reader_api._reader_persona_system_prompt(dict(row))
         self.assertIn("당신은 '로맨스·로판 사이다파'이라는 이름의 가상 독자입니다.", prompt)
         self.assertIn("[정체성]", prompt)
         self.assertIn("카타르시스", prompt)
@@ -134,7 +135,7 @@ class ReaderChatTests(unittest.TestCase):
             },
         )
         self.assertEqual(status, 200)
-        bare = app._reader_dynamic_context(pid)
+        bare = reader_api._reader_dynamic_context(pid)
         self.assertIn("메인 장르: 로판", bare)
         self.assertIn("서브 장르:", bare)
         self.assertIn("[작품 설정 요약", bare)
@@ -148,7 +149,7 @@ class ReaderChatTests(unittest.TestCase):
         self.assertIn("시놉시스/세계관·누적 인덱스 정보만 가지고 대화하는 상황", bare)
         self.assertNotIn("작가가 공유한 원고", bare)
         self.assertNotIn("[프로젝트 누적 정보]", bare)
-        with_ms = app._reader_dynamic_context(pid, "빌런이 사과하고 끝났다.")
+        with_ms = reader_api._reader_dynamic_context(pid, "빌런이 사과하고 끝났다.")
         self.assertIn("다음은 작가가 공유한 원고 내용입니다:", with_ms)
         self.assertIn("빌런이 사과하고 끝났다.", with_ms)
         self.assertNotIn("[원고 미첨부]", with_ms)
@@ -177,7 +178,7 @@ class ReaderChatTests(unittest.TestCase):
                     '[{"category":"관계","subject":"송혜아","attribute":"신재결","value":"재회","since_scene":"26"}]',
                 ),
             )
-        ctx = app._reader_dynamic_context(pid)
+        ctx = reader_api._reader_dynamic_context(pid)
         self.assertIn("[프로젝트 누적 정보]", ctx)
         self.assertIn("[지금까지 전개 - 실제 원고 문장 아님, 요약임]", ctx)
         self.assertIn("공항에서 혜아가 긴급 고용", ctx)
@@ -201,8 +202,8 @@ class ReaderChatTests(unittest.TestCase):
                 "SELECT * FROM virtual_reader_personas WHERE id = ?",
                 ("roppan_cider",),
             ).fetchone()
-        plot_prompt = app._reader_persona_system_prompt(dict(plot))
-        cider_prompt = app._reader_persona_system_prompt(dict(cider))
+        plot_prompt = reader_api._reader_persona_system_prompt(dict(plot))
+        cider_prompt = reader_api._reader_persona_system_prompt(dict(cider))
         focus = "너무 오래 방치된 떡밥은 없는지 짚어라"
         self.assertIn(focus, plot_prompt)
         self.assertIn("[아직 안 풀린 떡밥/복선 목록]", plot_prompt)
@@ -211,7 +212,7 @@ class ReaderChatTests(unittest.TestCase):
 
     def test_dynamic_context_omits_empty_settings_quietly(self) -> None:
         pid = self._make_project()
-        bare = app._reader_dynamic_context(pid)
+        bare = reader_api._reader_dynamic_context(pid)
         self.assertIn("메인 장르: 로판", bare)
         self.assertIn("[원고 미첨부]", bare)
         self.assertNotIn("시놉시스 요약:", bare)
@@ -223,7 +224,7 @@ class ReaderChatTests(unittest.TestCase):
         self.assertEqual(status, 200, grouped)
         self.assertEqual(
             list(grouped.keys()),
-            list(app.READER_PERSONA_CATEGORIES),
+            list(reader_api.READER_PERSONA_CATEGORIES),
         )
         total = sum(len(grouped[key]) for key in grouped)
         self.assertEqual(total, 24)
@@ -429,7 +430,7 @@ class ReaderChatTests(unittest.TestCase):
         status, grouped = self.request("GET", "/api/reader-personas")
         self.assertEqual(status, 200, grouped)
         ids = []
-        for key in app.READER_PERSONA_CATEGORIES:
+        for key in reader_api.READER_PERSONA_CATEGORIES:
             ids.extend(item["id"] for item in grouped[key])
         self.assertEqual(len(ids), 24)
         missing = []

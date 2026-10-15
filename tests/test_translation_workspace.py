@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 import app
+from routes import translation_api
 import gemini_client
 import translation_prompts
 
@@ -42,10 +43,10 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         self._orig_configured = gemini_client.is_configured
         self._orig_retry_delay = app._paragraph_empty_retry_delay
         self._orig_gap = app.TRANSLATION_GEMINI_GAP_SECONDS
-        self._orig_sleep = app._translation_sleep
+        self._orig_sleep = translation_api._translation_sleep
         app._paragraph_empty_retry_delay = lambda: 0.0  # type: ignore[assignment]
         app.TRANSLATION_GEMINI_GAP_SECONDS = 0
-        app._translation_sleep = lambda _seconds: None  # type: ignore[assignment]
+        translation_api._translation_sleep = lambda _seconds: None  # type: ignore[assignment]
         gemini_client.is_configured = lambda: True  # type: ignore[method-assign]
 
         def _prompt_step(prompt: str, blob: str) -> str:
@@ -348,7 +349,7 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
             return "이 문장은 주인공의 첫인상을 강조하는 번역입니다."
 
         gemini_client.generate_text = _fake  # type: ignore[method-assign]
-        self._orig_dictionary = app.fetch_free_dictionary_payload
+        self._orig_dictionary = translation_api.fetch_free_dictionary_payload
 
         def _fake_dictionary(
             word: str, target_language: object = "en"
@@ -370,15 +371,15 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
                 }
             ]
 
-        app.fetch_free_dictionary_payload = _fake_dictionary  # type: ignore[method-assign]
+        translation_api.fetch_free_dictionary_payload = _fake_dictionary  # type: ignore[method-assign]
 
     def tearDown(self) -> None:
         gemini_client.generate_text = self._orig_generate  # type: ignore[method-assign]
         gemini_client.is_configured = self._orig_configured  # type: ignore[method-assign]
         app._paragraph_empty_retry_delay = self._orig_retry_delay  # type: ignore[assignment]
         app.TRANSLATION_GEMINI_GAP_SECONDS = self._orig_gap
-        app._translation_sleep = self._orig_sleep  # type: ignore[assignment]
-        app.fetch_free_dictionary_payload = self._orig_dictionary  # type: ignore[method-assign]
+        translation_api._translation_sleep = self._orig_sleep  # type: ignore[assignment]
+        translation_api.fetch_free_dictionary_payload = self._orig_dictionary  # type: ignore[method-assign]
         self.server.shutdown()
         self.thread.join()
         self.server.server_close()
@@ -2306,7 +2307,7 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 201)
         job_id = int(created["id"])
-        app._set_translation_pipeline_wait(job_id, 12)
+        translation_api._set_translation_pipeline_wait(job_id, 12)
         try:
             status, payload = self.request(
                 "GET", f"/api/translation/jobs/{job_id}/pipeline_wait"
@@ -2317,7 +2318,7 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertGreater(job.get("pipeline_wait_seconds") or 0, 0)
         finally:
-            app._clear_translation_pipeline_wait(job_id)
+            translation_api._clear_translation_pipeline_wait(job_id)
         status, cleared = self.request(
             "GET", f"/api/translation/jobs/{job_id}/pipeline_wait"
         )
@@ -2364,7 +2365,7 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
             calls["n"] += 1
             raise TimeoutError("timed out")
 
-        app.fetch_free_dictionary_payload = _timeout  # type: ignore[method-assign]
+        translation_api.fetch_free_dictionary_payload = _timeout  # type: ignore[method-assign]
         status, payload = self.request(
             "GET", "/api/translation/dictionary?word=chronological"
         )
@@ -2396,7 +2397,7 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
                 }
             ]
 
-        app.fetch_free_dictionary_payload = _flaky  # type: ignore[method-assign]
+        translation_api.fetch_free_dictionary_payload = _flaky  # type: ignore[method-assign]
         status, payload = self.request(
             "GET", "/api/translation/dictionary?word=chronological"
         )
@@ -2413,7 +2414,7 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
             calls["n"] += 1
             return 429, {"title": "Too Many Requests"}
 
-        app.fetch_free_dictionary_payload = _rate_limit  # type: ignore[method-assign]
+        translation_api.fetch_free_dictionary_payload = _rate_limit  # type: ignore[method-assign]
         status, payload = self.request(
             "GET", "/api/translation/dictionary?word=chronological"
         )
@@ -3178,6 +3179,7 @@ class ParagraphTranslationParseTests(unittest.TestCase):
         orig_gemini = app._translation_pipeline_gemini
         orig_delay = app._paragraph_empty_retry_delay
         app._translation_pipeline_gemini = _fake_gemini  # type: ignore[assignment]
+        translation_api._translation_pipeline_gemini = _fake_gemini  # type: ignore[assignment]
         app._paragraph_empty_retry_delay = lambda: 0.0  # type: ignore[assignment]
         try:
             for _ in range(5):
@@ -3190,6 +3192,7 @@ class ParagraphTranslationParseTests(unittest.TestCase):
                 self.assertEqual(text, "싱긋")
         finally:
             app._translation_pipeline_gemini = orig_gemini  # type: ignore[assignment]
+            translation_api._translation_pipeline_gemini = orig_gemini  # type: ignore[assignment]
             app._paragraph_empty_retry_delay = orig_delay  # type: ignore[assignment]
         self.assertEqual(calls["n"], 15)
 
@@ -3204,10 +3207,10 @@ class TranslationRateLimitHelperTests(unittest.TestCase):
         )
         quota = gemini_client.GeminiError("quota", code="quota", http_status=429)
         other = gemini_client.GeminiError("scene_split failed")
-        self.assertTrue(app._is_translation_rate_limit_error(limited))
-        self.assertTrue(app._is_translation_rate_limit_error(quota))
-        self.assertFalse(app._is_translation_rate_limit_error(other))
-        self.assertFalse(app._is_translation_rate_limit_error(ValueError("empty")))
+        self.assertTrue(translation_api._is_translation_rate_limit_error(limited))
+        self.assertTrue(translation_api._is_translation_rate_limit_error(quota))
+        self.assertFalse(translation_api._is_translation_rate_limit_error(other))
+        self.assertFalse(translation_api._is_translation_rate_limit_error(ValueError("empty")))
 
     def test_parses_retry_in_seconds_and_defaults_to_ten(self) -> None:
         with_retry = gemini_client.GeminiError(
@@ -3216,7 +3219,7 @@ class TranslationRateLimitHelperTests(unittest.TestCase):
             http_status=429,
         )
         self.assertAlmostEqual(
-            app._translation_rate_limit_wait_seconds(with_retry), 17.59
+            translation_api._translation_rate_limit_wait_seconds(with_retry), 17.59
         )
         explicit = gemini_client.GeminiError(
             "ignored",
@@ -3224,13 +3227,13 @@ class TranslationRateLimitHelperTests(unittest.TestCase):
             http_status=429,
             retry_after=3.5,
         )
-        self.assertEqual(app._translation_rate_limit_wait_seconds(explicit), 3.5)
+        self.assertEqual(translation_api._translation_rate_limit_wait_seconds(explicit), 3.5)
         missing = gemini_client.GeminiError(
             "You exceeded your current quota",
             code="quota",
             http_status=429,
         )
-        self.assertEqual(app._translation_rate_limit_wait_seconds(missing), 10.0)
+        self.assertEqual(translation_api._translation_rate_limit_wait_seconds(missing), 10.0)
 
     def test_wrapper_retries_429_without_empty_text_loop(self) -> None:
         calls = {"n": 0, "sleeps": []}
@@ -3248,11 +3251,11 @@ class TranslationRateLimitHelperTests(unittest.TestCase):
 
         orig_generate = gemini_client.generate_text
         orig_configured = gemini_client.is_configured
-        orig_sleep = app._translation_sleep
+        orig_sleep = translation_api._translation_sleep
         orig_delay = app._paragraph_empty_retry_delay
         gemini_client.generate_text = _fake_generate  # type: ignore[method-assign]
         gemini_client.is_configured = lambda: True  # type: ignore[method-assign]
-        app._translation_sleep = lambda seconds: calls["sleeps"].append(seconds)  # type: ignore[assignment]
+        translation_api._translation_sleep = lambda seconds: calls["sleeps"].append(seconds)  # type: ignore[assignment]
         app._paragraph_empty_retry_delay = lambda: (_ for _ in ()).throw(  # type: ignore[assignment]
             AssertionError("empty-text retry must not run on 429")
         )
@@ -3266,13 +3269,13 @@ class TranslationRateLimitHelperTests(unittest.TestCase):
         finally:
             gemini_client.generate_text = orig_generate  # type: ignore[method-assign]
             gemini_client.is_configured = orig_configured  # type: ignore[method-assign]
-            app._translation_sleep = orig_sleep  # type: ignore[assignment]
+            translation_api._translation_sleep = orig_sleep  # type: ignore[assignment]
             app._paragraph_empty_retry_delay = orig_delay  # type: ignore[assignment]
         self.assertFalse(used)
         self.assertEqual(text, "She smiled.")
         self.assertEqual(calls["n"], 3)
         self.assertEqual(calls["sleeps"], [8.4, 8.4])
-        self.assertEqual(app._translation_pipeline_wait_seconds(9), 0.0)
+        self.assertEqual(translation_api._translation_pipeline_wait_seconds(9), 0.0)
 
 
 if __name__ == "__main__":

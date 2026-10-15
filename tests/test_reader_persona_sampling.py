@@ -21,6 +21,7 @@ import unittest
 from pathlib import Path
 
 import app
+from routes import reader_api
 import gemini_client
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,7 +54,7 @@ def flatten_persona_ids(grouped: object) -> list[dict]:
     out: list[dict] = []
     if not isinstance(grouped, dict):
         return out
-    for key in app.READER_PERSONA_CATEGORIES:
+    for key in reader_api.READER_PERSONA_CATEGORIES:
         people = grouped.get(key) or []
         if not isinstance(people, list):
             continue

@@ -13,11 +13,11 @@
   --isl-pop-shadow: 0 2px 6px rgba(31, 36, 41, 0.1), 0 16px 40px rgba(31, 36, 41, 0.16);
   --isl-panel-w: 292px;
   /* 바깥 여백(gutter)과 책상: 기본 라이트 테마만 한 단계 어둡게 */
-  --isl-desk: color-mix(in srgb, var(--chrome-bg, #fafaf9) 94%, #000 6%);
-  --isl-sunk: color-mix(in srgb, var(--panel, #fff) 92%, #000 8%);
+  --isl-desk: color-mix(in srgb, var(--chrome-bg) 94%, black 6%);
+  --isl-sunk: color-mix(in srgb, var(--panel) 92%, black 8%);
   /* 보조 글자색은 각 테마의 본문색에서 파생 → 어두운/텍스처 테마에서도 대비 유지 */
-  --isl-ink2: color-mix(in srgb, var(--text-primary, #1c1917) 74%, var(--panel, #fff));
-  --isl-ink3: color-mix(in srgb, var(--text-primary, #1c1917) 54%, var(--panel, #fff));
+  --isl-ink2: color-mix(in srgb, var(--text-primary) 74%, var(--panel));
+  --isl-ink3: color-mix(in srgb, var(--text-primary) 54%, var(--panel));
   --outline-width: var(--isl-panel-w);
   --ai-panel-width: var(--isl-panel-w);
 }
@@ -46,6 +46,11 @@ html[data-theme="light"], body[data-ui-theme="light"] {
   --accent-dark: #245d51;
   --accent-sand: #e3efeb;
   --selection: #e3efeb;
+  --isl-st-outline: #aab2bb;
+  --isl-st-idea: #a99ac8;
+  --isl-st-draft: #d2a456;
+  --isl-st-revision: #6f92c6;
+  --isl-st-complete: #4f9b7d;
 }
 html[data-ui-scheme="dark"] {
   --isl-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.3);
@@ -508,11 +513,12 @@ body:not(.binder-panel-collapsed):not(.ai-panel-collapsed) .work-area {
 
 /* ── 바인더 목차: 상태 점 + 글자수 + 활성 행 ── */
 :root {
-  --isl-st-outline: #aab2bb;
-  --isl-st-idea: #a99ac8;
-  --isl-st-draft: #d2a456;
-  --isl-st-revision: #6f92c6;
-  --isl-st-complete: #4f9b7d;
+  /* Theme-relative status dots (light palette may override below). */
+  --isl-st-outline: var(--muted);
+  --isl-st-idea: color-mix(in srgb, var(--accent) 35%, var(--muted));
+  --isl-st-draft: color-mix(in srgb, var(--accent) 55%, var(--muted));
+  --isl-st-revision: color-mix(in srgb, var(--accent) 70%, var(--line));
+  --isl-st-complete: var(--accent);
 }
 .scene-status-slot { width: 14px !important; min-width: 14px !important; display: inline-flex; justify-content: center; }
 .scene-row .scene-status {
