@@ -39,6 +39,12 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 import urllib.error
 import urllib.request
 
+# Sibling modules reach back with `import app` inside their functions. Running this
+# file directly registers it as `__main__`, so alias it before anything imports us —
+# otherwise app.py loads a second time and the two copies keep separate state.
+if __name__ == "__main__":
+    sys.modules.setdefault("app", sys.modules[__name__])
+
 import author_note_blocks
 import chapter_match
 import character_import_analysis
