@@ -33796,57 +33796,7 @@ function setupIslWidgetDock() {
     if (event.key === "Escape" && isIslWidgetDockOpen()) closeIslWidgetDock();
   });
 }
-// C1: keep the existing scroll host and editor intact; only rehost the paper
-// header. Restore every node to its anchor for the existing split layout.
-function setupIslandPaperLayout() {
-  const workspace = $("sceneWorkspace");
-  const page = $("manuscriptPage");
-  const content = $("sceneContent");
-  const tools = $("formatIconsShell");
-  if (!workspace || !page || !content || !tools || page.dataset.paperLayoutBound) return;
-  page.dataset.paperLayoutBound = "1";
-  const home = $("titlebarHomeButton");
-  const work = $("binderWorkMeta");
-  const binderTop = document.querySelector(".binder-panel-top");
-  if (home && work && binderTop) {
-    binderTop.append($("collapseBinderPanelButton"));
-    home.after(work);
-  }
-  const headers = [$("islCrumb"), workspace.querySelector(".episode-nav-bar"), $("sceneStatusShell")].filter(Boolean);
-  const navigation = [$("episodePrevButton"), $("episodeNextButton")].filter(Boolean);
-  const anchors = new Map([...headers, ...navigation].map((node) => {
-    const anchor = document.createComment("C1 layout anchor");
-    node.before(anchor);
-    return [node, anchor];
-  }));
-  const sheet = document.createElement("div");
-  sheet.className = "isl-paper-sheet";
-  const nav = document.createElement("div");
-  nav.className = "isl-paper-navigation";
-  const sync = () => {
-    const split = workspace.classList.contains("split-active");
-    if (split === !page.classList.contains("isl-paper-scroll")) return;
-    if (split) {
-      [...headers, ...navigation].forEach((node) => anchors.get(node).after(node));
-      sheet.before(...sheet.childNodes);
-      sheet.remove();
-      nav.remove();
-      page.classList.remove("isl-paper-scroll");
-    } else {
-      content.before(sheet);
-      sheet.append(...headers, content);
-      tools.append(nav);
-      nav.append(...navigation);
-      page.classList.add("isl-paper-scroll");
-    }
-    scheduleToolbarOverflowLayout();
-  };
-  new MutationObserver(sync).observe(workspace, { attributes: true, attributeFilter: ["class"] });
-  sync();
-}
-
 function setupAiCheckHub() {
-  setupIslandPaperLayout();
   $("aiTabWidgets")?.addEventListener("click", () => {
     hideToryPersonaMenu();
     setAiPanelTab("widgets");
