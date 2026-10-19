@@ -2027,4 +2027,4 @@ body.ai-panel-collapsed .isl-ai-badge { z-index: 230 !important; }
 #formatIconsToolbar .format-tool-item[data-icon-key="viewer"] { margin-left: 8px !important; }
 
 /* 아래 글자수 표시칸(글자수 트래커 위젯) 폭을 살짝 좁게 */
-.idea-float.dock-float-mini[data-dock-float="statsTracker"] { width: 188px !important; }
+.idea-float.dock-float-mini[data-dock-float="statsTracker"] { width: 168px !important; }
