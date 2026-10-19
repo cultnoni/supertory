@@ -18563,6 +18563,9 @@ const DOCK_TRACKER_LAYOUT_KEY = "supertory.dock.statsTracker.layout";
 const DOCK_WRITING_TIMER_KEY = "dock:writingTimer";
 const DOCK_WRITING_TIMER_OPEN_KEY = "supertory.dock.writingTimer.open";
 const DOCK_WRITING_TIMER_LAYOUT_KEY = "supertory.dock.writingTimer.layout";
+/** 위젯 기본 크기 통일: 기록·타이머·글자수 같은 작은 위젯을 뺀 모든 위젯이 같은 폭·높이로 열린다 */
+const DOCK_WIDGET_STD_W = 340;
+const DOCK_WIDGET_STD_H = 460;
 const DOCK_WRITING_TIMER_MIN_W = 148;
 const DOCK_WRITING_TIMER_MIN_H = 120;
 const WRITING_TIMER_STYLE_KEY = "supertory.writingTimerStyle";
@@ -18628,45 +18631,45 @@ const WORLD_SECTION_LEAD_FIELD = {
   legacy: "legacy",
 };
 const DOCK_TIMELINE_KEY = "dock:timeline";
-const DOCK_TIMELINE_DEFAULT_W = 320;
-const DOCK_TIMELINE_DEFAULT_H = 420;
+const DOCK_TIMELINE_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_TIMELINE_DEFAULT_H = DOCK_WIDGET_STD_H;
 const DOCK_TIMELINE_MIN_W = 280;
 const DOCK_TIMELINE_MIN_H = 240;
 const DOCK_APPEARANCES_KEY = "dock:appearances";
-const DOCK_APPEARANCES_DEFAULT_W = 320;
-const DOCK_APPEARANCES_DEFAULT_H = 420;
+const DOCK_APPEARANCES_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_APPEARANCES_DEFAULT_H = DOCK_WIDGET_STD_H;
 const DOCK_APPEARANCES_MIN_W = 280;
 const DOCK_APPEARANCES_MIN_H = 240;
 const DOCK_DICTIONARY_KEY = "dock:dictionary";
-const DOCK_DICTIONARY_DEFAULT_W = 320;
-const DOCK_DICTIONARY_DEFAULT_H = 420;
+const DOCK_DICTIONARY_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_DICTIONARY_DEFAULT_H = DOCK_WIDGET_STD_H;
 const DOCK_DICTIONARY_MIN_W = 280;
 const DOCK_DICTIONARY_MIN_H = 240;
 let dockDictionaryEditingId = 0;
 let dockDictionaryAdding = false;
 const DOCK_BAITS_KEY = "dock:baits";
-const DOCK_BAITS_DEFAULT_W = 320;
-const DOCK_BAITS_DEFAULT_H = 420;
+const DOCK_BAITS_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_BAITS_DEFAULT_H = DOCK_WIDGET_STD_H;
 const DOCK_BAITS_MIN_W = 280;
 const DOCK_BAITS_MIN_H = 240;
 const DOCK_TORY_VAULT_KEY = "dock:toryVault";
-const DOCK_TORY_VAULT_DEFAULT_W = 320;
-const DOCK_TORY_VAULT_DEFAULT_H = 420;
+const DOCK_TORY_VAULT_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_TORY_VAULT_DEFAULT_H = DOCK_WIDGET_STD_H;
 const DOCK_TORY_VAULT_MIN_W = 280;
 const DOCK_TORY_VAULT_MIN_H = 240;
 const DOCK_SOURCES_KEY = "dock:sources";
-const DOCK_SOURCES_DEFAULT_W = 320;
-const DOCK_SOURCES_DEFAULT_H = 420;
+const DOCK_SOURCES_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_SOURCES_DEFAULT_H = DOCK_WIDGET_STD_H;
 const DOCK_SOURCES_MIN_W = 280;
 const DOCK_SOURCES_MIN_H = 240;
 const DOCK_SUCCESS_PROFILE_KEY = "dock:successProfile";
-const DOCK_SUCCESS_PROFILE_DEFAULT_W = 320;
-const DOCK_SUCCESS_PROFILE_DEFAULT_H = 420;
+const DOCK_SUCCESS_PROFILE_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_SUCCESS_PROFILE_DEFAULT_H = DOCK_WIDGET_STD_H;
 const DOCK_SUCCESS_PROFILE_MIN_W = 300;
 const DOCK_SUCCESS_PROFILE_MIN_H = 320;
 const DOCK_MANUSCRIPT_KEY = "dock:manuscript";
-const DOCK_MANUSCRIPT_DEFAULT_W = 320;
-const DOCK_MANUSCRIPT_DEFAULT_H = 480;
+const DOCK_MANUSCRIPT_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_MANUSCRIPT_DEFAULT_H = DOCK_WIDGET_STD_H;
 const DOCK_MANUSCRIPT_MIN_W = 240;
 const DOCK_MANUSCRIPT_MIN_H = 240;
 const DOCK_RELATION_KEY = "dock:relationMinimap";
@@ -18675,23 +18678,23 @@ const DOCK_RELATION_DEFAULT_H = 380;
 const DOCK_RELATION_MIN_W = 300;
 const DOCK_RELATION_MIN_H = 240;
 const DOCK_SETTINGS_SEARCH_KEY = "dock:settingsSearch";
-const DOCK_SETTINGS_SEARCH_DEFAULT_W = 320;
-const DOCK_SETTINGS_SEARCH_DEFAULT_H = 420;
+const DOCK_SETTINGS_SEARCH_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_SETTINGS_SEARCH_DEFAULT_H = DOCK_WIDGET_STD_H;
 const DOCK_SETTINGS_SEARCH_MIN_W = 280;
 const DOCK_SETTINGS_SEARCH_MIN_H = 240;
 const DOCK_TORY_CHECK_KEY = "dock:toryCheck";
-const DOCK_TORY_CHECK_DEFAULT_W = 440;
-const DOCK_TORY_CHECK_DEFAULT_H = 480;
+const DOCK_TORY_CHECK_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_TORY_CHECK_DEFAULT_H = DOCK_WIDGET_STD_H;
 const DOCK_TORY_CHECK_MIN_W = 320;
 const DOCK_TORY_CHECK_MIN_H = 280;
 const DOCK_SPELLCHECK_KEY = "dock:spellcheck";
-const DOCK_SPELLCHECK_DEFAULT_W = 480;
-const DOCK_SPELLCHECK_DEFAULT_H = 560;
+const DOCK_SPELLCHECK_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_SPELLCHECK_DEFAULT_H = DOCK_WIDGET_STD_H;
 const DOCK_SPELLCHECK_MIN_W = 320;
 const DOCK_SPELLCHECK_MIN_H = 320;
 const DOCK_ANALYZE_KEY = "dock:analyze";
-const DOCK_ANALYZE_DEFAULT_W = 340;
-const DOCK_ANALYZE_DEFAULT_H = 480;
+const DOCK_ANALYZE_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_ANALYZE_DEFAULT_H = DOCK_WIDGET_STD_H;
 const DOCK_ANALYZE_MIN_W = 280;
 const DOCK_ANALYZE_MIN_H = 280;
 const DOCK_FEEDBACK_KEY = "dock:feedback";
@@ -18718,14 +18721,14 @@ const DOCK_CHARACTER_CHAT_KEY = "dock:characterChat";
 const DOCK_READER_CHAT_KEY = "dock:readerChat";
 const DOCK_AI_RESULT_KEY = "dock:aiResult";
 const DOCK_AI_HISTORY_KEY = "dock:aiHistory";
-const DOCK_AI_CHAT_DEFAULT_W = 380;
-const DOCK_AI_CHAT_DEFAULT_H = 560;
+const DOCK_AI_CHAT_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_AI_CHAT_DEFAULT_H = DOCK_WIDGET_STD_H;
 const DOCK_AI_CHAT_MIN_W = 300;
 const DOCK_AI_CHAT_MIN_H = 280;
-const DOCK_AI_RESULT_DEFAULT_W = 380;
-const DOCK_AI_RESULT_DEFAULT_H = 560;
-const DOCK_AI_HISTORY_DEFAULT_W = 380;
-const DOCK_AI_HISTORY_DEFAULT_H = 480;
+const DOCK_AI_RESULT_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_AI_RESULT_DEFAULT_H = DOCK_WIDGET_STD_H;
+const DOCK_AI_HISTORY_DEFAULT_W = DOCK_WIDGET_STD_W;
+const DOCK_AI_HISTORY_DEFAULT_H = DOCK_WIDGET_STD_H;
 const dockAdoptHomes = new Map();
 const TORY_CHECK_TAB_KEYS = {
   words: "index.반복_단어",
@@ -19155,6 +19158,8 @@ const DOCK_FLOAT_SPECS = {
   ideas: {
     titleKey: "app.생각수첩",
     side: "left",
+    defaultWidth: DOCK_WIDGET_STD_W,
+    defaultHeight: DOCK_WIDGET_STD_H,
     resize: false,
     render(body) { renderDockIdeasBody(body); },
   },
@@ -19199,18 +19204,24 @@ const DOCK_FLOAT_SPECS = {
   characters: {
     titleKey: "app.캐릭터",
     side: "left",
+    defaultWidth: DOCK_WIDGET_STD_W,
+    defaultHeight: DOCK_WIDGET_STD_H,
     resize: false,
     render(body) { renderDockCharactersBody(body); },
   },
   world: {
     titleKey: "app.세계관",
     side: "left",
+    defaultWidth: DOCK_WIDGET_STD_W,
+    defaultHeight: DOCK_WIDGET_STD_H,
     resize: false,
     render(body) { renderDockWorldBody(body); },
   },
   items: {
     titleKey: "app.아이템",
     side: "left",
+    defaultWidth: DOCK_WIDGET_STD_W,
+    defaultHeight: DOCK_WIDGET_STD_H,
     resize: false,
     render(body) { renderDockItemsBody(body); },
   },
@@ -19508,7 +19519,7 @@ function loadDockWritingTimerLayout() {
     const left = Number(parsed?.left);
     const top = Number(parsed?.top);
     if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
-    const maxLeft = Math.max(8, window.innerWidth - 316 - 12);
+    const maxLeft = Math.max(8, window.innerWidth - 340 - 12);
     const maxTop = Math.max(8, window.innerHeight - 120);
     const width = Number(parsed?.width);
     const height = Number(parsed?.height);
@@ -19770,7 +19781,9 @@ function bindToryCheckBody(body) {
       syncToryCheckChrome(body);
       scheduleToryCheckRefresh({ immediate: true });
       if (next === "viewpoint" && !toryCheckViewpointConfigured()) {
-        openToryCheckViewpointModal();
+        toryCheckState.skippedPromptFor = 0;
+        toryCheckVpUi.edit = true;
+        syncToryCheckViewpointBar(body);
       }
       return;
     }
@@ -19780,7 +19793,7 @@ function bindToryCheckBody(body) {
       return;
     }
     if (event.target.closest("[data-tory-check-viewpoint]")) {
-      openToryCheckViewpointModal();
+      openToryCheckVpEditor();
     }
   });
   body.addEventListener("change", (event) => {
@@ -20095,6 +20108,119 @@ function setupToryCheckViewpointModal() {
   });
 }
 
+/** 인칭·시제: 팝업 대신 토리 체크 위젯 안의 한 줄 배너 + 본문 자동 감지 */
+const toryCheckVpUi = { edit: false, person: "", tense: "", detected: null, manual: false };
+function toryCheckVpPersonLabel(p) { return i18n.t(p === "first" ? "island.vp_1인칭" : "island.vp_3인칭"); }
+function toryCheckVpTenseLabel(t) { return i18n.t(t === "past" ? "island.vp_과거형" : "island.vp_현재형"); }
+/** 대사(따옴표 안)를 뺀 서술 문장에서 인칭·시제를 가늠한다. 근거가 약하면 null */
+function detectToryCheckViewpoint(text) {
+  const raw = String(text || "");
+  if (raw.replace(/\s+/g, "").length < 300) return { person: null, tense: null };
+  const narration = raw
+    .replace(/[“"][^”"\n]*[”"]/g, " ")
+    .replace(/[‘'][^’'\n]{0,60}[’']/g, " ");
+  const sentences = narration.split(/(?<=[.!?…。])\s+|\n+/).map((x) => x.trim()).filter((x) => x.length > 3);
+  let first = 0;
+  let third = 0;
+  let past = 0;
+  let present = 0;
+  const firstRe = /(^|[\s,(])(나는|나도|나의|내가|내|나를|나에게|나한테|저는|제가|저의|저를|우리는|우리가)(?=[\s,.]|$)/g;
+  const thirdRe = /(그는|그가|그의|그를|그에게|그녀는|그녀가|그녀의|그녀를|그녀에게|그들은|그들이)/g;
+  const pastRe = /([았었였했랐났갔왔렸섰줬봤됐썼뒀쳤놨])다[.!?…]*$/;
+  const presentRe = /(한다|는다|ㄴ다|ㄴ다|있다|없다|이다|된다|간다|온다|본다|준다|선다|난다|든다|인다|린다|같다|아니다|많다|크다|작다)[.!?…]*$/;
+  sentences.forEach((sent) => {
+    first += (sent.match(firstRe) || []).length;
+    third += (sent.match(thirdRe) || []).length;
+    if (pastRe.test(sent)) past += 1;
+    else if (presentRe.test(sent)) present += 1;
+  });
+  let person = null;
+  if (first >= 3 && first >= third * 2) person = "first";
+  else if (third >= 3 && third >= first * 2) person = "third";
+  let tense = null;
+  if (past >= 5 && past >= present * 2) tense = "past";
+  else if (present >= 5 && present >= past * 2) tense = "present";
+  return { person, tense };
+}
+function toryCheckVpPersist(person, tense) {
+  return persistToryCheckSettings({ viewpoint_person: person, viewpoint_tense: tense }).then(() => {
+    toryCheckVpUi.edit = false;
+    toryCheckVpUi.manual = false;
+    syncToryCheckViewpointBar(toryCheckFloatBody());
+    scheduleToryCheckRefresh({ immediate: true });
+  }).catch(handleError);
+}
+function openToryCheckVpEditor() {
+  toryCheckVpUi.edit = true;
+  toryCheckVpUi.manual = true;
+  toryCheckVpUi.person = toryCheckState.viewpoint_person || "";
+  toryCheckVpUi.tense = toryCheckState.viewpoint_tense || "";
+  syncToryCheckViewpointBar(toryCheckFloatBody());
+}
+function syncToryCheckViewpointBar(body) {
+  if (!body) return;
+  let bar = body.querySelector(".isl-tc-vp");
+  const root = body.querySelector("[data-role='tory-check-root']");
+  if (!root) return;
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.className = "isl-tc-vp";
+    root.before(bar);
+    bar.addEventListener("click", (event) => {
+      const el = event.target.closest?.("[data-vp]");
+      if (!el) return;
+      const act = el.dataset.vp;
+      const pid = Number(state.projectId) || 0;
+      if (act === "later") {
+        toryCheckState.skippedPromptFor = pid;
+        toryCheckVpUi.edit = false;
+        toryCheckVpUi.manual = false;
+        syncToryCheckViewpointBar(body);
+      } else if (act === "edit") {
+        openToryCheckVpEditor();
+      } else if (act === "accept") {
+        const d = toryCheckVpUi.detected || {};
+        if (d.person && d.tense) toryCheckVpPersist(d.person, d.tense);
+      } else if (act === "manual") {
+        toryCheckVpUi.manual = true;
+        toryCheckVpUi.person = toryCheckVpUi.detected?.person || "";
+        toryCheckVpUi.tense = toryCheckVpUi.detected?.tense || "";
+        syncToryCheckViewpointBar(body);
+      } else if (act === "person" || act === "tense") {
+        toryCheckVpUi[act] = el.dataset.value;
+        if (toryCheckVpUi.person && toryCheckVpUi.tense) toryCheckVpPersist(toryCheckVpUi.person, toryCheckVpUi.tense);
+        else syncToryCheckViewpointBar(body);
+      }
+    });
+  }
+  const pid = Number(state.projectId) || 0;
+  const configured = toryCheckViewpointConfigured();
+  const skipped = toryCheckState.skippedPromptFor === pid;
+  const e = escapeHtml;
+  const btn = (act, label, extra = "", on = false) => `<button type="button" class="isl-vp-btn${on ? " is-on" : ""}" data-vp="${act}"${extra}>${e(label)}</button>`;
+  let html = "";
+  if (configured && !toryCheckVpUi.edit) {
+    html = `<div class="isl-vp-chip"><span>${e(toryCheckVpPersonLabel(toryCheckState.viewpoint_person))} · ${e(toryCheckVpTenseLabel(toryCheckState.viewpoint_tense))}</span>${btn("edit", i18n.t("island.vp_칩_수정"))}</div>`;
+  } else if (!configured && skipped && !toryCheckVpUi.edit) {
+    html = `<div class="isl-vp-chip">${btn("edit", i18n.t("island.vp_칩_설정"))}</div>`;
+  } else {
+    if (!toryCheckVpUi.detected && state.sceneId && !toryCheckVpUi.manual) {
+      try { toryCheckVpUi.detected = detectToryCheckViewpoint(getEditorPlainText()); } catch (_) { toryCheckVpUi.detected = { person: null, tense: null }; }
+    }
+    const d = toryCheckVpUi.detected || {};
+    if (!toryCheckVpUi.manual && d.person && d.tense) {
+      const v = `${toryCheckVpPersonLabel(d.person)} ${toryCheckVpTenseLabel(d.tense)}`;
+      html = `<div class="isl-vp-row"><span class="isl-vp-q">${e(i18n.t("island.vp_감지", { v }))}</span><span class="isl-vp-actions">${btn("accept", i18n.t("island.vp_맞아요"), "", true)}${btn("manual", i18n.t("island.vp_직접"))}${configured ? "" : btn("later", i18n.t("island.vp_나중에"))}</span></div>`;
+    } else {
+      const p = toryCheckVpUi.person || toryCheckState.viewpoint_person || "";
+      const t = toryCheckVpUi.tense || toryCheckState.viewpoint_tense || "";
+      html = `<div class="isl-vp-row"><span class="isl-vp-q">${e(i18n.t("island.vp_안내"))}</span></div>
+        <div class="isl-vp-row"><span class="isl-vp-actions">${btn("person", i18n.t("island.vp_1인칭"), ' data-value="first"', p === "first")}${btn("person", i18n.t("island.vp_3인칭"), ' data-value="third"', p === "third")}<i class="isl-vp-sep"></i>${btn("tense", i18n.t("island.vp_과거형"), ' data-value="past"', t === "past")}${btn("tense", i18n.t("island.vp_현재형"), ' data-value="present"', t === "present")}</span>${configured ? "" : `<span class="isl-vp-actions">${btn("later", i18n.t("island.vp_나중에"))}</span>`}</div>`;
+    }
+  }
+  bar.innerHTML = html;
+}
+
 /** 토리 체크 위젯 안의 보기 전환: 실시간 체크 | 맞춤법 (맞춤법 위젯을 합쳤다) */
 let toryCheckFloatView = "check";
 function applyToryCheckFloatView(body) {
@@ -20125,6 +20251,9 @@ function applyToryCheckFloatView(body) {
   seg.querySelectorAll("[data-tc-view]").forEach((b) => b.classList.toggle("is-on", (b.dataset.tcView === "spell") === spell));
   root.hidden = spell;
   host.hidden = !spell;
+  syncToryCheckViewpointBar(body);
+  const vpBar = body.querySelector(".isl-tc-vp");
+  if (vpBar) vpBar.hidden = spell;
   if (spell) adoptDockNode($("spellcheckPanel"), host);
   else restoreDockNode("spellcheckPanel");
 }
@@ -20161,9 +20290,7 @@ function renderDockToryCheckBody(body) {
     if (Number(state.projectId) !== pid) return;
     syncToryCheckChrome(toryCheckFloatBody());
     if (toryCheckFloatView === "spell") return; // 맞춤법 보기에서는 인칭·시제 질문이나 실시간 점검을 띄우지 않는다
-    if (!toryCheckViewpointConfigured() && toryCheckState.skippedPromptFor !== pid) {
-      openToryCheckViewpointModal();
-    }
+    syncToryCheckViewpointBar(toryCheckFloatBody()); // 팝업 대신 위젯 안 배너(자동 감지 포함)
     runToryCheckActiveTab();
   }).catch(handleError);
 }
@@ -20219,7 +20346,7 @@ function dockTrackerFallbackPos() {
 }
 
 function dockWritingTimerFallbackPos() {
-  const width = 316;
+  const width = 340;
   const height = 96;
   const base = dockTrackerFallbackPos();
   return {
@@ -22945,6 +23072,7 @@ function openDockFloatWindow(key, spec, sourceEl) {
     minHeight: resizeCfg?.minHeight,
     onResize: typeof spec.onResize === "function" ? spec.onResize : null,
   });
+  if (ISL_REF_ALL.includes(spec.itemId)) ensureRefSwitcher(win, spec.itemId);
   if (typeof spec.render === "function") spec.render(win.querySelector("[data-role='dock-float-body']"));
   raiseIdeaFloat(win);
   if (typeof spec.onOpen === "function") spec.onOpen(win);
@@ -33097,8 +33225,85 @@ async function refreshAiCheckHub() {
 /* 결과 위젯은 안에 히스토리 전환 버튼이 있어 "히스토리"는 입구에서 뺐고, 도토리 잔량은 체크 탭 아래 "도토리" 칩(상태 표시)으로만 둔다 */
 const ISL_WIDGET_GROUPS = [
   { id: "write", labelKey: "island.위젯_그룹_쓰기", keys: ["writingTimer", "statsTracker", "toryCheck", "toryChat", "aiResult"] },
-  { id: "ref", labelKey: "island.위젯_그룹_자료", keys: ["manuscript", "ideas", "world", "characters", "timeline", "items", "appearances", "dictionary", "baits", "successProfile", "toryVault", "sources", "settingsSearch"] },
+  { id: "ref", labelKey: "island.위젯_그룹_자료", keys: ["manuscript", "refPeople", "refStory", "refLore", "successProfile", "settingsSearch"] },
 ];
+/** 설정집 참조 위젯 3종: 인물·설정 / 이야기 흐름 / 자료·사전 */
+const ISL_REF_HUBS = [
+  { id: "refPeople", nameKey: "island.위젯_참조_인물", icon: "characters", items: ["characters", "world", "items"] },
+  { id: "refStory", nameKey: "island.위젯_참조_이야기", icon: "timeline", items: ["timeline", "appearances", "baits", "ideas"] },
+  { id: "refLore", nameKey: "island.위젯_참조_자료", icon: "toryVault", items: ["dictionary", "toryVault", "sources"] },
+];
+const ISL_REF_LABELS = {
+  characters: "island.참조_캐릭터", world: "island.참조_세계관", items: "island.참조_아이템",
+  timeline: "island.참조_연대기", appearances: "island.참조_등장", baits: "island.참조_떡밥", ideas: "island.참조_생각수첩",
+  dictionary: "island.참조_사전", toryVault: "island.참조_수집창고", sources: "island.참조_출처",
+};
+const ISL_REF_ALL = ISL_REF_HUBS.flatMap((h) => h.items);
+function islRefHubOf(item) {
+  return ISL_REF_HUBS.find((h) => h.items.includes(item)) || null;
+}
+function islRefLastItem(hub) {
+  let last = "";
+  try { last = localStorage.getItem(`supertory.islRefLast.${hub.id}`) || ""; } catch (_) { last = ""; }
+  return hub.items.includes(last) ? last : hub.items[0];
+}
+function islRefOpenItems(hub) {
+  return hub.items.filter((item) => {
+    const key = dockRailFloatKey(item);
+    return key && ideaFloatWindows.has(key);
+  });
+}
+/** 위젯 탭 타일·아이콘 독이 쓰는 공통 열기 */
+function islOpenWidget(key) {
+  const hub = ISL_REF_HUBS.find((h) => h.id === key);
+  if (hub) {
+    const open = islRefOpenItems(hub);
+    // 이미 열려 있으면 닫고, 아니면 마지막으로 보던 탭으로 연다
+    const target = open.length ? open[0] : islRefLastItem(hub);
+    document.querySelector(`[data-dock-item="${target}"]`)?.click();
+    return;
+  }
+  document.querySelector(`[data-dock-item="${key}"]`)?.click();
+}
+function ensureRefSwitcher(win, activeItem) {
+  if (!win || win.querySelector(":scope > .isl-ref-seg")) return;
+  const hub = islRefHubOf(activeItem);
+  if (!hub) return;
+  const seg = document.createElement("div");
+  seg.className = "isl-ref-seg";
+  seg.setAttribute("role", "tablist");
+  seg.title = i18n.t("island.참조_안내");
+  seg.innerHTML = hub.items.map((item) => `<button type="button" data-ref-item="${item}">${escapeHtml(i18n.t(ISL_REF_LABELS[item]))}</button>`).join("");
+  seg.dataset.active = activeItem;
+  seg.querySelectorAll("[data-ref-item]").forEach((b) => b.classList.toggle("is-on", b.dataset.refItem === activeItem));
+  seg.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-ref-item]");
+    if (!btn || btn.dataset.refItem === seg.dataset.active) return;
+    swapRefFloat(seg.dataset.active, btn.dataset.refItem, { keep: event.shiftKey });
+  });
+  const body = win.querySelector("[data-role='dock-float-body']");
+  win.insertBefore(seg, body);
+  seg.querySelector(".is-on")?.scrollIntoView({ block: "nearest", inline: "center" });
+  try { localStorage.setItem(`supertory.islRefLast.${hub.id}`, activeItem); } catch (_) { /* ignore */ }
+}
+function swapRefFloat(fromItem, toItem, { keep = false } = {}) {
+  const fromKey = dockRailFloatKey(fromItem);
+  const win = fromKey ? ideaFloatWindows.get(fromKey) : null;
+  const rect = win ? { left: win.style.left, top: win.style.top, width: win.style.width, height: win.style.height } : null;
+  if (fromKey && !keep) closeIdeaFloat(fromKey, { skipSave: true });
+  const already = ideaFloatWindows.get(dockRailFloatKey(toItem));
+  if (already) { raiseIdeaFloat(already); return; }
+  openDockFloat(toItem, document.querySelector(`[data-dock-item="${toItem}"]`));
+  const next = ideaFloatWindows.get(dockRailFloatKey(toItem));
+  if (next && rect) {
+    const dx = keep ? 28 : 0;
+    if (rect.left) next.style.left = `${(parseFloat(rect.left) || 0) + dx}px`;
+    if (rect.top) next.style.top = `${(parseFloat(rect.top) || 0) + dx}px`;
+    if (rect.width) next.style.width = rect.width;
+    if (rect.height) next.style.height = rect.height;
+  }
+}
+
 /** 왼쪽·오른쪽 레일에 흩어진 위젯을 하나의 목록(그룹별)으로 모은다 — 위젯 탭과 아이콘 독이 같은 목록을 쓴다 */
 function islWidgetItems() {
   const byKey = new Map();
@@ -33111,6 +33316,14 @@ function islWidgetItems() {
       svg: btn.querySelector("svg"),
       open: btn.classList.contains("is-active") || btn.getAttribute("aria-pressed") === "true",
     });
+  });
+  // 설정집 계열은 3개 위젯(인물·설정 / 이야기 흐름 / 자료·사전)으로 묶고, 안에서 탭으로 전환한다
+  ISL_REF_HUBS.forEach((hub) => {
+    const open = hub.items.some((item) => byKey.get(item)?.open);
+    const icon = byKey.get(hub.icon)?.svg || byKey.get(hub.items[0])?.svg || null;
+    if (icon || hub.items.some((item) => byKey.has(item))) {
+      byKey.set(hub.id, { key: hub.id, name: i18n.t(hub.nameKey), svg: icon, open });
+    }
   });
   return ISL_WIDGET_GROUPS.map((g) => ({
     ...g,
@@ -33169,7 +33382,7 @@ function ensureIslWidgetDock() {
     const btn = event.target.closest?.("[data-isl-widget]");
     if (btn) {
       closeIslWidgetDock();
-      document.querySelector(`[data-dock-item="${btn.dataset.islWidget}"]`)?.click();
+      islOpenWidget(btn.dataset.islWidget);
       return;
     }
     if (event.target.closest?.("[data-isl-dock-panel]")) {
@@ -33196,6 +33409,7 @@ function renderIslWidgetDock() {
       b.className = `isl-wd${item.open ? " is-open" : ""}`;
       b.dataset.islWidget = item.key;
       b.title = item.name;
+      b.dataset.label = item.name;
       b.setAttribute("aria-label", item.name);
       const icon = islWidgetIcon(item.svg, 18);
       if (icon) b.appendChild(icon);
@@ -33204,11 +33418,17 @@ function renderIslWidgetDock() {
     dock.appendChild(row);
   });
   if (document.body.classList.contains("ai-panel-collapsed") && !document.body.classList.contains("focus-write-open")) {
+    const sep = document.createElement("i");
+    sep.className = "isl-wdock-sep";
+    dock.appendChild(sep);
     const foot = document.createElement("button");
     foot.type = "button";
-    foot.className = "isl-wdock-panel";
+    foot.className = "isl-wd isl-wdock-panel";
     foot.dataset.islDockPanel = "1";
-    foot.textContent = i18n.t("island.패널_펼치기");
+    foot.dataset.label = i18n.t("island.패널_펼치기");
+    foot.title = i18n.t("island.패널_펼치기");
+    foot.setAttribute("aria-label", i18n.t("island.패널_펼치기"));
+    foot.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>';
     dock.appendChild(foot);
   }
 }
@@ -33323,7 +33543,7 @@ function setupAiCheckHub() {
   $("islWidgetTiles")?.addEventListener("click", (event) => {
     const tile = event.target.closest?.("[data-isl-widget]");
     if (!tile) return;
-    document.querySelector(`[data-dock-item="${tile.dataset.islWidget}"]`)?.click();
+    islOpenWidget(tile.dataset.islWidget);
   });
   $("islTimerToggle")?.addEventListener("click", () => {
     try { ensurePomodoroState(); togglePomodoro(); } catch (error) { handleError(error); }

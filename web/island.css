@@ -1794,7 +1794,7 @@ main { padding-left: 0 !important; padding-right: 0 !important; }
 
 /* ═════ 기록·타이머 위젯 (알약 한 줄 + 공용 설정 팝오버) — 시안 timer-widget-v6 ═════ */
 .idea-float.dock-float.dock-float-writing-timer {
-  width: 316px !important; min-width: 0 !important; height: auto !important; min-height: 0 !important; max-height: none !important;
+  width: 340px !important; min-width: 0 !important; height: auto !important; min-height: 0 !important; max-height: none !important;
 }
 .idea-float.dock-float.dock-float-writing-timer .idea-float-resize { display: none !important; }
 .idea-float.dock-float.dock-float-writing-timer .idea-float-body { padding: 10px 12px 12px !important; overflow: visible !important; }
@@ -2140,3 +2140,36 @@ body.binder-panel-collapsed:not(.binder-mini):not(.focus-write-open) .isl-binder
 .isl-chat-seg { display: flex; gap: 2px; padding: 3px; margin: 0 0 8px; background: var(--isl-sunk); border-radius: 10px; flex: none; }
 .isl-chat-seg button { flex: 1; border: 0 !important; background: transparent !important; padding: 4px 8px; border-radius: 8px !important; color: var(--isl-ink2); font-size: 12.5px; font-weight: 400; cursor: pointer; box-shadow: none !important; white-space: nowrap; }
 .isl-chat-seg button.is-on { background: var(--panel) !important; color: var(--text-primary); box-shadow: 0 0 0 1px var(--line) !important; }
+
+/* 설정집 참조 위젯: 안에서 탭 전환(가로 스크롤) */
+.isl-ref-seg { display: flex; gap: 2px; margin: 6px 10px 2px; padding: 3px; background: var(--isl-sunk); border-radius: 10px; overflow-x: auto; flex: none; scrollbar-width: none; }
+.isl-ref-seg::-webkit-scrollbar { display: none; }
+.isl-ref-seg button { flex: none; border: 0 !important; background: transparent !important; padding: 4px 10px; border-radius: 8px !important; color: var(--isl-ink2); font-size: 12.5px; font-weight: 400; cursor: pointer; box-shadow: none !important; white-space: nowrap; }
+.isl-ref-seg button.is-on { background: var(--panel) !important; color: var(--text-primary); box-shadow: 0 0 0 1px var(--line) !important; }
+
+/* 아이콘 독: 세로 한 줄 (시안 ④) — 이름은 마우스를 올리면 왼쪽에 말풍선 */
+.isl-wdock { width: auto !important; align-items: center; gap: 4px; padding: 6px !important; right: 14px; bottom: 126px; border-radius: 16px; }
+.isl-wdock-grid { display: flex !important; flex-direction: column; gap: 4px; grid-template-columns: none; }
+.isl-wdock .isl-wd { position: relative; width: 38px; height: 38px; aspect-ratio: auto; border-radius: 11px !important; }
+.isl-wdock-sep { width: 22px; margin: 2px 0; }
+.isl-wdock .isl-wdock-panel { background: transparent !important; color: var(--isl-ink3) !important; padding: 0 !important; font-size: 0; }
+.isl-wdock .isl-wd:hover::after {
+  content: attr(data-label); position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+  padding: 3px 9px; border-radius: 99px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 1px 6px rgba(31, 36, 41, 0.12);
+  color: var(--text-primary); font-size: 12px; line-height: 1.5; white-space: nowrap; pointer-events: none; z-index: 2;
+}
+body.focus-write-open .isl-wdock { right: 12px; }
+
+/* 토리 체크 위젯: 인칭·시제 인라인 배너 (팝업 대신) */
+.isl-tc-vp[hidden] { display: none !important; }
+.isl-tc-vp { margin: 0 0 8px; }
+.isl-tc-vp:empty { display: none; }
+.isl-vp-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 8px; padding: 8px 10px; background: var(--accent-soft, var(--isl-sunk)); border-radius: 10px; }
+.isl-vp-row + .isl-vp-row { margin-top: 4px; }
+.isl-vp-q { font-size: 12.5px; color: var(--text-primary); }
+.isl-vp-actions { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.isl-vp-btn { border: 0 !important; background: var(--panel) !important; color: var(--isl-ink2) !important; border-radius: 8px !important; padding: 4px 10px; font-size: 12px; font-weight: 400; cursor: pointer; box-shadow: 0 0 0 1px var(--line) !important; }
+.isl-vp-btn.is-on { background: var(--accent) !important; color: var(--accent-ink, white) !important; box-shadow: none !important; }
+.isl-vp-sep { width: 1px; height: 14px; background: var(--line); margin: 0 2px; }
+.isl-vp-chip { display: inline-flex; align-items: center; gap: 8px; padding: 3px 4px 3px 10px; background: var(--isl-sunk); border-radius: 99px; font-size: 12px; color: var(--isl-ink2); }
+.isl-vp-chip .isl-vp-btn { box-shadow: none !important; background: transparent !important; color: var(--accent) !important; padding: 2px 8px; }

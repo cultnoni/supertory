@@ -214,6 +214,13 @@ class IslandDesignContractTests(unittest.TestCase):
         self.assertIn("--isl-binder-rail-w: 0px", self.css)
         self.assertIn("body.binder-panel-collapsed.binder-mini { --isl-binder-rail-w: 44px", self.css)
 
+    def test_widget_default_size_is_unified(self) -> None:
+        # 위젯 기본 크기 통일(340x460) — 작은 위젯(기록·타이머·글자수)만 예외
+        self.assertIn("const DOCK_WIDGET_STD_W = 340;", self.js)
+        self.assertIn("const DOCK_WIDGET_STD_H = 460;", self.js)
+        for name in ("TORY_CHECK", "AI_CHAT", "AI_RESULT", "MANUSCRIPT", "SUCCESS_PROFILE"):
+            self.assertIn(f"const DOCK_{name}_DEFAULT_W = DOCK_WIDGET_STD_W;", self.js)
+
     def test_island_css_uses_theme_variables_not_brand_hex(self) -> None:
         # 색은 기존 테마 변수로. 라이트·샌드 팔레트 정의 블록(data-theme/data-ui-theme × html/body)과 그림자·링은 예외.
         body = re.sub(
