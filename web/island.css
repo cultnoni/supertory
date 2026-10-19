@@ -2028,7 +2028,7 @@ body.isl-rail-right #workArea { margin-right: var(--isl-rail-r, 0px) !important;
 
 .isl-rail { align-items: start; }
 .isl-rail-drop-line { position: absolute; height: 3px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft, transparent); pointer-events: none; z-index: 5; }
-body.isl-snap-left::before, body.isl-snap-right::before { content: ""; position: fixed; top: 54px; bottom: 12px; width: 360px; border-radius: 14px; background: var(--accent-soft, transparent); outline: 2px dashed var(--accent); outline-offset: -2px; pointer-events: none; z-index: 210; }
+body.isl-snap-left::before, body.isl-snap-right::before { content: ""; position: fixed; top: var(--isl-snap-top, 54px); bottom: var(--isl-snap-bottom, 12px); width: var(--isl-snap-w, 340px); border-radius: 14px; background: var(--accent-soft, transparent); outline: 2px dashed var(--accent); outline-offset: -2px; pointer-events: none; z-index: 210; }
 body.isl-snap-left::before { left: var(--isl-snap-left, 300px); }
 body.isl-snap-right::before { right: var(--isl-snap-right, 12px); }
 

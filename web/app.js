@@ -33415,6 +33415,13 @@ function islRailAreaEl() {
 }
 /** 레일 한 칸의 최소 폭. 여백이 이보다 좁아도 화면 밖으로 잘리게 두지 않고 이 폭까지는 유지한다. */
 const ISL_RAIL_MIN_W = 180;
+/** 레일 한 칸이 실제로 쓸 폭 — 레일 배치(islRailLayout)와 드롭 안내선(islSnapHint)이 같은 값을 쓴다. */
+function islRailFitWidth(side, area) {
+  if (!area) return DOCK_WIDGET_STD_W;
+  const margin = side === "left" ? area.left : (window.innerWidth - area.right);
+  const maxFit = Math.floor(margin - ISL_RAIL_GAP);
+  return maxFit >= DOCK_WIDGET_STD_W ? DOCK_WIDGET_STD_W : Math.max(ISL_RAIL_MIN_W, maxFit);
+}
 /** 좌·우 레일은 각자 담긴 위젯이 있으면 그대로 보인다 — 어느 한쪽을 "켠" 상태라는 개념 없이
  *  두 레일이 항상 동시에 쓸 수 있고, 위젯을 놓은 자리를 기준으로 독립적으로 정렬된다.
  *  여백이 표준 폭(340px)보다 좁으면(예: 큰 창 모드) 화면 밖으로 잘리지 않도록 폭을 줄인다. */
@@ -33429,13 +33436,7 @@ function islRailLayout() {
     rail.hidden = !active;
     body.classList.toggle(`isl-rail-${side}`, active);
     if (!active) return;
-    let width = DOCK_WIDGET_STD_W;
-    if (area) {
-      const margin = side === "left" ? area.left : (window.innerWidth - area.right);
-      const maxFit = Math.floor(margin - ISL_RAIL_GAP);
-      width = maxFit >= DOCK_WIDGET_STD_W ? DOCK_WIDGET_STD_W : Math.max(ISL_RAIL_MIN_W, maxFit);
-    }
-    widths[side] = width;
+    widths[side] = islRailFitWidth(side, area);
   });
   body.style.setProperty("--isl-rail-l", widths.left ? `${widths.left + ISL_RAIL_GAP}px` : "0px");
   body.style.setProperty("--isl-rail-r", widths.right ? `${widths.right + ISL_RAIL_GAP}px` : "0px");
@@ -33467,7 +33468,7 @@ const ISL_SNAP_EDGE = 90;
 let islSnapWin = null;
 let islSnapMoved = false;
 function islSnapZone(x, y) {
-  const area = $("workArea")?.getBoundingClientRect();
+  const area = islRailAreaEl()?.getBoundingClientRect();
   for (const side of ["left", "right"]) {
     const railEl = $(side === "right" ? "islWidgetRailR" : "islWidgetRailL");
     if (railEl && !railEl.hidden) {
@@ -33499,10 +33500,15 @@ function islSnapIndex(x, y, skip, side) {
 function islSnapHint(zone, x, y) {
   let line = $("islRailDropLine");
   if (!zone) { line?.remove(); document.body.classList.remove("isl-snap-left", "isl-snap-right"); return; }
-  const areaR = $("workArea")?.getBoundingClientRect();
+  const areaR = islRailAreaEl()?.getBoundingClientRect();
   if (areaR) {
-    document.body.style.setProperty("--isl-snap-left", `${Math.round(areaR.left)}px`);
-    document.body.style.setProperty("--isl-snap-right", `${Math.round(window.innerWidth - areaR.right)}px`);
+    // 점선 안내 박스는 본문 가장자리가 아니라, 실제로 레일이 생길 자리(폭 포함)를 그대로 보여준다
+    const snapW = islRailFitWidth(zone.side, areaR);
+    document.body.style.setProperty("--isl-snap-w", `${Math.round(snapW)}px`);
+    document.body.style.setProperty("--isl-snap-left", `${Math.round(areaR.left - snapW - ISL_RAIL_GAP)}px`);
+    document.body.style.setProperty("--isl-snap-right", `${Math.round(window.innerWidth - areaR.right - snapW - ISL_RAIL_GAP)}px`);
+    document.body.style.setProperty("--isl-snap-top", `${Math.round(Math.max(areaR.top, 0))}px`);
+    document.body.style.setProperty("--isl-snap-bottom", `${Math.round(Math.max(window.innerHeight - areaR.bottom, 0))}px`);
   }
   document.body.classList.toggle("isl-snap-left", !zone.inRail && zone.side === "left");
   document.body.classList.toggle("isl-snap-right", !zone.inRail && zone.side === "right");
