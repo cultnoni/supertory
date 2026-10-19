@@ -19827,14 +19827,14 @@ function toryCheckChromeHtml() {
     <div class="tory-check" data-role="tory-check-root">
       <div class="tory-check-toolbar">
         <div class="tory-check-tabs" role="tablist">${tabButtons}</div>
-        <div class="tory-check-preset">
-          <label for="toryCheckPreset">${escapeHtml(i18n.t("index.프리셋"))}</label>
-          <select id="toryCheckPreset" data-role="tory-check-preset">
-            <option value="strict">${escapeHtml(i18n.t("index.엄격"))}</option>
-            <option value="normal">${escapeHtml(i18n.t("index.보통"))}</option>
-            <option value="loose">${escapeHtml(i18n.t("index.느슨"))}</option>
-          </select>
-        </div>
+      </div>
+      <div class="tory-check-preset">
+        <label for="toryCheckPreset">${escapeHtml(i18n.t("index.프리셋"))}</label>
+        <select id="toryCheckPreset" data-role="tory-check-preset">
+          <option value="strict">${escapeHtml(i18n.t("index.엄격"))}</option>
+          <option value="normal">${escapeHtml(i18n.t("index.보통"))}</option>
+          <option value="loose">${escapeHtml(i18n.t("index.느슨"))}</option>
+        </select>
       </div>
       <div class="tory-check-result" data-role="tory-check-result"></div>
     </div>`;

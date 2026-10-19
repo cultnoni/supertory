@@ -11617,7 +11617,7 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
 }
 .tory-check-tabs {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 3px;
   min-width: 0;
   flex: 1 1 auto;
@@ -11656,9 +11656,10 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
 .tory-check-preset {
   flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 76px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 .tory-check-preset label {
   font-size: 10px;
@@ -11667,7 +11668,8 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
 .tory-check-preset select {
   font-size: 12px;
   padding: 3px 4px;
-  max-width: 88px;
+  flex: 0 1 auto;
+  max-width: 160px;
 }
 .tory-check-result {
   flex: 1 1 auto;
