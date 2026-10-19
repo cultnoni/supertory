@@ -33409,9 +33409,18 @@ function islRailRebalance() {
     islRailDock(win, { top: false, side });
   });
 }
+/** 레일 기준 영역: 평소엔 작업 영역, 큰 창(확장) 모드에서는 그 안의 원고 시트를 기준으로
+ *  좌·우 빈 공간을 다시 계산한다 — 그래야 확장 시 레일 위젯이 새 여백을 따라간다. */
+function islRailAreaEl() {
+  if (document.body.classList.contains("focus-write-open")) {
+    const sheet = document.querySelector(".focus-write-sheet");
+    if (sheet && sheet.getBoundingClientRect().width > 0) return sheet;
+  }
+  return $("workArea");
+}
 function islRailLayout() {
   islRailRebalance();
-  const area = $("workArea")?.getBoundingClientRect();
+  const area = islRailAreaEl()?.getBoundingClientRect();
   const body = document.body;
   const split = islRailIsSplit();
   const widths = { left: 0, right: 0 };
@@ -33568,6 +33577,8 @@ function setupIslRail() {
     const ro = new ResizeObserver(scheduleIslRailLayout);
     const work = $("workArea");
     if (work) ro.observe(work);
+    const sheet = document.querySelector(".focus-write-sheet");
+    if (sheet) ro.observe(sheet);
   }
   setupIslRailSnap();
   // 레일 안 위젯의 제목줄을 끌면 레일에서 떼어 떠 있는 위젯으로
@@ -58612,7 +58623,9 @@ function openFocusWrite() {
   applyFocusWriteA4Spread(loadFocusWriteA4Spread() && !state.splitEnabled, { persist: false });
   syncFocusWriteSpreadAvailability();
 
+  if (typeof scheduleIslRailLayout === "function") scheduleIslRailLayout();
   requestAnimationFrame(() => {
+    if (typeof scheduleIslRailLayout === "function") scheduleIslRailLayout();
     if (isFocusWriteA4Spread()) return;
     focusEd.setAttribute("contenteditable", "true");
     try {
@@ -58659,7 +58672,9 @@ function closeFocusWrite() {
   // Return 다른 씬 pane to the main workspace layout
   if (state.splitEnabled) applySplitLayout();
   else syncSplitViewerHost();
+  if (typeof scheduleIslRailLayout === "function") scheduleIslRailLayout();
   requestAnimationFrame(() => {
+    if (typeof scheduleIslRailLayout === "function") scheduleIslRailLayout();
     try {
       mainEd?.focus({ preventScroll: true });
     } catch (_) {
