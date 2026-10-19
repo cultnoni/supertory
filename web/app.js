@@ -33346,7 +33346,6 @@ const ISL_RAIL_GAP = 8;
 let islRailSide = "";
 let islAlignUndo = null;
 let islRailObserver = null;
-let islRailWasSplit = false;
 function islRailEl(side) {
   const id = side === "right" ? "islWidgetRailR" : "islWidgetRailL";
   let rail = $(id);
@@ -33369,15 +33368,12 @@ function islRailWindows(side = "") {
 function islRailOther(side) {
   return side === "left" ? "right" : "left";
 }
-function islRailIsSplit() {
-  return Boolean(islRailSide) && document.body.classList.contains("binder-panel-collapsed") && document.body.classList.contains("ai-panel-collapsed");
-}
 function islRailDock(win, { top = true, side = "" } = {}) {
   if (!win) return;
   let target = side;
   if (!target) {
     target = islRailSide || "left";
-    if (islRailIsSplit() && islRailWindows(target).length > islRailWindows(islRailOther(target)).length) target = islRailOther(target);
+    if (islRailWindows(target).length > islRailWindows(islRailOther(target)).length) target = islRailOther(target);
   }
   if (!win.classList.contains("is-railed")) {
     win.classList.add("is-railed");
@@ -33397,18 +33393,6 @@ function islRailUndock(win, rect = null) {
   win.style.width = `${Math.round(r.width)}px`;
   win.style.height = `${Math.round(r.height)}px`;
 }
-/** 접힘 상태가 바뀌면 위젯을 한쪽 레일로 모으거나(패널이 열림) 좌·우로 나눈다(양쪽 접힘) */
-function islRailRebalance() {
-  const split = islRailIsSplit();
-  if (split === islRailWasSplit) return;
-  islRailWasSplit = split;
-  if (!islRailSide) return;
-  const all = [...islRailWindows(islRailSide), ...islRailWindows(islRailOther(islRailSide))];
-  all.forEach((win, i) => {
-    const side = split ? (i % 2 === 0 ? islRailSide : islRailOther(islRailSide)) : islRailSide;
-    islRailDock(win, { top: false, side });
-  });
-}
 /** 레일 기준 영역: 평소엔 작업 영역, 큰 창(확장) 모드에서는 그 안의 원고 시트를 기준으로
  *  좌·우 빈 공간을 다시 계산한다 — 그래야 확장 시 레일 위젯이 새 여백을 따라간다. */
 function islRailAreaEl() {
@@ -33418,16 +33402,16 @@ function islRailAreaEl() {
   }
   return $("workArea");
 }
+/** 좌·우 레일은 각자 담긴 위젯이 있으면 그대로 보인다 — 어느 한쪽을 "켠" 상태라는 개념 없이
+ *  두 레일이 항상 동시에 쓸 수 있고, 위젯을 놓은 자리를 기준으로 독립적으로 정렬된다. */
 function islRailLayout() {
-  islRailRebalance();
   const area = islRailAreaEl()?.getBoundingClientRect();
   const body = document.body;
-  const split = islRailIsSplit();
   const widths = { left: 0, right: 0 };
   ["left", "right"].forEach((side) => {
     const rail = islRailEl(side);
     const wins = islRailWindows(side);
-    const active = Boolean(islRailSide) && wins.length > 0 && (split || side === islRailSide);
+    const active = wins.length > 0;
     rail.hidden = !active;
     body.classList.toggle(`isl-rail-${side}`, active);
     if (active) widths[side] = DOCK_WIDGET_STD_W;
@@ -33538,14 +33522,11 @@ function setupIslRailSnap() {
     if (!win || !zone || !win.isConnected) return;
     window.setTimeout(() => {
       if (!win.isConnected) return;
-      const split = islRailIsSplit();
       const idx = islSnapIndex(event.clientX, event.clientY, win, zone.side);
-      if (!islRailSide) islAlignWidgets(zone.side);
-      else if (!split && islRailSide !== zone.side) islRailSide = zone.side;
-      const target = split || islRailSide === zone.side ? zone.side : islRailSide;
-      islRailDock(win, { top: false, side: target });
-      const ref = islRailWindows(target).filter((w) => w !== win)[idx];
-      if (ref) islRailEl(target).insertBefore(win, ref); else islRailEl(target).appendChild(win);
+      islRailSide = islRailSide || zone.side;
+      islRailDock(win, { top: false, side: zone.side });
+      const ref = islRailWindows(zone.side).filter((w) => w !== win)[idx];
+      if (ref) islRailEl(zone.side).insertBefore(win, ref); else islRailEl(zone.side).appendChild(win);
       rememberIdeaFloatLayout(win, [...ideaFloatWindows.entries()].find(([, w]) => w === win)?.[0]);
       islRailLayout();
       syncIslAlignButtons();
@@ -33612,15 +33593,14 @@ function islAlignWidgets(side) {
   }
   const prev = islRailSide;
   islRailSide = side;
-  islRailWasSplit = islRailIsSplit();
   if (prev) {
     // 한쪽에서 반대쪽으로 옮길 때: 모두 새 쪽 레일로
-    islRailWindows().forEach((win) => islRailDock(win, { top: false, side: islRailIsSplit() ? win.parentElement.dataset.railSide : side }));
+    islRailWindows().forEach((win) => islRailDock(win, { top: false, side }));
   }
   // 이미 열린 위젯: 작은 위젯(타이머·글자수)이 위, 나머지는 현재 위치(위→아래) 순
   const loose = [...ideaFloatWindows.values()].filter((win) => win?.isConnected && !win.classList.contains("is-railed"));
   loose.sort((x, y) => (Number(y.classList.contains("dock-float-mini")) - Number(x.classList.contains("dock-float-mini"))) || (x.getBoundingClientRect().top - y.getBoundingClientRect().top));
-  loose.forEach((win, i) => islRailDock(win, { top: false, side: islRailIsSplit() ? (i % 2 === 0 ? side : islRailOther(side)) : side }));
+  loose.forEach((win) => islRailDock(win, { top: false, side }));
   islRailLayout();
   syncIslAlignButtons();
   window.dispatchEvent(new Event("resize"));
@@ -33628,7 +33608,6 @@ function islAlignWidgets(side) {
 function islAlignRestore() {
   const wasOn = Boolean(islRailSide);
   islRailSide = "";
-  islRailWasSplit = false;
   const undo = islAlignUndo;
   islAlignUndo = null;
   islRailWindows().forEach((win) => {
@@ -33761,20 +33740,12 @@ function renderIslWidgetDock() {
     });
     dock.appendChild(row);
   });
-  const alignSep = document.createElement("i");
-  alignSep.className = "isl-wdock-sep isl-wdock-align-sep";
-  dock.appendChild(alignSep);
-  const alignBox = document.createElement("div");
-  alignBox.className = "isl-wdock-grid isl-wdock-align";
-  alignBox.innerHTML = islAlignButtons(false);
-  dock.appendChild(alignBox);
-  syncIslAlignButtons();
 }
 function isIslWidgetDockOpen() {
   return Boolean($("islWidgetDock") && !$("islWidgetDock").hidden);
 }
-/** 아이콘 독(패널 접힘 상태): 열린 오른쪽 패널과 동일한 세로 길이·위치에 맞춰 고정하고,
- *  칸이 모자라면 좌우정렬 묶음부터 숨긴다. 집중 모드(focus-write-open)는 기존 중앙 배치를 그대로 둔다. */
+/** 아이콘 독(패널 접힘 상태): 열린 오른쪽 패널과 동일한 세로 길이·위치에 맞춰 고정한다.
+ *  집중 모드(focus-write-open)는 기존 중앙 배치를 그대로 둔다. */
 function layoutIslWidgetDock() {
   const dock = $("islWidgetDock");
   if (!dock || dock.hidden) return;

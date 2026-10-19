@@ -1967,7 +1967,7 @@ body.binder-panel-collapsed:not(.binder-mini):not(.focus-write-open) .isl-binder
 
 /* 아이콘 독: 세로 한 줄 (시안 ④) — 이름은 마우스를 올리면 왼쪽에 말풍선
    패널을 접었을 때는 열린 오른쪽 패널과 동일한 세로 길이·위치로 고정(top/bottom/right는 JS가 지정),
-   타이틀바 쪽으로는 올라가지 않는다. 칸이 모자라면 .is-compact가 좌우정렬 묶음을 먼저 숨긴다. */
+   타이틀바 쪽으로는 올라가지 않는다. */
 .isl-wdock { width: auto !important; align-items: center; gap: 4px; padding: 10px 6px !important; justify-content: flex-start; }
 /* 왼쪽 바인더 패널 카드와 같은 모양: 위·아래가 본문과 맞춰지고 네 모서리가 똑같이 둥글다 */
 body.isl-wdock-open:not(.focus-write-open) .isl-wdock {
@@ -1984,8 +1984,6 @@ body.isl-wdock-open:not(.focus-write-open) .isl-wdock {
   padding: 3px 9px; border-radius: 99px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 1px 6px rgba(31, 36, 41, 0.12);
   color: var(--text-primary); font-size: 12px; line-height: 1.5; white-space: nowrap; pointer-events: none; z-index: 2;
 }
-.isl-wdock.is-compact .isl-wdock-align,
-.isl-wdock.is-compact .isl-wdock-align-sep { display: none !important; }
 body.focus-write-open .isl-wdock { right: 12px; border-radius: 16px; border: 1px solid var(--line) !important; }
 /* 독이 열려 있는 동안은 마스코트를 숨긴다(독 안에 마스코트가 같이 보이지 않도록) */
 body.isl-wdock-open:not(.focus-write-open) .isl-ai-badge { display: none !important; }
