@@ -7,10 +7,11 @@ Guidance for AI coding agents working in this repository.
 **SuperTory** is a **local-only** Korean writing app (Scrivener-like).  
 No cloud account, no install step: double-click `start_supertory.bat` → browser at `http://127.0.0.1:8765`.
 
-- **Source of truth for writing:** `data/supertory.sqlite3` (`start_supertory.bat` / `python app.py` / **dev Electron `npm start` or `electron .`**. Packaged SuperTory.exe still uses `%APPDATA%\supertory\data`.)
+- **Source of truth for writing:** `supertory.sqlite3`, location decided by `resolve_writable_data_dir()` in `app.py`. **Default for every run mode — `start_supertory.bat`, `python app.py`, dev Electron `npm start`/`electron .`, and the packaged `.exe` — is the shared `%APPDATA%\supertory\data` folder.** Only `SUPERTORY_DB_MODE=isolated` (set by `start_supertory_isolated.bat` / `npm run start:isolated`) points at the repo's own `data/`. Don't assume `python app.py` writes to repo `data/` — check which mode is active before reading/seeding a DB for debugging.
 - **External “open this work” handles:** `projects/*.stg` (not the full manuscript)
 - **UI:** static files under `web/` served by a small Python HTTP server in `app.py`
-- **AI (optional):** Gemini via `.env` (`GEMINI_API_KEY`) — never commit secrets
+- **AI (optional):** Gemini via `.env` (`GEMINI_API_KEY`, AI 패널) and Claude via `.env` (`ANTHROPIC_API_KEY`, 첨삭 피드백 파이프라인) — never commit secrets
+- **Cloud sync (optional, login-gated):** Supabase pairing for desktop↔phone (`sync/`), used only if the user signs in from the admin user-management tab. Blank `SUPABASE_URL`/`SUPABASE_ANON_KEY` → fully offline; never make a feature require this.
 
 User-facing docs live in `README.md` (Korean). Prefer matching that product language and tone in UI strings.
 
@@ -20,10 +21,14 @@ User-facing docs live in `README.md` (Korean). Prefer matching that product lang
 
 | Layer | Tech |
 |--------|------|
-| Server / API | Python 3, stdlib `http.server` + SQLite (`app.py`) |
+| Server / API | Python 3, stdlib `http.server` + SQLite (`app.py`, huge — search before editing) |
 | Frontend | Vanilla JS / HTML / CSS (`web/app.js`, `index.html`, `styles.css`) — no bundler |
-| Schema | Ordered SQL migrations in `db/` |
-| Packages | `document_import.py`, `document_export.py`, `project_package.py`, `gemini_client.py`, `korean_speller.py`, `env_loader.py` |
+| Schema | Ordered SQL (and a few `.py` data-migration) files in `db/` |
+| Desktop packaging | Electron (`electron/main.js`, `electron-builder` in `package.json`) + `electron-updater` |
+| Services / repositories | Newer features (translation, typeset, scene content, conflict resolution) factor logic into `services/*_service.py` over `repositories/*_repository.py` instead of inline handlers in `app.py` — follow that split for new work in those areas, but don't force-migrate older `app.py` handlers as a drive-by |
+| AI pipelines | `gemini_client.py` (AI 패널, optional), `feedback_pipeline/` + `feedback_api.py` + `feedback_store.py` (Claude 첨삭/문학 피드백, optional) |
+| Cloud sync | `sync/` (Supabase auth/pairing, optional) + `supabase/` (its own migrations, separate from `db/`) |
+| Packages | `document_import.py`, `document_export.py`, `project_package.py`, `korean_speller.py`, `env_loader.py`, `folder_tree.py`, `genre_clusters.py` |
 
 Default port: **8765** (`HOST=127.0.0.1`).
 
@@ -37,25 +42,44 @@ web/
   index.html           # Single-page shell
   app.js               # All client logic (large; search before editing)
   styles.css           # All styles
+  island.css           # 섬과 종이 design layer, loaded after styles.css
+  locales/{ko,en,es}.json
+  dev/main-design-v4.html  # Living design mock
 db/
   001_initial_schema.sql
-  002_….sql …          # Incremental migrations
+  002_….sql / NNN_….py  # Incremental migrations (mostly SQL, a few data-backfill .py)
   README.md
-data/                  # Runtime DB + illustrations (gitignored)
+services/              # Business logic for newer features (translation, typeset, scene content, conflicts)
+repositories/          # DB access backing services/
+feedback_pipeline/     # Claude 첨삭/문학 피드백 runner, CLI (`__main__.py`), prompts/
+sync/                  # Optional Supabase auth + desktop↔phone pairing (local writing works without it)
+supabase/              # Cloud-side schema migrations for sync/ (separate from db/)
+electron/              # Desktop shell: main.js, preload.js, backend launch/stop
+scripts/               # Build/release/one-off maintenance scripts (build_backend.py, backfill_*.py, e2e_*.py)
+docs/                  # design-guidelines.md, feedback_api.md, literary-pipeline.md
+data/                  # Runtime DB + illustrations (gitignored; default location is %APPDATA%\supertory\data, see "What this is")
 projects/              # *.stg package files
-tests/                 # unittest
-start_supertory.bat   # Windows launcher
+tests/                 # unittest (+ fixtures/, _qa_*.py smoke scripts)
+start_supertory.bat    # Windows launcher (shared AppData DB)
+start_supertory_isolated.bat  # Windows launcher against repo data/
 ```
 
-Do **not** commit: `.env`, `data/*.sqlite3`, illustration binaries, `__pycache__/`.
+Do **not** commit: `.env`, `data/*.sqlite3`, illustration binaries, `__pycache__/`, `node_modules/`, `dist/`.
 
 ---
 
 ## Commands
 
 ```bash
-# Run app (from repo root)
+# Run app (from repo root) — writes to shared %APPDATA%\supertory\data by default
 python app.py
+
+# Run against the repo's own data/ instead (matches start_supertory_isolated.bat)
+SUPERTORY_DB_MODE=isolated python app.py
+
+# Dev Electron shell (same default DB location rules as above)
+npm start                 # shared AppData
+npm run start:isolated    # repo data/
 
 # Schema / unit tests
 python -m unittest discover -s tests -v
@@ -69,7 +93,7 @@ npm run lint:web
 python -m unittest tests.test_web_js_undef -v
 ```
 
-Windows: `start_supertory.bat` (uses a fixed local Python path in that file).
+Windows: `start_supertory.bat` (uses a fixed local Python path in that file) / `start_supertory_isolated.bat` for repo-local data.
 
 ---
 
@@ -95,10 +119,11 @@ See `db/README.md` for FTS rebuild notes.
 ### Domain model (high level)
 
 - **project** → chapters → **scenes** (manuscript units; content is HTML/MD in revisions)
-- **characters**, aliases, scene membership / POV  
-- **settings docs** on project: synopsis, logline, worldbuilding, intro/intent, keywords, genre, purpose  
-- **ideas** (idea bank sticky notes)  
-- scene extras: illustrations, reference links, goals, author notes  
+- **characters**, aliases, scene membership / POV, relations (`character_relations.py`)
+- **settings docs** on project: synopsis, logline, worldbuilding, intro/intent, keywords, genre, purpose, `literary_form` (단편/장편 for 일반문학/순문학 projects — see `docs/literary-pipeline.md`)
+- **ideas** (idea bank sticky notes)
+- **feedback_run / feedback_card**: 첨삭 피드백 실행 기록과 카드 (`feedback_pipeline/`, `feedback_api.py`, `feedback_store.py`) — see `docs/feedback_api.md` for status/polling contract
+- scene extras: illustrations, reference links, goals, author notes
 - writing log / prefs / mobile-related endpoints exist under `/api/writing/…`
 
 Prefer reusing existing serializers and word-count helpers rather than inventing parallel formats.
@@ -165,6 +190,11 @@ Many UX prefs use `localStorage` keys prefixed `supertory.` (theme, ink, viewer,
 | HWP/DOCX 통합 추출·파이프라인 | `proof_extract.py` (pyhwp / python-docx), `proof_pipeline.py`, `POST /api/projects/{id}/proof-pipeline`, import `proof_pipeline` · deps in `requirements-proof.txt` |
 | `.stg` packages | `project_package.py` |
 | Gemini AI panel | `gemini_client.py`, SuperTORY UI |
+| 첨삭 피드백 파이프라인 (웹소설/문학) | `feedback_pipeline/`, `feedback_api.py`, `feedback_store.py`, `docs/feedback_api.md`, `docs/literary-pipeline.md` |
+| 번역(번역 작업/용어/세그먼트) | `services/translation_*_service.py`, `repositories/translation_*_repository.py`, `translation_prompts.py`, `translation_context.py` |
+| 조판 내보내기 (플랫폼별 DOCX) | `typeset_export.py`, `services/typeset_service.py`, `repositories/typeset_repository.py` |
+| 데스크톱 동기화/페어링 (선택) | `sync/`, `supabase/`, admin user-management 탭에서 로그인해야 활성화 |
+| Electron 패키징 / 자동 업데이트 | `electron/main.js`, `electron-builder` 설정(`package.json`), `scripts/build_backend.py`, `update-feed.json` |
 | Spellcheck | `korean_speller.py` |
 | Illustrations | `data/illustrations/`, illustration APIs |
 
@@ -173,8 +203,9 @@ Many UX prefs use `localStorage` keys prefixed `supertory.` (theme, ink, viewer,
 ## Testing expectations
 
 - Prefer **unittest** under `tests/`  
-- Use temp DB / isolated `DATA_DIR` patterns already in tests — don’t point tests at the user’s real `data/supertory.sqlite3`  
+- Use temp DB / isolated `DATA_DIR` patterns already in tests — don’t point tests at the user’s real shared-AppData or repo `data/supertory.sqlite3`  
 - After schema or package changes, run at least `test_schema` and the suite closest to the change  
+- `tests/_qa_*.py` are manual smoke scripts, not part of `unittest discover` — run them directly when touching the areas they cover  
 - No frontend test runner; smoke-check in browser after UI work  
 
 ---
@@ -183,7 +214,7 @@ Many UX prefs use `localStorage` keys prefixed `supertory.` (theme, ink, viewer,
 
 **Do**
 
-- Keep writing **local-first**; don’t add required cloud backends  
+- Keep writing **local-first**; don’t add required cloud backends — `sync/`/`supabase/` stay opt-in behind sign-in, never a precondition for editing a scene  
 - **Manuscript safety:** on every edit, snapshot scene content to device storage (`writeLocalSceneDraftSync` / IndexedDB) **before** network `PUT`. API/network failures must never wipe the editor; quiet autosave should keep local drafts and retry  
 - Match existing Korean UI wording and interaction patterns  
 - Clear conflicting view state when opening a new main pane (scene / character / idea / keyword / synopsis / viewer)  
