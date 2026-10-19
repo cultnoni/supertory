@@ -32598,10 +32598,19 @@ function fitFormatRow() {
   const tb = $("formatToolbar");
   const body = tb?.querySelector(".format-toolbar-row-body");
   if (!tb || !body || tb.offsetParent === null) return;
-  const tiers = ["", "is-tight", "is-tight is-compact", "is-tight is-compact is-mini", "is-tight is-compact is-mini is-micro", "is-tight is-compact is-mini is-micro is-nano"];
+  const tiers = [
+    "",
+    "is-tight",
+    "is-tight is-compact",
+    "is-tight is-compact is-mini",
+    "is-tight is-compact is-mini is-micro",
+    "is-tight is-compact is-mini is-micro is-nano",
+    // 그래도 모자라면(아주 좁은 폭) 정렬·색 묶음도 접는다 — 더보기 팝오버에 같은 기능이 있다
+    "is-tight is-compact is-mini is-micro is-nano is-flat",
+  ];
   tb.classList.add("isl-measure");
   for (let i = 0; i < tiers.length; i += 1) {
-    tb.classList.remove("is-tight", "is-compact", "is-mini", "is-micro", "is-nano");
+    tb.classList.remove("is-tight", "is-compact", "is-mini", "is-micro", "is-nano", "is-flat");
     tiers[i].split(" ").filter(Boolean).forEach((c) => tb.classList.add(c));
     if (body.scrollWidth - body.clientWidth <= 1) break;
   }
