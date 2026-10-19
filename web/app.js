@@ -64801,8 +64801,8 @@ function layoutToolbarOverflowRow(row) {
   const { body, moreBtn } = toolbarOverflowParts(row);
   if (!body || !moreBtn) return;
   const keepOpen = moreBtn.getAttribute("aria-expanded") === "true";
-  const units = toolbarOverflowUnits(row, body);
   clearToolbarOverflowState(body);
+  const units = toolbarOverflowUnits(row, body);
   moreBtn.hidden = true;
   row.classList.remove("has-toolbar-overflow");
   syncToolbarOverflowDividers(body);
