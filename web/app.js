@@ -32618,8 +32618,10 @@ function fitFormatRow() {
 }
 let fitFormatRowRaf = 0;
 function scheduleFitFormatRow() {
-  if (fitFormatRowRaf) return;
-  fitFormatRowRaf = window.requestAnimationFrame(() => { fitFormatRowRaf = 0; fitFormatRow(); });
+  // setTimeout을 씀 — 창이 가려져 있으면 requestAnimationFrame 콜백이 아예 안 불려
+  // "이미 예약됨" 가드에 영구히 걸려 다시는 재계산이 안 되는 사고를 막는다
+  if (fitFormatRowRaf) window.clearTimeout(fitFormatRowRaf);
+  fitFormatRowRaf = window.setTimeout(() => { fitFormatRowRaf = 0; fitFormatRow(); }, 0);
 }
 
 /** 서식줄 select: 시안처럼 선택된 글자 폭 + ⌄ 만큼만 차지하게 크기를 맞춘다 */
@@ -33450,11 +33452,14 @@ function islRailLayout() {
   });
 }
 function scheduleIslRailLayout() {
-  if (scheduleIslRailLayout._raf) return;
-  scheduleIslRailLayout._raf = window.requestAnimationFrame(() => {
-    scheduleIslRailLayout._raf = 0;
+  // setTimeout을 씀 — 창이 백그라운드/가려져 있으면 requestAnimationFrame은 콜백이
+  // 아예 안 불릴 수 있는데, 그러면 "이미 예약됨" 가드에 영구히 걸려 위젯을 다 빼도
+  // 레일 칸이 다시는 안 사라지는 사고가 난다. 매번 취소 후 다시 예약도 같이 해 둔다.
+  if (scheduleIslRailLayout._timer) window.clearTimeout(scheduleIslRailLayout._timer);
+  scheduleIslRailLayout._timer = window.setTimeout(() => {
+    scheduleIslRailLayout._timer = 0;
     islRailLayout();
-  });
+  }, 0);
 }
 
 /** 위젯을 끌어다 레일 근처(또는 작업 영역 양끝)에 놓으면 자석처럼 붙고, 놓은 자리에 끼워진다 */
@@ -64841,11 +64846,12 @@ function layoutAllToolbarOverflow() {
 }
 
 function scheduleToolbarOverflowLayout() {
-  if (scheduleToolbarOverflowLayout._raf) cancelAnimationFrame(scheduleToolbarOverflowLayout._raf);
-  scheduleToolbarOverflowLayout._raf = requestAnimationFrame(() => {
-    scheduleToolbarOverflowLayout._raf = 0;
+  // setTimeout을 씀 — 창이 가려져 있으면 requestAnimationFrame이 아예 안 불릴 수 있다
+  if (scheduleToolbarOverflowLayout._timer) clearTimeout(scheduleToolbarOverflowLayout._timer);
+  scheduleToolbarOverflowLayout._timer = setTimeout(() => {
+    scheduleToolbarOverflowLayout._timer = 0;
     layoutAllToolbarOverflow();
-  });
+  }, 0);
 }
 
 function setupToolbarOverflow() {
