@@ -64587,6 +64587,9 @@ function toolbarOverflowIconUnits(body) {
     if (child.classList.contains("format-toolbar-cluster")) return;
     if (!skip(child) && !list.includes(child)) list.push(child);
   });
+  // 더보기로 넘어가는 순서는 DOM 순서가 아니라 화면에 보이는 순서(CSS order) 기준으로 —
+  // 그래야 가장 오른쪽(타자기 등)부터 접히고, 확장처럼 order가 더 앞인 아이콘이 먼저 접히지 않는다
+  list.sort((a, b) => (parseInt(getComputedStyle(a).order, 10) || 0) - (parseInt(getComputedStyle(b).order, 10) || 0));
   return list;
 }
 
