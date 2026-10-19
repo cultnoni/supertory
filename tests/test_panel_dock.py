@@ -44,7 +44,7 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('data-dock-item="credits"', self.html)
         self.assertIn('data-dock-item="screenProtect"', self.html)
         self.assertIn('data-dock-item="spellcheck"', self.html)
-        self.assertIn('data-dock-item="analyze"', self.html)
+        self.assertNotIn('data-dock-item="analyze"', self.html)  # 빠른 분석은 서식줄 도구로 옮겼다
         self.assertNotIn('data-dock-item="toryTalk"', self.html)
         self.assertNotIn('data-dock-item="tools"', self.html)
         self.assertNotIn('data-dock-item="notify"', self.html)
@@ -96,7 +96,6 @@ class PanelDockContractTests(unittest.TestCase):
                 "writingTimer",
                 "toryCheck",
                 "spellcheck",
-                "analyze",
                 "statsTracker",
                 "toryChat",
                 "characterChat",
@@ -170,7 +169,6 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertNotIn('id="spellcheckFeatureButton"', self.html)
         toolbar_icons = self.html.split('data-toolbar-row="format-icons"', 1)[1].split('id="findBar"', 1)[0]
         self.assertNotIn('data-icon-key="spellcheck"', toolbar_icons)
-        self.assertNotIn('data-icon-key="analyze"', toolbar_icons)
         self.assertIn('id="findToggleButton"', toolbar_icons)
         self.assertIn('id="viewerModeButton"', self.html)
         self.assertIn('id="splitViewButton"', self.html)
@@ -428,7 +426,7 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("resize: { minWidth: DOCK_DICTIONARY_MIN_W, minHeight: DOCK_DICTIONARY_MIN_H }", dictionary_spec)
         self.assertIn("dictionary: DOCK_DICTIONARY_KEY", self.js)
         self.assertIn("function renderDockDictionaryBody(", self.js)
-        self.assertIn("data-role=\"dock-dictionary-add\"", self.js)
+        self.assertIn("data-role=\"dock-dictionary-composer\"", self.js)
         self.assertIn("data-dock-dictionary-edit", self.js)
         self.assertIn("function addToryDictionaryFromSelection(", self.js)
         self.assertIn('data-context-action="add-tory-dict"', self.html)
@@ -439,8 +437,8 @@ class PanelDockContractTests(unittest.TestCase):
         similar = self.html.find('data-context-action="similar-words"')
         add_dict = self.html.find('data-context-action="add-tory-dict"')
         cross = self.html.find('data-context-action="cross-ref-search"')
-        self.assertLess(lookup, similar)
-        self.assertLess(similar, add_dict)
+        self.assertGreaterEqual(similar, 0)  # 유의어는 선택 메뉴 위쪽으로 따로 옮겨졌다
+        self.assertLess(lookup, add_dict)
         self.assertLess(add_dict, cross)
         self.assertIn('data-context-action="toggle-dict-highlight"', self.html)
         self.assertIn("function toggleDictHighlight(", self.js)
@@ -887,8 +885,8 @@ class PanelDockContractTests(unittest.TestCase):
             "body.ai-panel-collapsed .ai-panel {",
             1,
         )[1].split("}", 1)[0]
-        self.assertIn("padding: 0 0 10px", left)
-        self.assertIn("padding: 0 0 10px", right)
+        self.assertIn("padding-bottom: calc(10px - 1.2mm)", left)
+        self.assertIn("padding-bottom: calc(10px - 1.2mm)", right)
 
     def test_episode_tab_row_starts_level_with_side_panel_cards(self) -> None:
         """Tab row carries the panels' own top inset; the chrome above it is flat.

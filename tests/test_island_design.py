@@ -143,6 +143,14 @@ class IslandDesignContractTests(unittest.TestCase):
         self.assertIn("function fitFormatRow(", self.js)
         self.assertIn('#formatToolbar.is-tight .isl-fmt-more', self.css)
 
+    def test_widget_rail_pushes_body_and_snaps_dropped_widgets(self) -> None:
+        for token in ("function islAlignWidgets(", "function islRailDock(", "function setupIslRailSnap(", "function islSnapIndex("):
+            self.assertIn(token, self.js)
+        self.assertIn("body.isl-rail-left #workArea", self.css)
+        self.assertIn("body.isl-rail-right #workArea", self.css)
+        self.assertIn(".idea-float.is-railed", self.css)
+        self.assertIn("isl-rail-drop-line", self.css)
+
     def test_icon_and_format_rows_have_no_collapse_feature(self) -> None:
         # 도구 아이콘줄·서식줄 접기/다시 열기 버튼은 삭제됨 — 다시 만들지 않는다
         for token in ('data-toolbar-hide="format-icons"', 'data-toolbar-hide="format-format"',

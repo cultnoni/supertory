@@ -33339,82 +33339,297 @@ function islWidgetIcon(svg, size) {
   copy.setAttribute("height", String(size));
   return copy;
 }
-/** 위젯 정렬: 열린 위젯을 작업 영역의 왼쪽/오른쪽 가장자리에 한 줄(340px)로 쌓는다. 공간이 모자라면 높이를 줄이고, 그래도 넘치면 두 번째 줄로 */
+/** 위젯 레일: 정렬을 켜면 왼쪽/오른쪽에 세로 컬럼(340px)이 생기고 본문을 밀어낸다.
+ *  새로 여는 위젯은 맨 위에 붙고, 넘치면 레일 안에서 스크롤된다.
+ *  양쪽 패널을 모두 접으면 좌·우 두 레일로 나뉘어 위젯이 번갈아 채워진다. */
+const ISL_RAIL_GAP = 8;
+let islRailSide = "";
 let islAlignUndo = null;
-function islAlignWidgets(side) {
-  const wins = [...ideaFloatWindows.entries()].filter(([, win]) => win && win.isConnected && !win.hidden);
-  if (!wins.length) return;
-  const area = ($("workArea") || document.body).getBoundingClientRect();
-  const GAP = 8;
-  const COL_W = DOCK_WIDGET_STD_W;
-  const MIN_H = 200;
-  const left0 = Math.max(area.left, 0) + GAP;
-  const right0 = Math.min(area.right, window.innerWidth) - GAP;
-  const top0 = Math.max(area.top, 0) + GAP;
-  const availH = Math.min(area.bottom, window.innerHeight) - GAP - top0;
-  const maxCols = Math.max(1, Math.min(2, Math.floor((right0 - left0 + GAP) / (COL_W + GAP))));
-  islAlignUndo = new Map(wins.map(([key, win]) => {
-    const r = win.getBoundingClientRect();
-    return [key, { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) }];
-  }));
-  const items = wins.map(([key, win]) => {
-    const r = win.getBoundingClientRect();
-    const mini = win.classList.contains("dock-float-mini");
-    return { key, win, mini, top: r.top, w: mini ? Math.round(r.width) : COL_W, h: mini ? Math.round(r.height) : DOCK_WIDGET_STD_H, minH: mini ? Math.round(r.height) : MIN_H };
+let islRailObserver = null;
+let islRailWasSplit = false;
+function islRailEl(side) {
+  const id = side === "right" ? "islWidgetRailR" : "islWidgetRailL";
+  let rail = $(id);
+  if (rail) return rail;
+  rail = document.createElement("div");
+  rail.id = id;
+  rail.className = "isl-rail";
+  rail.dataset.railSide = side === "right" ? "right" : "left";
+  rail.hidden = true;
+  ideaFloatHost().appendChild(rail);
+  return rail;
+}
+function islRailWindows(side = "") {
+  const sides = side ? [side] : ["left", "right"];
+  return sides.flatMap((sd) => {
+    const rail = $(sd === "right" ? "islWidgetRailR" : "islWidgetRailL");
+    return rail ? Array.from(rail.children).filter((el) => el.classList.contains("idea-float")) : [];
   });
-  // 작은 위젯(타이머·글자수)이 위로, 나머지는 지금 위치(위→아래) 순서
-  items.sort((a, b) => (Number(b.mini) - Number(a.mini)) || (a.top - b.top));
-  const cols = [[]];
-  let used = 0;
-  items.forEach((it) => {
-    const cur = cols[cols.length - 1];
-    const need = it.minH + (cur.length ? GAP : 0);
-    if (cur.length && used + need > availH && cols.length < maxCols) {
-      cols.push([]);
-      used = 0;
+}
+function islRailOther(side) {
+  return side === "left" ? "right" : "left";
+}
+function islRailIsSplit() {
+  return Boolean(islRailSide) && document.body.classList.contains("binder-panel-collapsed") && document.body.classList.contains("ai-panel-collapsed");
+}
+function islRailDock(win, { top = true, side = "" } = {}) {
+  if (!win) return;
+  let target = side;
+  if (!target) {
+    target = islRailSide || "left";
+    if (islRailIsSplit() && islRailWindows(target).length > islRailWindows(islRailOther(target)).length) target = islRailOther(target);
+  }
+  if (!win.classList.contains("is-railed")) {
+    win.classList.add("is-railed");
+    ["left", "top", "right", "bottom", "width"].forEach((k) => { win.style[k] = ""; });
+    if (!win.classList.contains("dock-float-mini")) win.style.height = `${DOCK_WIDGET_STD_H}px`;
+  }
+  const rail = islRailEl(target);
+  if (top) rail.prepend(win); else rail.appendChild(win);
+}
+function islRailUndock(win, rect = null) {
+  if (!win || !win.classList.contains("is-railed")) return;
+  const r = rect || win.getBoundingClientRect();
+  win.classList.remove("is-railed");
+  ideaFloatHost().appendChild(win);
+  win.style.left = `${Math.round(r.left)}px`;
+  win.style.top = `${Math.round(r.top)}px`;
+  win.style.width = `${Math.round(r.width)}px`;
+  win.style.height = `${Math.round(r.height)}px`;
+}
+/** 접힘 상태가 바뀌면 위젯을 한쪽 레일로 모으거나(패널이 열림) 좌·우로 나눈다(양쪽 접힘) */
+function islRailRebalance() {
+  const split = islRailIsSplit();
+  if (split === islRailWasSplit) return;
+  islRailWasSplit = split;
+  if (!islRailSide) return;
+  const all = [...islRailWindows(islRailSide), ...islRailWindows(islRailOther(islRailSide))];
+  all.forEach((win, i) => {
+    const side = split ? (i % 2 === 0 ? islRailSide : islRailOther(islRailSide)) : islRailSide;
+    islRailDock(win, { top: false, side });
+  });
+}
+function islRailLayout() {
+  islRailRebalance();
+  const area = $("workArea")?.getBoundingClientRect();
+  const body = document.body;
+  const split = islRailIsSplit();
+  const widths = { left: 0, right: 0 };
+  ["left", "right"].forEach((side) => {
+    const rail = islRailEl(side);
+    const wins = islRailWindows(side);
+    const active = Boolean(islRailSide) && wins.length > 0 && (split || side === islRailSide);
+    rail.hidden = !active;
+    body.classList.toggle(`isl-rail-${side}`, active);
+    if (active) widths[side] = DOCK_WIDGET_STD_W;
+  });
+  body.style.setProperty("--isl-rail-l", widths.left ? `${widths.left + ISL_RAIL_GAP}px` : "0px");
+  body.style.setProperty("--isl-rail-r", widths.right ? `${widths.right + ISL_RAIL_GAP}px` : "0px");
+  if (!area) return;
+  const top = Math.max(area.top, 0);
+  const height = Math.round(Math.min(area.bottom, window.innerHeight) - top);
+  ["left", "right"].forEach((side) => {
+    if (!widths[side]) return;
+    const rail = islRailEl(side);
+    rail.style.width = `${widths[side]}px`;
+    rail.style.top = `${Math.round(top)}px`;
+    rail.style.height = `${height}px`;
+    rail.style.left = side === "left" ? `${Math.round(area.left - widths[side] - ISL_RAIL_GAP)}px` : `${Math.round(area.right + ISL_RAIL_GAP)}px`;
+  });
+}
+function scheduleIslRailLayout() {
+  if (scheduleIslRailLayout._raf) return;
+  scheduleIslRailLayout._raf = window.requestAnimationFrame(() => {
+    scheduleIslRailLayout._raf = 0;
+    islRailLayout();
+  });
+}
+
+/** 위젯을 끌어다 레일 근처(또는 작업 영역 양끝)에 놓으면 자석처럼 붙고, 놓은 자리에 끼워진다 */
+const ISL_SNAP_EDGE = 90;
+let islSnapWin = null;
+let islSnapMoved = false;
+function islSnapZone(x, y) {
+  const area = $("workArea")?.getBoundingClientRect();
+  for (const side of ["left", "right"]) {
+    const railEl = $(side === "right" ? "islWidgetRailR" : "islWidgetRailL");
+    if (railEl && !railEl.hidden) {
+      const r = railEl.getBoundingClientRect();
+      if (x >= r.left - 40 && x <= r.right + 40 && y >= r.top - 20 && y <= r.bottom + 20) return { side, inRail: true };
     }
-    const target = cols[cols.length - 1];
-    used += it.minH + (target.length ? GAP : 0);
-    target.push(it);
+  }
+  if (area) {
+    if (x <= area.left + ISL_SNAP_EDGE && x >= area.left - 400 && y >= area.top - 20) return { side: "left", inRail: false };
+    if (x >= area.right - ISL_SNAP_EDGE && x <= area.right + 400 && y >= area.top - 20) return { side: "right", inRail: false };
+  }
+  return null;
+}
+function islSnapIndex(x, y, skip, side) {
+  const kids = islRailWindows(side).filter((w) => w !== skip);
+  let best = kids.length;
+  let bestD = Infinity;
+  kids.forEach((w, i) => {
+    const r = w.getBoundingClientRect();
+    const cy = r.top + r.height / 2;
+    const d = Math.abs(y - cy);
+    if (d < bestD) {
+      bestD = d;
+      best = y < cy ? i : i + 1;
+    }
   });
-  cols.forEach((col, ci) => {
-    let free = availH - GAP * (col.length - 1) - col.reduce((sum, it) => sum + it.minH, 0);
-    col.forEach((it) => { it.out = it.minH; });
-    // 남는 공간은 큰 위젯부터 기본 높이까지 채운다
-    col.filter((it) => !it.mini).forEach((it) => {
-      const grow = Math.max(0, Math.min(it.h - it.minH, free));
-      it.out += grow;
-      free -= grow;
-    });
-    const colLeft = side === "right" ? right0 - (ci + 1) * COL_W - ci * GAP : left0 + ci * (COL_W + GAP);
-    let y = top0;
-    col.forEach((it, i) => {
-      const overflow = y + it.out > top0 + availH;
-      const top = overflow ? top0 + Math.min(i * 24, 96) : y;
-      const x = side === "right" ? colLeft + COL_W - it.w : colLeft;
-      it.win.style.left = `${Math.round(x)}px`;
-      it.win.style.top = `${Math.round(top)}px`;
-      it.win.style.width = `${it.w}px`;
-      it.win.style.height = `${Math.round(it.out)}px`;
-      y += it.out + GAP;
-    });
+  return best;
+}
+function islSnapHint(zone, x, y) {
+  let line = $("islRailDropLine");
+  if (!zone) { line?.remove(); document.body.classList.remove("isl-snap-left", "isl-snap-right"); return; }
+  const areaR = $("workArea")?.getBoundingClientRect();
+  if (areaR) {
+    document.body.style.setProperty("--isl-snap-left", `${Math.round(areaR.left)}px`);
+    document.body.style.setProperty("--isl-snap-right", `${Math.round(window.innerWidth - areaR.right)}px`);
+  }
+  document.body.classList.toggle("isl-snap-left", !zone.inRail && zone.side === "left");
+  document.body.classList.toggle("isl-snap-right", !zone.inRail && zone.side === "right");
+  if (!zone.inRail) { line?.remove(); return; }
+  if (!line) {
+    line = document.createElement("div");
+    line.id = "islRailDropLine";
+    line.className = "isl-rail-drop-line";
+    ideaFloatHost().appendChild(line);
+  }
+  const kids = islRailWindows(zone.side).filter((w) => w !== islSnapWin);
+  const idx = islSnapIndex(x, y, islSnapWin, zone.side);
+  const rail = islRailEl(zone.side).getBoundingClientRect();
+  let top = rail.top + 2;
+  if (kids.length) {
+    const ref = kids[Math.min(idx, kids.length - 1)].getBoundingClientRect();
+    top = idx >= kids.length ? ref.bottom + 3 : ref.top - 5;
+  }
+  line.style.left = `${Math.round(rail.left)}px`;
+  line.style.width = `${Math.round(rail.width)}px`;
+  line.style.top = `${Math.round(top)}px`;
+}
+function setupIslRailSnap() {
+  document.addEventListener("pointerdown", (event) => {
+    const bar = event.target.closest?.(".idea-float-drag");
+    if (!bar || event.target.closest("button") || (event.button != null && event.button !== 0)) return;
+    islSnapWin = bar.closest(".idea-float");
+    islSnapMoved = false;
+  }, true);
+  document.addEventListener("pointermove", (event) => {
+    if (!islSnapWin || !document.body.classList.contains("idea-float-dragging")) return;
+    islSnapMoved = true;
+    islSnapHint(islSnapZone(event.clientX, event.clientY), event.clientX, event.clientY);
   });
-  items.forEach((it) => { raiseIdeaFloat(it.win); rememberIdeaFloatLayout(it.win, it.key); });
+  const finish = (event, cancel) => {
+    const win = islSnapWin;
+    islSnapWin = null;
+    const zone = win && !cancel && islSnapMoved ? islSnapZone(event.clientX, event.clientY) : null;
+    islSnapMoved = false;
+    islSnapHint(null);
+    if (!win || !zone || !win.isConnected) return;
+    window.setTimeout(() => {
+      if (!win.isConnected) return;
+      const split = islRailIsSplit();
+      const idx = islSnapIndex(event.clientX, event.clientY, win, zone.side);
+      if (!islRailSide) islAlignWidgets(zone.side);
+      else if (!split && islRailSide !== zone.side) islRailSide = zone.side;
+      const target = split || islRailSide === zone.side ? zone.side : islRailSide;
+      islRailDock(win, { top: false, side: target });
+      const ref = islRailWindows(target).filter((w) => w !== win)[idx];
+      if (ref) islRailEl(target).insertBefore(win, ref); else islRailEl(target).appendChild(win);
+      rememberIdeaFloatLayout(win, [...ideaFloatWindows.entries()].find(([, w]) => w === win)?.[0]);
+      islRailLayout();
+      syncIslAlignButtons();
+    }, 0);
+  };
+  document.addEventListener("pointerup", (event) => finish(event, false));
+  document.addEventListener("pointercancel", (event) => finish(event, true));
+}
+function setupIslRail() {
+  if (setupIslRail._bound) return;
+  setupIslRail._bound = true;
+  const host = ideaFloatHost();
+  const rails = [islRailEl("left"), islRailEl("right")];
+  // 레일이 켜져 있으면 새로 열리는 위젯은 맨 위로 붙는다
+  islRailObserver = new MutationObserver((records) => {
+    records.forEach((rec) => {
+      rec.addedNodes.forEach((node) => {
+        if (islRailSide && rec.target === host && node.nodeType === 1 && node.classList?.contains("idea-float") && !node.classList.contains("is-railed")) islRailDock(node);
+      });
+    });
+    scheduleIslRailLayout();
+    syncIslAlignButtons();
+  });
+  islRailObserver.observe(host, { childList: true });
+  rails.forEach((rail) => islRailObserver.observe(rail, { childList: true }));
+  window.addEventListener("resize", scheduleIslRailLayout);
+  new MutationObserver(scheduleIslRailLayout).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  if (typeof ResizeObserver === "function") {
+    const ro = new ResizeObserver(scheduleIslRailLayout);
+    const work = $("workArea");
+    if (work) ro.observe(work);
+  }
+  setupIslRailSnap();
+  // 레일 안 위젯의 제목줄을 끌면 레일에서 떼어 떠 있는 위젯으로
+  rails.forEach((rail) => rail.addEventListener("pointerdown", (event) => {
+    const bar = event.target.closest?.(".idea-float-drag");
+    if (!bar || event.target.closest("button")) return;
+    const win = bar.closest(".idea-float");
+    if (win) islRailUndock(win);
+  }, true));
+}
+function syncIslAlignButtons() {
+  document.querySelectorAll("[data-isl-align]").forEach((btn) => {
+    const act = btn.dataset.islAlign;
+    btn.classList.toggle("is-on", Boolean(islRailSide) && act === islRailSide);
+    if (act === "undo") btn.disabled = !islRailSide && !islAlignUndo;
+  });
+}
+function islAlignWidgets(side) {
+  setupIslRail();
+  if (islRailSide === side) {
+    islAlignRestore();
+    return;
+  }
+  if (!islAlignUndo) {
+    islAlignUndo = new Map();
+    ideaFloatWindows.forEach((win, key) => {
+      if (!win?.isConnected || win.classList.contains("is-railed")) return;
+      const r = win.getBoundingClientRect();
+      islAlignUndo.set(key, { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) });
+    });
+  }
+  const prev = islRailSide;
+  islRailSide = side;
+  islRailWasSplit = islRailIsSplit();
+  if (prev) {
+    // 한쪽에서 반대쪽으로 옮길 때: 모두 새 쪽 레일로
+    islRailWindows().forEach((win) => islRailDock(win, { top: false, side: islRailIsSplit() ? win.parentElement.dataset.railSide : side }));
+  }
+  // 이미 열린 위젯: 작은 위젯(타이머·글자수)이 위, 나머지는 현재 위치(위→아래) 순
+  const loose = [...ideaFloatWindows.values()].filter((win) => win?.isConnected && !win.classList.contains("is-railed"));
+  loose.sort((x, y) => (Number(y.classList.contains("dock-float-mini")) - Number(x.classList.contains("dock-float-mini"))) || (x.getBoundingClientRect().top - y.getBoundingClientRect().top));
+  loose.forEach((win, i) => islRailDock(win, { top: false, side: islRailIsSplit() ? (i % 2 === 0 ? side : islRailOther(side)) : side }));
+  islRailLayout();
+  syncIslAlignButtons();
   window.dispatchEvent(new Event("resize"));
 }
 function islAlignRestore() {
-  if (!islAlignUndo) return;
-  islAlignUndo.forEach((r, key) => {
-    const win = ideaFloatWindows.get(key);
-    if (!win || !win.isConnected) return;
-    win.style.left = `${r.left}px`;
-    win.style.top = `${r.top}px`;
-    win.style.width = `${r.width}px`;
-    win.style.height = `${r.height}px`;
-    rememberIdeaFloatLayout(win, key);
-  });
+  const wasOn = Boolean(islRailSide);
+  islRailSide = "";
+  islRailWasSplit = false;
+  const undo = islAlignUndo;
   islAlignUndo = null;
-  window.dispatchEvent(new Event("resize"));
+  islRailWindows().forEach((win) => {
+    const key = [...ideaFloatWindows.entries()].find(([, w]) => w === win)?.[0];
+    const saved = key != null ? undo?.get(key) : null;
+    const r = saved || { left: 40 + Math.random() * 60, top: 80 + Math.random() * 60, width: DOCK_WIDGET_STD_W, height: win.getBoundingClientRect().height };
+    islRailUndock(win, r);
+    if (key != null) rememberIdeaFloatLayout(win, key);
+  });
+  islRailLayout();
+  syncIslAlignButtons();
+  if (wasOn) window.dispatchEvent(new Event("resize"));
 }
 const ISL_ALIGN_ICONS = {
   left: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16"/><rect x="8" y="5" width="11" height="6" rx="1.5"/><rect x="8" y="14" width="11" height="6" rx="1.5"/></svg>',
@@ -33467,6 +33682,7 @@ function renderIslWidgetTiles() {
     host.appendChild(grid);
   });
   $("islWidgetEmpty")?.classList.toggle("hidden", groups.length > 0);
+  syncIslAlignButtons();
 }
 
 /** 아이콘 독: 패널을 접었을 때(마스코트)와 확장(집중 모드) 중의 위젯 입구 */
@@ -33526,6 +33742,7 @@ function renderIslWidgetDock() {
   alignBox.className = "isl-wdock-grid isl-wdock-align";
   alignBox.innerHTML = islAlignButtons(false);
   dock.appendChild(alignBox);
+  syncIslAlignButtons();
   if (document.body.classList.contains("ai-panel-collapsed") && !document.body.classList.contains("focus-write-open")) {
     const sep = document.createElement("i");
     sep.className = "isl-wdock-sep";
@@ -33635,6 +33852,7 @@ function setupAiCheckHub() {
     setAiPanelTab("widgets");
   });
   setupIslWidgetDock();
+  setupIslRail();
   const badge = $("islAiBadge");
   if (badge && typeof MutationObserver !== "undefined") {
     let played = false;
