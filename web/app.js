@@ -19031,6 +19031,7 @@ function closeIdeaFloat(ideaId, { skipSave = false } = {}) {
     syncDockWritingTimerRail();
   }
   if (id === DOCK_TORY_CHECK_KEY) clearToryCheckTimer();
+  if (id === DOCK_TORY_CHECK_KEY) toryCheckFloatView = "check";
   syncDockRailButtons();
 }
 
@@ -20094,6 +20095,53 @@ function setupToryCheckViewpointModal() {
   });
 }
 
+/** 토리 체크 위젯 안의 보기 전환: 실시간 체크 | 맞춤법 (맞춤법 위젯을 합쳤다) */
+let toryCheckFloatView = "check";
+function applyToryCheckFloatView(body) {
+  if (!body) return;
+  const root = body.querySelector("[data-role='tory-check-root']");
+  if (!root) return;
+  let seg = body.querySelector(".isl-tc-seg");
+  if (!seg) {
+    seg = document.createElement("div");
+    seg.className = "isl-tc-seg";
+    seg.setAttribute("role", "tablist");
+    seg.innerHTML = `<button type="button" data-tc-view="check">${escapeHtml(i18n.t("island.체크_보기_실시간"))}</button><button type="button" data-tc-view="spell">${escapeHtml(i18n.t("island.체크_보기_맞춤법"))}</button>`;
+    body.insertBefore(seg, body.firstChild);
+    seg.addEventListener("click", (event) => {
+      const btn = event.target.closest?.("[data-tc-view]");
+      if (!btn) return;
+      toryCheckFloatView = btn.dataset.tcView === "spell" ? "spell" : "check";
+      applyToryCheckFloatView(body);
+    });
+  }
+  let host = body.querySelector(".isl-tc-spell");
+  if (!host) {
+    host = document.createElement("div");
+    host.className = "isl-tc-spell";
+    body.appendChild(host);
+  }
+  const spell = toryCheckFloatView === "spell";
+  seg.querySelectorAll("[data-tc-view]").forEach((b) => b.classList.toggle("is-on", (b.dataset.tcView === "spell") === spell));
+  root.hidden = spell;
+  host.hidden = !spell;
+  if (spell) adoptDockNode($("spellcheckPanel"), host);
+  else restoreDockNode("spellcheckPanel");
+}
+/** 맞춤법 검사 열기: 토리 체크 위젯의 맞춤법 보기로 */
+function openToryCheckSpell({ toggle = false } = {}) {
+  const key = DOCK_TORY_CHECK_KEY;
+  if (ideaFloatWindows.has(key)) {
+    if (toggle && toryCheckFloatView === "spell") { closeIdeaFloat(key); return; }
+    toryCheckFloatView = "spell";
+    applyToryCheckFloatView(dockFloatBody(key));
+    raiseIdeaFloat(ideaFloatWindows.get(key));
+    return;
+  }
+  toryCheckFloatView = "spell";
+  openDockFloat("toryCheck", document.querySelector('[data-dock-item="toryCheck"]'));
+}
+
 function renderDockToryCheckBody(body) {
   if (!body) return;
   if (!state.projectId) {
@@ -20101,15 +20149,18 @@ function renderDockToryCheckBody(body) {
     return;
   }
   if (!body.querySelector("[data-role='tory-check-root']")) {
+    restoreDockNode("spellcheckPanel");
     body.innerHTML = toryCheckChromeHtml();
     bindToryCheckBody(body);
   }
   syncToryCheckChrome(body);
+  applyToryCheckFloatView(body);
   const pid = Number(state.projectId);
   loadToryCheckSettings(pid).then(() => {
     if (!ideaFloatWindows.get(DOCK_TORY_CHECK_KEY)) return;
     if (Number(state.projectId) !== pid) return;
     syncToryCheckChrome(toryCheckFloatBody());
+    if (toryCheckFloatView === "spell") return; // 맞춤법 보기에서는 인칭·시제 질문이나 실시간 점검을 띄우지 않는다
     if (!toryCheckViewpointConfigured() && toryCheckState.skippedPromptFor !== pid) {
       openToryCheckViewpointModal();
     }
@@ -21766,7 +21817,7 @@ function restoreDockAiHosts(key) {
 }
 
 function restoreDockToolHosts(key) {
-  if (key === DOCK_SPELLCHECK_KEY) restoreDockNode("spellcheckPanel");
+  if (key === DOCK_SPELLCHECK_KEY || key === DOCK_TORY_CHECK_KEY) restoreDockNode("spellcheckPanel");
   if (key === DOCK_FEEDBACK_KEY) {
     if (widePanelSwitching) widePanelRehome();
     else widePanelReleaseContent();
@@ -22542,10 +22593,50 @@ function focusDockReaderChatFloat() {
   else syncAiDockChatHosts();
 }
 
+/** 대화 위젯: 토리 · 내 캐릭터 · 가상 독자 — 위젯 하나로 보이도록 위쪽 전환으로 서로 바꾼다(위치·크기 유지) */
+const ISL_CHAT_MODES = [
+  { item: "toryChat", labelKey: "island.대화_토리" },
+  { item: "characterChat", labelKey: "island.대화_캐릭터" },
+  { item: "readerChat", labelKey: "island.대화_독자" },
+];
+function ensureChatSwitcher(body, activeItem) {
+  if (!body) return;
+  let seg = body.querySelector(":scope > .isl-chat-seg");
+  if (!seg) {
+    seg = document.createElement("div");
+    seg.className = "isl-chat-seg";
+    seg.setAttribute("role", "tablist");
+    seg.innerHTML = ISL_CHAT_MODES.map((m) => `<button type="button" data-chat-item="${m.item}">${escapeHtml(i18n.t(m.labelKey))}</button>`).join("");
+    seg.addEventListener("click", (event) => {
+      const btn = event.target.closest?.("[data-chat-item]");
+      if (!btn || btn.dataset.chatItem === seg.dataset.active) return;
+      swapChatFloat(seg.dataset.active, btn.dataset.chatItem);
+    });
+    body.insertBefore(seg, body.firstChild);
+  }
+  seg.dataset.active = activeItem;
+  seg.querySelectorAll("[data-chat-item]").forEach((b) => b.classList.toggle("is-on", b.dataset.chatItem === activeItem));
+}
+function swapChatFloat(fromItem, toItem) {
+  const fromKey = dockRailFloatKey(fromItem);
+  const win = fromKey ? ideaFloatWindows.get(fromKey) : null;
+  const rect = win ? { left: win.style.left, top: win.style.top, width: win.style.width, height: win.style.height } : null;
+  if (fromKey) closeIdeaFloat(fromKey, { skipSave: true });
+  openDockFloat(toItem, document.querySelector(`[data-dock-item="${toItem}"]`));
+  const next = ideaFloatWindows.get(dockRailFloatKey(toItem));
+  if (next && rect) {
+    if (rect.left) next.style.left = rect.left;
+    if (rect.top) next.style.top = rect.top;
+    if (rect.width) next.style.width = rect.width;
+    if (rect.height) next.style.height = rect.height;
+  }
+}
+
 function renderDockToryChatBody(body) {
   if (!body) return;
   adoptDockNode($("toryChatRoom"), body);
   syncAiDockChatHosts();
+  ensureChatSwitcher(body, "toryChat");
 }
 
 function renderDockCharacterChatBody(body) {
@@ -22553,11 +22644,13 @@ function renderDockCharacterChatBody(body) {
   adoptDockNode($("toryChatCharacterPicker"), body);
   if (toryChatHub === "character-room") adoptDockNode($("toryChatRoom"), body);
   syncAiDockChatHosts();
+  ensureChatSwitcher(body, "characterChat");
 }
 
 function renderDockReaderChatBody(body) {
   if (!body) return;
   adoptDockNode($("toryChatReaderView"), body);
+  ensureChatSwitcher(body, "readerChat");
 }
 
 function renderDockAiResultBody(body) {
@@ -33001,8 +33094,9 @@ async function refreshAiCheckHub() {
     }
   }
 }
+/* 결과 위젯은 안에 히스토리 전환 버튼이 있어 "히스토리"는 입구에서 뺐고, 도토리 잔량은 체크 탭 아래 "도토리" 칩(상태 표시)으로만 둔다 */
 const ISL_WIDGET_GROUPS = [
-  { id: "write", labelKey: "island.위젯_그룹_쓰기", keys: ["writingTimer", "statsTracker", "toryCheck", "spellcheck", "toryChat", "characterChat", "readerChat", "aiResult", "aiHistory", "credits"] },
+  { id: "write", labelKey: "island.위젯_그룹_쓰기", keys: ["writingTimer", "statsTracker", "toryCheck", "toryChat", "aiResult"] },
   { id: "ref", labelKey: "island.위젯_그룹_자료", keys: ["manuscript", "ideas", "world", "characters", "timeline", "items", "appearances", "dictionary", "baits", "successProfile", "toryVault", "sources", "settingsSearch"] },
 ];
 /** 왼쪽·오른쪽 레일에 흩어진 위젯을 하나의 목록(그룹별)으로 모은다 — 위젯 탭과 아이콘 독이 같은 목록을 쓴다 */
@@ -33013,7 +33107,7 @@ function islWidgetItems() {
     if (key === "screenProtect" || byKey.has(key)) return;
     byKey.set(key, {
       key,
-      name: btn.getAttribute("aria-label") || btn.getAttribute("title") || key,
+      name: key === "toryChat" ? i18n.t("island.위젯_대화") : (btn.getAttribute("aria-label") || btn.getAttribute("title") || key),
       svg: btn.querySelector("svg"),
       open: btn.classList.contains("is-active") || btn.getAttribute("aria-pressed") === "true",
     });
@@ -33270,6 +33364,7 @@ function setupAiCheckHub() {
   $("aiCheckView")?.addEventListener("click", (event) => {
     const btn = event.target.closest?.("[data-isl-dock]");
     if (!btn) return;
+    if (btn.dataset.islDock === "spellcheck") { openToryCheckSpell(); return; }
     if (btn.dataset.islSettings === "1") {
       // 위젯이 이미 열려 있으면 설정만 토글, 닫혀 있으면 설정을 연 채로 연다
       if (ideaFloatWindows.has(DOCK_WRITING_TIMER_KEY)) { setWritingTimerSettingsOpen(!writingTimerSettingsOpen); return; }
@@ -63387,7 +63482,7 @@ function handleToolsAction(action) {
     openSceneToolsDrawer(action);
   }
   if (action === "spellcheck") {
-    toggleDockFloat("spellcheck");
+    openToryCheckSpell({ toggle: true });
   }
 }
 

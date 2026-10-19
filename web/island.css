@@ -2129,3 +2129,14 @@ body.binder-panel-collapsed:not(.binder-mini):not(.focus-write-open) .isl-binder
   border-radius: 0 10px 10px 0 !important; background: var(--panel) !important; color: var(--isl-ink3) !important; box-shadow: 0 1px 6px rgba(31, 36, 41, 0.12); cursor: pointer;
 }
 .isl-binder-handle:hover { color: var(--accent) !important; }
+
+/* 토리 체크 위젯: 실시간 체크 | 맞춤법 전환 */
+.isl-tc-seg { display: inline-flex; gap: 2px; padding: 3px; margin: 0 0 8px; background: var(--isl-sunk); border-radius: 10px; }
+.isl-tc-seg button { border: 0 !important; background: transparent !important; padding: 4px 12px; border-radius: 8px !important; color: var(--isl-ink2); font-size: 12.5px; font-weight: 400; cursor: pointer; box-shadow: none !important; }
+.isl-tc-seg button.is-on { background: var(--panel) !important; color: var(--text-primary); box-shadow: 0 0 0 1px var(--line) !important; }
+.isl-tc-spell[hidden], [data-role="tory-check-root"][hidden] { display: none !important; }
+
+/* 대화 위젯: 토리 · 내 캐릭터 · 가상 독자 전환 */
+.isl-chat-seg { display: flex; gap: 2px; padding: 3px; margin: 0 0 8px; background: var(--isl-sunk); border-radius: 10px; flex: none; }
+.isl-chat-seg button { flex: 1; border: 0 !important; background: transparent !important; padding: 4px 8px; border-radius: 8px !important; color: var(--isl-ink2); font-size: 12.5px; font-weight: 400; cursor: pointer; box-shadow: none !important; white-space: nowrap; }
+.isl-chat-seg button.is-on { background: var(--panel) !important; color: var(--text-primary); box-shadow: 0 0 0 1px var(--line) !important; }

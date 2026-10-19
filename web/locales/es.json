@@ -5726,5 +5726,11 @@
   "island.패널_토글": "Contraer / expandir panel izquierdo (Ctrl+Alt+B)",
   "island.미니_내비_제목": "Al contraer el panel izquierdo",
   "island.미니_내비_설명": "Si se activa, queda una tira con los números de capítulo para saltar entre ellos. Si se desactiva, el panel desaparece y el texto gana ancho.",
-  "island.미니_내비_켜기": "Mostrar tira de números de capítulo"
+  "island.미니_내비_켜기": "Mostrar tira de números de capítulo",
+  "island.체크_보기_실시간": "Revisión en vivo",
+  "island.체크_보기_맞춤법": "Ortografía",
+  "island.위젯_대화": "Chat",
+  "island.대화_토리": "Tory",
+  "island.대화_캐릭터": "Mi personaje",
+  "island.대화_독자": "Lector virtual"
 }

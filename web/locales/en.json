@@ -5728,5 +5728,11 @@
   "island.패널_토글": "Collapse / expand left panel (Ctrl+Alt+B)",
   "island.미니_내비_제목": "When the left panel is collapsed",
   "island.미니_내비_설명": "When on, a slim episode-number strip stays so you can jump between episodes. When off, the panel disappears and the page gets wider.",
-  "island.미니_내비_켜기": "Show episode-number strip"
+  "island.미니_내비_켜기": "Show episode-number strip",
+  "island.체크_보기_실시간": "Live check",
+  "island.체크_보기_맞춤법": "Spelling",
+  "island.위젯_대화": "Chat",
+  "island.대화_토리": "Tory",
+  "island.대화_캐릭터": "My character",
+  "island.대화_독자": "Virtual reader"
 }
