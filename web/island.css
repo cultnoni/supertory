@@ -12,7 +12,7 @@
   --isl-shadow: 0 1px 2px rgba(31, 36, 41, 0.06), 0 8px 24px rgba(31, 36, 41, 0.06);
   --isl-pop-shadow: 0 2px 6px rgba(31, 36, 41, 0.1), 0 16px 40px rgba(31, 36, 41, 0.16);
   --isl-panel-w: 292px;
-  --isl-dock-rail-w: 64px;
+  --isl-dock-rail-w: 56px;
   /* 바깥 여백(gutter)과 책상: 기본 라이트 테마만 한 단계 어둡게 */
   --isl-desk: color-mix(in srgb, var(--chrome-bg, #fafaf9) 94%, black 6%);
   --isl-sunk: color-mix(in srgb, var(--panel, white) 92%, black 8%);
@@ -1968,8 +1968,12 @@ body.binder-panel-collapsed:not(.binder-mini):not(.focus-write-open) .isl-binder
 /* 아이콘 독: 세로 한 줄 (시안 ④) — 이름은 마우스를 올리면 왼쪽에 말풍선
    패널을 접었을 때는 열린 오른쪽 패널과 동일한 세로 길이·위치로 고정(top/bottom/right는 JS가 지정),
    타이틀바 쪽으로는 올라가지 않는다. 칸이 모자라면 .is-compact가 좌우정렬 묶음을 먼저 숨긴다. */
-.isl-wdock { width: auto !important; align-items: center; gap: 4px; padding: 10px 6px !important; border-radius: 0; border: 0 !important; border-left: 1px solid var(--line) !important; justify-content: flex-start; }
-body.isl-wdock-open:not(.focus-write-open) .isl-wdock { width: var(--isl-dock-rail-w, 64px) !important; box-sizing: border-box; }
+.isl-wdock { width: auto !important; align-items: center; gap: 4px; padding: 10px 6px !important; justify-content: flex-start; }
+/* 왼쪽 바인더 패널 카드와 같은 모양: 위·아래가 본문과 맞춰지고 네 모서리가 똑같이 둥글다 */
+body.isl-wdock-open:not(.focus-write-open) .isl-wdock {
+  width: var(--isl-dock-rail-w, 64px) !important; box-sizing: border-box;
+  border-radius: var(--isl-r) !important; border: 1px solid var(--line) !important; box-shadow: var(--isl-shadow) !important;
+}
 .isl-wdock-grid { display: flex !important; flex-direction: column; gap: 4px; grid-template-columns: none; }
 .isl-wdock .isl-wd { position: relative; width: 38px; height: 38px; aspect-ratio: auto; border-radius: 11px !important; flex: 0 0 auto; color: var(--isl-ink2); }
 .isl-wdock .isl-wd svg, .isl-wdock .isl-wd svg * { stroke-width: 1.5px; }

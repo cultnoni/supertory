@@ -33773,7 +33773,7 @@ function layoutIslWidgetDock() {
     dock.classList.remove("is-compact");
     return;
   }
-  const host = document.querySelector("main") || document.body;
+  const host = $("aiPanel") || document.querySelector("main") || document.body;
   const rect = host.getBoundingClientRect();
   dock.style.top = `${Math.round(rect.top)}px`;
   dock.style.bottom = `${Math.round(window.innerHeight - rect.bottom)}px`;
