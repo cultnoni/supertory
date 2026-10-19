@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>기록·타이머 — 합체안 (체크 카드 + 알약 위젯 + 공용 설정)</title>
+<style>
+  :root {
+    --bg: #eceef1; --panel: #fbfbfc; --sunk: #f2f4f6; --desk: #edf0f2;
+    --ink: #1f2429; --ink2: #5c656e; --ink3: #8b939b; --line: #e0e4e8;
+    --accent: #2f7566; --accent-soft: #e3efeb; --accent-line: #bfdad1; --accent-ink: #f2f7f5;
+    --shadow: 0 1px 2px rgba(31,36,41,.06), 0 8px 24px rgba(31,36,41,.08);
+    --pop: 0 2px 6px rgba(31,36,41,.1), 0 16px 40px rgba(31,36,41,.16);
+    --sans: "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 13px; }
+  header.top { padding: 22px 28px 6px; }
+  header.top h1 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+  header.top p { margin: 0; color: var(--ink2); max-width: 820px; line-height: 1.6; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 22px; padding: 18px 28px 20px; align-items: start; }
+  .case h2 { margin: 0 0 4px; font-size: 13.5px; font-weight: 600; }
+  .case .why { margin: 0 0 10px; color: var(--ink2); line-height: 1.55; min-height: 40px; }
+  .stage { background: var(--desk); border: 1px solid var(--line); border-radius: 14px; padding: 18px; min-height: 470px; display: flex; flex-direction: column; align-items: center; gap: 12px; position: relative; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .num { font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .sub { color: var(--ink3); font-size: 11.5px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .icon-btn { width: 26px; height: 26px; display: grid; place-items: center; border: 0; background: transparent; color: var(--ink3); border-radius: 8px; }
+  .icon-btn:hover { color: var(--ink); }
+  .icon-btn.on { color: var(--accent); }
+  .btn { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 8px; padding: 7px 12px; font-size: 12.5px; background: var(--accent); color: var(--accent-ink); }
+  .btn.running { background: var(--sunk); color: var(--ink); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; background: var(--sunk); border-radius: 99px; padding: 4px 10px; font-size: 12px; color: var(--ink2); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: inline-block; }
+
+  /* 체크 탭 카드 */
+  .card { width: 292px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .card .head { display: flex; align-items: center; gap: 6px; }
+  .card .head b { font-size: 13px; font-weight: 600; flex: 1; }
+  .card .head .link { color: var(--ink3); font-size: 12px; border: 0; background: none; }
+  .card .time { font-size: 28px; font-weight: 600; line-height: 1; }
+  .week { display: flex; gap: 4px; height: 34px; align-items: flex-end; }
+  .week i { flex: 1; background: #e6e9ec; border-radius: 3px; height: 4px; }
+  .week i.t { background: var(--accent); } .week i.h1 { height: 14px; } .week i.h2 { height: 26px; }
+  .week-l { display: flex; gap: 4px; margin-top: 4px; color: var(--ink3); font-size: 10.5px; }
+  .week-l span { flex: 1; text-align: center; }
+  .cycle { display: flex; align-items: center; justify-content: space-between; background: var(--sunk); border-radius: 9px; padding: 7px 10px; color: var(--ink2); font-size: 12px; }
+  .cycle b { color: var(--ink); font-weight: 600; }
+
+  /* 알약 위젯 */
+  .bar { width: 292px; background: var(--panel); border: 1px solid var(--line); border-radius: 99px; box-shadow: var(--shadow); display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 16px; }
+  .bar .num { font-size: 18px; font-weight: 600; }
+  .bar .sp { flex: 1; }
+  .bar .play { width: 30px; height: 30px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; }
+
+  /* 공용 설정 팝오버 */
+  .pop { width: 292px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--pop); padding: 6px; display: none; }
+  .pop.show { display: block; }
+  .pop h4 { margin: 8px 8px 4px; font-size: 11.5px; font-weight: 600; color: var(--ink3); }
+  .opt { display: flex; align-items: center; justify-content: space-between; padding: 7px 8px; border-radius: 8px; color: var(--ink2); }
+  .opt:hover { background: var(--sunk); }
+  .opt.on { color: var(--ink); } .opt.on b { color: var(--accent); font-weight: 600; }
+  .opt .tag { font-size: 11.5px; color: var(--ink3); }
+  .sw { width: 30px; height: 18px; border-radius: 99px; background: #d5dae0; position: relative; flex: none; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .sw.on { background: var(--accent); } .sw.on::after { left: 14px; }
+  .min { display: flex; align-items: center; gap: 6px; }
+  .min input { width: 52px; border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; background: var(--panel); font: inherit; text-align: right; color: var(--ink); }
+  .slider { width: 96px; height: 4px; background: #d5dae0; border-radius: 4px; position: relative; }
+  .slider i { position: absolute; left: 0; top: 0; bottom: 0; width: 60%; background: var(--accent); border-radius: 4px; }
+  .add { display: flex; align-items: center; gap: 6px; padding: 7px 8px; color: var(--accent); border: 0; background: none; font-size: 12.5px; }
+  .note { margin: 0 28px 40px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; line-height: 1.75; color: var(--ink2); }
+  .note b { color: var(--ink); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>기록·타이머 합체안</h1>
+  <p>체크 카드와 알약 위젯은 같은 부품입니다(같은 시간·같은 시작/정지·같은 기록). 세부 설정은 두 곳 모두 ⚙ 하나로 같은 팝오버를 엽니다. ⚙ 를 눌러 보세요.</p>
+</header>
+
+<div class="grid">
+  <!-- 1. 체크 탭 -->
+  <section class="case">
+    <h2>① 체크 탭 — 집필 기록 카드</h2>
+    <p class="why">지금 쓰는 것만: 시간 · 시작/정지 · 오늘 기록 · 주간 막대 · 사이클 이름 한 줄. 세부는 ⚙ 안으로.</p>
+    <div class="stage" id="s1">
+      <div class="card">
+        <div class="head"><b>집필 기록</b><button class="icon-btn" data-gear aria-label="설정"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button class="link">달력 ›</button></div>
+        <div class="row"><span class="time num" data-time>25:00</span><button class="btn" data-run><svg viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></svg><span>시작</span></button></div>
+        <div class="sub">오늘 1,904자 · 1시간 12분 · 기록 중 <span data-rec>0:23</span></div>
+        <div><div class="week"><i class="h1"></i><i class="h2"></i><i></i><i class="h1"></i><i class="h2"></i><i class="h1"></i><i class="t h2"></i></div><div class="week-l"><span>금</span><span>토</span><span>일</span><span>월</span><span>화</span><span>수</span><span>오늘</span></div></div>
+        <div class="cycle"><span><b>표준 포모도로</b> · 글쓰기 1/4</span><span class="sub">25 / 5</span></div>
+      </div>
+      <div class="pop" data-pop></div>
+    </div>
+  </section>
+
+  <!-- 2. 위젯 -->
+  <section class="case">
+    <h2>② 위젯 — 알약 한 줄 (C안)</h2>
+    <p class="why">체크 탭이 안 보이는 화면(설정집·캐릭터 보드 등)에서 떠 있는 미니 타이머. ⚙ 는 ①과 같은 팝오버.</p>
+    <div class="stage" id="s2">
+      <div class="bar">
+        <span class="num" data-time>25:00</span><span class="sub">글쓰기 1/4</span><span class="sp"></span>
+        <span class="pill"><i class="dot"></i><span data-rec>0:23</span></span>
+        <button class="icon-btn" data-gear aria-label="설정"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+        <button class="play" data-run aria-label="시작"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg></button>
+      </div>
+      <div class="pop" data-pop></div>
+    </div>
+  </section>
+</div>
+
+<div class="note">
+  <b>공용 설정 팝오버의 구성</b><br>
+  · <b>사이클</b>: 목록에서 선택(표준 포모도로 · 스프린트 · 52/17 · 울트라디안), 항목 오른쪽에서 편집, "사이클 추가"로 내 사이클 만들기<br>
+  · <b>시간</b>: 집중·휴식 분을 숫자로 직접 설정<br>
+  · <b>소리</b>: 종소리 켜기/끄기, 볼륨<br>
+  · <b>자동 진행</b>: 휴식 자동 시작<br>
+  표시 방식(모래시계·남은 시간)은 없애고 숫자 하나로 통일했습니다.
+</div>
+
+<script>
+  const popHTML = `
+    <h4>사이클</h4>
+    <div class="opt on"><b>표준 포모도로</b><span class="tag">25 / 5 × 4</span></div>
+    <div class="opt"><span>스프린트 세트</span><span class="tag">50 / 10 × 2</span></div>
+    <div class="opt"><span>52 / 17 세트</span><span class="tag">52 / 17 × 2</span></div>
+    <div class="opt"><span>울트라디안 리듬</span><span class="tag">90 / 20</span></div>
+    <button class="add"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>사이클 추가</button>
+    <hr>
+    <h4>시간</h4>
+    <div class="opt"><span>집중</span><span class="min"><input value="25"> 분</span></div>
+    <div class="opt"><span>휴식</span><span class="min"><input value="5"> 분</span></div>
+    <hr>
+    <h4>소리·진행</h4>
+    <div class="opt"><span>종소리</span><span class="sw on"></span></div>
+    <div class="opt"><span>볼륨</span><span class="slider"><i></i></span></div>
+    <div class="opt"><span>휴식 자동 시작</span><span class="sw"></span></div>`;
+  document.querySelectorAll('[data-pop]').forEach(p => { p.innerHTML = popHTML; });
+  document.querySelectorAll('[data-gear]').forEach(g => g.addEventListener('click', () => {
+    const stage = g.closest('.stage'); const pop = stage.querySelector('[data-pop]');
+    pop.classList.toggle('show'); g.classList.toggle('on');
+  }));
+  document.querySelectorAll('.sw').forEach(s => s.addEventListener('click', () => s.classList.toggle('on')));
+  document.querySelectorAll('.opt').forEach(o => o.addEventListener('click', e => {
+    if (e.target.closest('.sw,.min,.slider')) return;
+    const list = o.parentElement; if (!o.querySelector('.tag')) return;
+    list.querySelectorAll('.opt').forEach(x => { if (x.querySelector('.tag')) x.classList.remove('on'); });
+    o.classList.add('on');
+  }));
+  let run = false, sec = 1500, rec = 23, t;
+  const fmt = n => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
+  document.querySelectorAll('[data-run]').forEach(b => b.addEventListener('click', () => {
+    run = !run; clearInterval(t);
+    if (run) t = setInterval(() => { sec--; rec++; sync(); }, 1000);
+    sync();
+  }));
+  function sync() {
+    document.querySelectorAll('[data-time]').forEach(e => e.textContent = fmt(sec));
+    document.querySelectorAll('[data-rec]').forEach(e => e.textContent = Math.floor(rec / 60) + ':' + String(rec % 60).padStart(2, '0'));
+    document.querySelectorAll('.btn[data-run]').forEach(b => { b.classList.toggle('running', run); b.lastElementChild.textContent = run ? '정지' : '시작'; });
+  }
+</script>
+</body>
+</html>

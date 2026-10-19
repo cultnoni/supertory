@@ -261,7 +261,7 @@
 
     <link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
     <link rel="stylesheet" href="/styles.css?v=1.4.262">
-    <link rel="stylesheet" href="/island.css?v=40">
+    <link rel="stylesheet" href="/island.css?v=49">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -2336,7 +2336,7 @@
                   aria-label="조판" data-i18n-aria-label="index.쪽쓰기"
                 >
                   <span class="format-tool-glyph" aria-hidden="true">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="lucide lucide-book-open-text" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 4h12a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"/><path d="M8 9h6M8 13h6"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 4h12a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"/><path d="M8 9h6M8 13h6M20 8v8l-1.5 3L17 16V8a1.5 1.5 0 0 1 3 0z"/></svg>
                   </span>
                   <span class="format-tool-label" data-i18n="index.쪽쓰기">조판</span>
                 </button>
@@ -2767,6 +2767,8 @@
                       <div class="scene-synopsis-input-wrap">
                         <input id="sceneSynopsis" placeholder="예: 주인공이 낯선 편지를 발견한다." data-i18n-placeholder="index.예_주인공이_낯선_편지를_발견한다" form="sceneEditor" aria-label="이 씬 요약" data-i18n-aria-label="index.이_씬_요약">
                       </div>
+                      <button type="button" class="syn-icon-btn" id="synopsisEditButton" title="요약 수정" data-i18n-title="island.요약_수정" aria-label="요약 수정" data-i18n-aria-label="island.요약_수정"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5z"/></svg></button>
+                      <button type="button" class="syn-icon-btn" id="synopsisToggleButton" aria-expanded="false" title="요약 목록 열기·닫기" data-i18n-title="island.요약_목록_토글" aria-label="요약 목록 열기·닫기" data-i18n-aria-label="island.요약_목록_토글"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg></button>
                     </div>
                   </div>
                   <!-- 접힌 도구/서식 다시 열기 — 상태바 같은 줄 오른쪽 -->
@@ -4075,6 +4077,7 @@
             <section class="isl-card" aria-labelledby="islWritingTitle">
               <header class="isl-card-head">
                 <h3 id="islWritingTitle" data-i18n="island.집필_기록">집필 기록</h3>
+                <button type="button" class="isl-gear" id="islTimerGear" data-isl-dock="writingTimer" data-isl-settings="1" title="타이머 설정" data-i18n-title="island.타이머_설정" aria-label="타이머 설정" data-i18n-aria-label="island.타이머_설정"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
                 <button type="button" class="isl-link" id="islWritingLogButton"><span data-i18n="island.달력_열기">달력</span> ›</button>
               </header>
               <div class="isl-timer">
@@ -4082,10 +4085,7 @@
                 <button type="button" class="isl-btn" id="islTimerToggle"><svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M7 4v16l13-8z"/></svg><span id="islTimerLabel" data-i18n="island.시작">시작</span></button>
               </div>
               <p class="isl-today-line" id="islTodayLine"></p>
-              <div class="isl-today-stats">
-                <div><strong id="islTodayChars">0</strong><span data-i18n="island.오늘_쓴_글자">오늘 쓴 글자</span></div>
-                <div><strong id="islTodayTime">0</strong><span data-i18n="island.오늘_쓴_시간">오늘 쓴 시간</span></div>
-              </div>
+              <div class="isl-cycle" id="islCycleLine" data-isl-dock="writingTimer"><b></b><span></span></div>
               <div class="isl-week" id="islWeekBars" role="img" aria-label="최근 7일" data-i18n-aria-label="island.최근_7일"></div>
             </section>
             <section class="isl-card" aria-labelledby="islCheckTitle">
@@ -5263,7 +5263,7 @@
       <div class="modal-backdrop" data-close-writing-log></div>
       <div class="modal-card writing-log-modal-card">
         <div class="modal-heading">
-          <h2 id="writingLogModalTitle" data-i18n="index.글쓰기_기록">글쓰기 기록</h2>
+          <h2 id="writingLogModalTitle" data-i18n="island.집필_기록">집필 기록</h2>
           <button type="button" class="modal-close" data-close-writing-log title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
         </div>
         <div class="writing-log-tabs" role="tablist" aria-label="기록 메뉴" data-i18n-aria-label="index.기록_메뉴">
@@ -5277,9 +5277,9 @@
           <div class="writing-log-calendar-layout">
             <div class="writing-log-calendar-side">
               <div class="writing-cal-nav">
-                <button type="button" class="secondary compact-btn" id="writingCalPrev" title="이전 달" data-i18n-title="index.이전_달">◀</button>
+                <button type="button" class="secondary compact-btn" id="writingCalPrev" title="이전 달" data-i18n-title="index.이전_달" aria-label="이전 달"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
                 <strong id="writingCalTitle">2026.8</strong>
-                <button type="button" class="secondary compact-btn" id="writingCalNext" title="다음 달" data-i18n-title="index.다음_달">▶</button>
+                <button type="button" class="secondary compact-btn" id="writingCalNext" title="다음 달" data-i18n-title="index.다음_달" aria-label="다음 달"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
               </div>
               <div class="writing-cal-weekdays" aria-hidden="true">
                 <span data-i18n="index.일">일</span><span data-i18n="app.월">월</span><span data-i18n="index.화">화</span><span data-i18n="index.수">수</span><span data-i18n="index.목">목</span><span data-i18n="index.금">금</span><span data-i18n="index.토">토</span>
@@ -5308,6 +5308,11 @@
               </div>
             </div>
             <div class="writing-log-detail-side">
+              <div class="wlog-summary" id="writingSummary">
+                <div class="wlog-card"><span data-i18n="island.ws_month">이번 달</span><strong id="wsMonth">—</strong><small id="wsMonthSub"></small></div>
+                <div class="wlog-card"><span data-i18n="island.ws_streak">연속 집필</span><strong id="wsStreak">—</strong><small id="wsStreakSub"></small></div>
+                <div class="wlog-card"><span data-i18n="island.ws_today">오늘</span><strong id="wsToday">—</strong><small id="wsTodaySub"></small></div>
+              </div>
               <h3 id="writingDayTitle" class="writing-day-title" data-i18n="index.날짜를_선택하세요">날짜를 선택하세요</h3>
               <div id="writingFirstMetBanner" class="writing-first-met-banner hidden" role="status">
                 <span class="writing-acorn-mascot" aria-hidden="true">
@@ -7148,7 +7153,9 @@
       <section>
         <h5 data-i18n="island.fp_문서">문서</h5>
         <div class="isl-fp-chips">
+          <button type="button" class="isl-fp-chip" data-isl-doc="applyAll"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg><span data-i18n="island.fp_전체문서적용">전체 문서에 적용</span></button>
           <button type="button" class="isl-fp-chip" data-isl-cmd="removeFormat"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4-4 11-11a2 2 0 0 1 3 0l3 3a2 2 0 0 1 0 3L11 21zM12 21h9"/></svg><span data-i18n="island.fp_서식지우기">서식 지우기</span></button>
+          <button type="button" class="isl-fp-chip" data-isl-doc="quotes"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8h5v5a4 4 0 0 1-4 4M14 8h5v5a4 4 0 0 1-4 4"/></svg><span data-i18n="island.fp_따옴표정리">따옴표 정리</span></button>
         </div>
       </section>
     </div>
@@ -8104,18 +8111,14 @@
     </div>
 
     <!-- Sequential scene synopsis list -->
-    <div id="synopsisListModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="synopsisListTitle">
+    <div id="synopsisListModal" class="modal hidden syn-pop" role="dialog" aria-modal="false" aria-labelledby="synopsisListTitle">
       <div class="modal-backdrop" data-close-synopsis-list></div>
       <div class="modal-card synopsis-list-modal-card">
-        <div class="modal-heading">
+        <div class="syn-pop-head">
           <h2 id="synopsisListTitle" data-i18n="index.요약_목록">요약 목록</h2>
-          <button type="button" class="modal-close" data-close-synopsis-list title="닫기" data-i18n-title="app.닫기">×</button>
+          <span class="syn-pop-hint" data-i18n="island.요약_이동">누르면 해당 회차로 이동</span>
         </div>
-        <p class="hint modal-hint" data-i18n="index.바인더_순서대로_각_씬의_요약만_모았습니다">바인더 순서대로 각 씬의 요약만 모았습니다. 항목을 누르면 해당 씬으로 이동합니다.</p>
         <div id="synopsisListBody" class="synopsis-list-body" aria-live="polite"></div>
-        <div class="modal-actions">
-          <button type="button" class="primary" data-close-synopsis-list data-i18n="app.닫기">닫기</button>
-        </div>
       </div>
     </div>
 

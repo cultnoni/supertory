@@ -182,6 +182,17 @@ class IslandDesignContractTests(unittest.TestCase):
             missing = sorted(k for k in keys if k not in data)
             self.assertEqual(missing, [], f"{lc} missing {missing}")
 
+    def test_writing_timer_pill_widget_and_shared_settings(self) -> None:
+        # 기록·타이머: 체크 카드와 알약 위젯이 같은 ⚙ 설정 팝오버를 쓰고, 표시 방식은 숫자 하나로 통일
+        self.assertIn('id="islTimerGear"', self.html)
+        self.assertIn('data-isl-settings="1"', self.html)
+        self.assertIn('id="islCycleLine"', self.html)
+        self.assertIn("function setWritingTimerSettingsOpen(", self.js)
+        self.assertIn('data-role="dtm-pop"', self.js)
+        self.assertIn(".dtm-pop", self.css)
+        self.assertIn(".writing-timer-style-fieldset { display: none", self.css)
+        self.assertIn('return "digits";', self.js.split("function normalizeWritingTimerStyle(", 1)[1].split("}", 1)[0])
+
     def test_island_css_uses_theme_variables_not_brand_hex(self) -> None:
         # 색은 기존 테마 변수로. 라이트·샌드 팔레트 정의 블록(data-theme/data-ui-theme × html/body)과 그림자·링은 예외.
         body = re.sub(

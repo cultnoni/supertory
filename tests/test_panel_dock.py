@@ -556,59 +556,19 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("if (id === DOCK_WRITING_TIMER_KEY) continue;", self.js)
         render_fn = self.js.split("function renderDockWritingTimer(", 1)[1].split("function syncDockWritingTimer(", 1)[0]
         countdown_fn = self.js.split("function dockCountdownHtml(", 1)[1].split("function bindDockWritingTimerBody(", 1)[0]
-        self.assertIn("dock-timer-record", render_fn)
-        self.assertIn("data-role=\"dock-timer-readout\"", render_fn)
+        # 알약 한 줄 위젯: 시간·기록·⚙·시작이 한 줄(dtm-bar), 세부 설정은 공용 팝오버(dtm-pop)
         self.assertIn("dockCountdownHtml()", render_fn)
-        self.assertLess(
-            render_fn.find("dock-timer-record"),
-            render_fn.find("dockCountdownHtml()"),
-        )
-        self.assertNotIn("dock-timer-style-picks", render_fn)
-        self.assertIn('dockTimerCycleSegHtml("style"', countdown_fn)
-        self.assertIn('dockTimerCycleSegHtml("display"', countdown_fn)
-        self.assertIn('dockTimerCycleSegHtml("sound"', countdown_fn)
+        self.assertIn('data-role="dock-timer-toggle"', countdown_fn)
+        self.assertIn('data-role="dock-timer-readout"', countdown_fn)
+        self.assertIn('data-role="dtm-gear"', countdown_fn)
+        self.assertIn('data-role="dtm-pop"', countdown_fn)
+        self.assertNotIn('dockTimerCycleSegHtml("style"', countdown_fn)  # 모래시계·알람·숫자 구분 제거
+        self.assertIn("pomodoroSoundButtonsHtml(sound)", countdown_fn)
+        self.assertIn("pomodoroDisplayButtonsHtml(display)", countdown_fn)
         self.assertIn("dock-timer-face", countdown_fn)
-        self.assertLess(
-            countdown_fn.find("app.포모도로_타이머"),
-            countdown_fn.find("dock-timer-quick"),
-        )
-        self.assertLess(
-            countdown_fn.find("dock-timer-quick"),
-            countdown_fn.find("dock-timer-face"),
-        )
-        self.assertLess(
-            countdown_fn.find("dock-countdown-readout"),
-            countdown_fn.find("dock-timer-toggles"),
-        )
-        self.assertLess(
-            countdown_fn.find("dock-timer-toggles"),
-            countdown_fn.find("dock-countdown-presets"),
-        )
-        self.assertLess(
-            countdown_fn.find("dock-timer-face"),
-            countdown_fn.find("dock-timer-toggles"),
-        )
-        self.assertLess(
-            countdown_fn.find("dock-timer-face"),
-            countdown_fn.find('dockTimerCycleSegHtml("style"'),
-        )
-        self.assertLess(
-            countdown_fn.find('dockTimerCycleSegHtml("style"'),
-            countdown_fn.find('dockTimerCycleSegHtml("display"'),
-        )
-        self.assertLess(
-            countdown_fn.find('dockTimerCycleSegHtml("display"'),
-            countdown_fn.find('dockTimerCycleSegHtml("sound"'),
-        )
-        self.assertIn("dock-countdown.is-session .dock-timer-display-picks", self.css)
-        self.assertIn(".dock-countdown.is-session .dock-timer-quick {", self.css)
-        self.assertNotIn(
-            "dock-countdown.is-session .dock-pomodoro-phase",
-            self.css.split(".dock-countdown.is-session .dock-countdown-title", 1)[1].split(".dock-countdown.is-session {", 1)[0],
-        )
-        self.assertIn(".dock-countdown-session-actions", self.css)
-        self.assertIn(".dock-countdown.is-session .dock-countdown-session-actions", self.css)
-        self.assertIn(".dock-countdown-text-btn", self.css)
+        self.assertLess(countdown_fn.find("dtm-bar"), countdown_fn.find("dtm-pop"))
+        self.assertLess(countdown_fn.find("dock-timer-face"), countdown_fn.find("dockTimerQuickStartHtml(running)"))
+        self.assertLess(countdown_fn.find("dockTimerQuickStartHtml(running)"), countdown_fn.find("dock-countdown-presets"))
         self.assertIn("dock-countdown-session-actions", countdown_fn)
         self.assertIn("dockTimerQuickStartHtml(running)", countdown_fn)
         self.assertIn("dock-pomodoro-face", countdown_fn)
@@ -689,7 +649,6 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertNotIn("checked", self.html.split('id="writingShowTimer"', 1)[1].split(">", 1)[0])
         self.assertIn("dock-widget-btn", countdown_fn)
         self.assertIn("app.포모도로_타이머", countdown_fn)
-        self.assertIn("dock-countdown-title", countdown_fn)
         self.assertIn("pomodoroPresetCardHtml", countdown_fn)
         self.assertIn("data-role=\"dock-pomodoro-save-new\"", countdown_fn)
         self.assertIn("data-role=\"dock-pomodoro-preset\"", self.js)
@@ -704,7 +663,6 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn(".dock-timer-seg", self.css)
         self.assertIn(".dock-timer-toggles", self.css)
         self.assertIn("role=\"radiogroup\"", self.js)
-        self.assertIn("dock-timer-toggles", self.js)
         self.assertIn(".dock-countdown", self.css)
         self.assertIn(".dock-countdown-title", self.css)
         self.assertIn(".is-timer-session", self.css)
@@ -894,7 +852,7 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('id="pageWriteModal"', self.html)
         self.assertIn('id="openPageWriteFromTypeset"', self.html)
         self.assertNotIn("index.쪽쓰기_기능은_준비_중입니다", self.js.split('$("pageWriteButton")', 1)[1][:400])
-        self.assertIn("lucide-book-open-text", row)
+        self.assertIn("M8 9h6M8 13h6M20 8v8l-1.5 3L17 16V8a1.5 1.5 0 0 1 3 0z", row)  # 시안의 조판(pagewrite) 아이콘
         self.assertIn('d="M4 4h12a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"', row)
         expected_labels = {
             "ko": ("조판", "조판 열기", "조판 미리보기"),

@@ -6000,23 +6000,23 @@ function applyLineHeight(value, editorEl = null) {
 
 /* Text / highlight colors: left-click apply, right-click palette */
 const FORMAT_PRESET_COLORS = [
-  { key: "red", hex: "#e74c3c", label: i18n.t('app.빨강') },
-  { key: "blue", hex: "#3498db", label: i18n.t('app.파랑') },
-  { key: "yellow", hex: "#f1c40f", label: i18n.t('app.노랑') },
-  { key: "green", hex: "#27ae60", label: i18n.t('app.초록') },
-  { key: "gray", hex: "#7f8c8d", label: i18n.t('app.회색') },
+  { key: "ink", hex: "#262b31", label: i18n.t('app.검정') },
+  { key: "red", hex: "#d6564a", label: i18n.t('app.빨강') },
+  { key: "gold", hex: "#d2a456", label: i18n.t('app.노랑') },
+  { key: "green", hex: "#4f9b7d", label: i18n.t('app.초록') },
+  { key: "blue", hex: "#6f92c6", label: i18n.t('app.파랑') },
+  { key: "purple", hex: "#a99ac8", label: i18n.t('app.보라') },
 ];
-/** 형광펜 전용 — 네온/형광 느낌 프리셋 */
+/** 형광펜 전용 — 시안(main-design-v4)의 옅은 색 4가지 */
 const FORMAT_HIGHLIGHT_PRESET_COLORS = [
-  { key: "neon-pink", hex: "#FF9AF5", label: i18n.t('app.네온_핑크') },
-  { key: "neon-yellow", hex: "#F5FF3D", label: i18n.t('app.네온_노랑') },
-  { key: "neon-green", hex: "#A8FF7A", label: i18n.t('app.네온_초록') },
-  { key: "neon-cyan", hex: "#3DFFF5", label: i18n.t('app.네온_시안') },
-  { key: "neon-orange", hex: "#FFC45C", label: i18n.t('app.네온_주황') },
+  { key: "hl-yellow", hex: "#fbe9a6", label: i18n.t('app.노랑') },
+  { key: "hl-green", hex: "#cdeed9", label: i18n.t('app.초록') },
+  { key: "hl-blue", hex: "#d4e4f7", label: i18n.t('app.하늘') },
+  { key: "hl-pink", hex: "#f6d2d0", label: i18n.t('app.분홍') },
 ];
 const FORMAT_COLOR_DEFAULTS = {
-  text: "#e74c3c",
-  highlight: "#F5FF3D",
+  text: "#d6564a",
+  highlight: "#fbe9a6",
   shade: "#efe4d4",
 };
 const formatColorState = {
@@ -18600,6 +18600,7 @@ let pomodoroAudioCtx = null;
 let writingTimerIdleSnap = null;
 let writingTimerSessionSized = false;
 let writingTimerCycleOpen = "";
+let writingTimerSettingsOpen = false;
 const DOCK_CHAR_KEY_PREFIX = "dock:character:";
 const DOCK_CHAR_DEFAULT_W = 280;
 const DOCK_CHAR_DEFAULT_H = 360;
@@ -19185,6 +19186,7 @@ const DOCK_FLOAT_SPECS = {
       if (pomodoroState.running) ensurePomodoroTick();
       syncDockWritingTimer();
       applyDockWritingTimerScale(win);
+      keepDockTimerInView(win);
       syncDockWritingTimerRail();
     },
     onResize(win) {
@@ -19505,8 +19507,8 @@ function loadDockWritingTimerLayout() {
     const left = Number(parsed?.left);
     const top = Number(parsed?.top);
     if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
-    const maxLeft = Math.max(8, window.innerWidth - 48);
-    const maxTop = Math.max(8, window.innerHeight - 40);
+    const maxLeft = Math.max(8, window.innerWidth - 316 - 12);
+    const maxTop = Math.max(8, window.innerHeight - 120);
     const width = Number(parsed?.width);
     const height = Number(parsed?.height);
     const layout = {
@@ -19514,29 +19516,23 @@ function loadDockWritingTimerLayout() {
       top: Math.min(maxTop, Math.max(8, Math.round(top))),
       z: Number(parsed?.z) || 1,
     };
-    if (Number.isFinite(width) && width >= DOCK_WRITING_TIMER_MIN_W) {
-      layout.width = Math.round(width);
-    }
-    if (Number.isFinite(height) && height >= DOCK_WRITING_TIMER_MIN_H) {
-      layout.height = Math.round(height);
-    }
+    void width; void height; // 새 알약 위젯은 크기를 CSS가 정한다
     return layout;
   } catch (_) {
     return null;
   }
 }
 
-function normalizeWritingTimerStyle(value) {
-  const style = String(value || "").trim().toLowerCase();
-  if (style === "stopwatch") return "digits";
-  return WRITING_TIMER_STYLES.includes(style) ? style : "hourglass";
+function normalizeWritingTimerStyle() {
+  // 모래시계·알람시계·숫자 구분을 없애고 숫자 하나로 통일
+  return "digits";
 }
 
 function loadWritingTimerStyle() {
   try {
     return normalizeWritingTimerStyle(localStorage.getItem(WRITING_TIMER_STYLE_KEY));
   } catch (_) {
-    return "hourglass";
+    return "digits";
   }
 }
 
@@ -20172,11 +20168,11 @@ function dockTrackerFallbackPos() {
 }
 
 function dockWritingTimerFallbackPos() {
-  const width = 240;
-  const height = 280;
+  const width = 316;
+  const height = 96;
   const base = dockTrackerFallbackPos();
   return {
-    left: base.left,
+    left: Math.max(8, Math.min(base.left, (Number(window.innerWidth) || 1200) - width - 12)),
     top: Math.max(8, base.top - height - 12),
   };
 }
@@ -20245,6 +20241,7 @@ function writingTimerSandRatio(seconds) {
 }
 
 function dockWritingTimerFaceHtml(style, seconds, recording) {
+  style = "digits";
   const clockSec = pomodoroClockSeconds();
   const time = formatRecordingClock(clockSec);
   const idle = recording
@@ -21305,9 +21302,10 @@ function dockCountdownHtml() {
   ensurePomodoroState();
   const preset = getActivePomodoroPreset();
   const running = Boolean(pomodoroState.running);
-  const style = loadWritingTimerStyle();
   const display = pomodoroState.display === "elapsed" ? "elapsed" : "remaining";
   const sound = loadPomodoroSound();
+  const recording = Boolean(writingTracker.recording);
+  const seconds = recording ? liveRecordingSeconds() : 0;
   const listed = pomodoroState.presets.length ? pomodoroState.presets : loadPomodoroPresets();
   const presetCards = listed.map((item) => pomodoroPresetCardHtml(item, running)).join("");
   const overwrite = pomodoroState.overwriteOpen
@@ -21322,68 +21320,100 @@ function dockCountdownHtml() {
   const selectedInList = listed.some((item) => item.id === selected.id);
   const session = pomodoroSessionActive();
   const formOpen = pomodoroState.overwriteOpen ? " open" : "";
+  const settingsOpen = writingTimerSettingsOpen || pomodoroState.overwriteOpen;
+  const gearSvg = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
   return `
-    <div class="dock-countdown${session ? " is-session" : ""}${running ? " is-running" : ""}" data-role="dock-countdown">
-      <p class="dock-countdown-label dock-countdown-title">${escapeHtml(i18n.t("app.포모도로_타이머"))}</p>
-      <label class="dock-timer-quick">
-        <input type="number" min="1" max="180" step="1" inputmode="numeric" data-role="pomodoro-quick-min"
-          value="${pomodoroState.quickMin}" aria-label="${escapeHtml(i18n.t("app.타이머_분"))}">
-        <span>${escapeHtml(i18n.t("app.타이머_분"))}</span>
+    <div class="dock-countdown dtm-pane${session ? " is-session" : ""}${running ? " is-running" : ""}" data-role="dock-countdown">
+      <div class="dtm-bar">
+        <button type="button" class="dock-timer-face dtm-time" data-role="dock-pomodoro-face"
+          title="${escapeHtml(pomodoroFaceTitle())}"
+          aria-pressed="${running ? "true" : "false"}">
+          ${dockWritingTimerFaceHtml("digits", pomodoroFaceElapsedSeconds(), running)}
+        </button>
+        <span class="dtm-phase" data-role="dock-pomodoro-phase">${escapeHtml(pomodoroPhaseLabel(preset))}</span>
+        <button type="button" class="dock-timer-record dtm-rec" data-role="dock-timer-toggle"
+          title="${escapeHtml(recording ? i18n.t("app.클릭_집필_시간_기록_정지_우클릭_달력_설정") : i18n.t("app.클릭_집필_시간_기록_시작_정지_글자수는_자"))}"
+          aria-pressed="${recording ? "true" : "false"}">
+          <i class="dtm-dot" aria-hidden="true"></i>
+          <span class="dock-timer-readout" data-role="dock-timer-readout">${escapeHtml(writingTimerRecordText(seconds, recording))}</span>
+        </button>
+        <button type="button" class="dtm-gear" data-role="dtm-gear"
+          title="${escapeHtml(i18n.t("island.타이머_설정"))}" aria-label="${escapeHtml(i18n.t("island.타이머_설정"))}"
+          aria-expanded="${settingsOpen ? "true" : "false"}">${gearSvg}</button>
         ${dockTimerQuickStartHtml(running)}
-      </label>
-      <button type="button" class="dock-timer-face" data-role="dock-pomodoro-face"
-        title="${escapeHtml(pomodoroFaceTitle())}"
-        aria-pressed="${running ? "true" : "false"}">
-        ${dockWritingTimerFaceHtml(style, pomodoroFaceElapsedSeconds(), running)}
-      </button>
-      <p class="dock-pomodoro-phase" data-role="dock-pomodoro-phase">${escapeHtml(pomodoroPhaseLabel(preset))}</p>
-      <div class="dock-countdown-readout${running ? " is-on" : ""}${pomodoroState.justFinished ? " is-done" : ""}"
-        data-role="dock-countdown-readout">${escapeHtml(formatRecordingClock(pomodoroClockSeconds()))}</div>
-      <div class="dock-timer-toggles">
-        ${dockTimerCycleSegHtml("style", "app.기록_위젯_디자인", writingTimerStyleButtonsHtml(style))}
-        ${dockTimerCycleSegHtml("display", "app.타이머_시간_표시", pomodoroDisplayButtonsHtml(display))}
-        ${dockTimerCycleSegHtml("sound", "app.타이머_알람_소리", pomodoroSoundButtonsHtml(sound))}
       </div>
-      <div class="dock-countdown-presets" role="group" aria-label="${escapeHtml(i18n.t("app.포모도로_타이머"))}">${presetCards}</div>
-      <div class="dock-countdown-session-actions" role="group" aria-label="${escapeHtml(i18n.t("app.포모도로_타이머"))}">
-        <button type="button" class="dock-widget-btn dock-countdown-text-btn is-quiet" data-role="dock-countdown-reset"
-          title="${escapeHtml(i18n.t("app.타이머_초기화"))}"
-          aria-label="${escapeHtml(i18n.t("app.타이머_초기화"))}">
-          ${dockTimerResetIconHtml()}
-          <span>${escapeHtml(i18n.t("app.타이머_초기화"))}</span>
-        </button>
-        <button type="button" class="dock-widget-btn dock-countdown-text-btn is-quiet" data-role="dock-countdown-back"
-          title="${escapeHtml(i18n.t("app.타이머_이전화면"))}"
-          aria-label="${escapeHtml(i18n.t("app.타이머_이전화면"))}">
-          ${dockTimerBackIconHtml()}
-          <span>${escapeHtml(i18n.t("app.타이머_이전화면"))}</span>
-        </button>
-      </div>
-      <details class="dock-pomodoro-form"${formOpen}>
-        <summary>${escapeHtml(i18n.t("app.프리셋_만들기"))}</summary>
-        <div class="dock-pomodoro-fields">
-          <label>${escapeHtml(i18n.t("app.글쓰기_시간"))}
-            <input type="number" min="1" max="180" step="1" data-role="pomodoro-write-min" value="${selected.writeMin}">
+      <div class="dtm-pop" data-role="dtm-pop"${settingsOpen ? "" : " hidden"}>
+        <h4>${escapeHtml(i18n.t("island.타이머_사이클"))}</h4>
+        <div class="dock-countdown-presets" role="group" aria-label="${escapeHtml(i18n.t("app.포모도로_타이머"))}">${presetCards}</div>
+        <details class="dock-pomodoro-form"${formOpen}>
+          <summary>${escapeHtml(i18n.t("app.프리셋_만들기"))}</summary>
+          <div class="dock-pomodoro-fields">
+            <label>${escapeHtml(i18n.t("app.글쓰기_시간"))}
+              <input type="number" min="1" max="180" step="1" data-role="pomodoro-write-min" value="${selected.writeMin}">
+            </label>
+            <label>${escapeHtml(i18n.t("app.쉬는_시간"))}
+              <input type="number" min="1" max="60" step="1" data-role="pomodoro-break-min" value="${selected.breakMin}">
+            </label>
+            <label>${escapeHtml(i18n.t("app.세트_수"))}
+              <input type="number" min="1" max="12" step="1" data-role="pomodoro-sets" value="${selected.sets}">
+            </label>
+          </div>
+          <label class="dock-pomodoro-name">${escapeHtml(i18n.t("app.프리셋_이름"))}
+            <input type="text" maxlength="48" data-role="pomodoro-name" value="${escapeHtml(pomodoroPresetLabel(selected))}" placeholder="${escapeHtml(pomodoroPresetLabel(selected))}">
           </label>
-          <label>${escapeHtml(i18n.t("app.쉬는_시간"))}
-            <input type="number" min="1" max="60" step="1" data-role="pomodoro-break-min" value="${selected.breakMin}">
-          </label>
-          <label>${escapeHtml(i18n.t("app.세트_수"))}
-            <input type="number" min="1" max="12" step="1" data-role="pomodoro-sets" value="${selected.sets}">
-          </label>
-        </div>
-        <label class="dock-pomodoro-name">${escapeHtml(i18n.t("app.프리셋_이름"))}
-          <input type="text" maxlength="48" data-role="pomodoro-name" value="${escapeHtml(pomodoroPresetLabel(selected))}" placeholder="${escapeHtml(pomodoroPresetLabel(selected))}">
+          <div class="dock-countdown-actions">
+            <button type="button" class="dock-widget-btn" data-role="dock-pomodoro-save">${escapeHtml(selectedInList ? i18n.t("app.이_프리셋_저장") : i18n.t("app.프리셋_저장"))}</button>
+            ${selectedInList ? `<button type="button" class="dock-widget-btn is-quiet" data-role="dock-pomodoro-save-new">${escapeHtml(i18n.t("app.새_프리셋_저장"))}</button>` : ""}
+            ${selectedInList ? `<button type="button" class="dock-widget-btn is-quiet" data-role="dock-pomodoro-delete" data-id="${escapeHtml(selected.id)}">${escapeHtml(i18n.t("app.프리셋_삭제"))}</button>` : ""}
+          </div>
+          ${overwrite}
+        </details>
+        <h4>${escapeHtml(i18n.t("island.타이머_시간"))}</h4>
+        <label class="dtm-row dock-timer-quick">
+          <span>${escapeHtml(i18n.t("app.타이머_분"))}</span>
+          <input type="number" min="1" max="180" step="1" inputmode="numeric" data-role="pomodoro-quick-min"
+            value="${pomodoroState.quickMin}" aria-label="${escapeHtml(i18n.t("app.타이머_분"))}">
         </label>
-        <div class="dock-countdown-actions">
-          <button type="button" class="dock-widget-btn" data-role="dock-pomodoro-save">${escapeHtml(selectedInList ? i18n.t("app.이_프리셋_저장") : i18n.t("app.프리셋_저장"))}</button>
-          ${selectedInList ? `<button type="button" class="dock-widget-btn is-quiet" data-role="dock-pomodoro-save-new">${escapeHtml(i18n.t("app.새_프리셋_저장"))}</button>` : ""}
-          ${selectedInList ? `<button type="button" class="dock-widget-btn is-quiet" data-role="dock-pomodoro-delete" data-id="${escapeHtml(selected.id)}">${escapeHtml(i18n.t("app.프리셋_삭제"))}</button>` : ""}
+        <h4>${escapeHtml(i18n.t("island.타이머_소리_표시"))}</h4>
+        <div class="dtm-row"><span>${escapeHtml(i18n.t("app.타이머_알람_소리"))}</span><span class="dtm-choices">${pomodoroSoundButtonsHtml(sound)}</span></div>
+        <div class="dtm-row"><span>${escapeHtml(i18n.t("app.타이머_시간_표시"))}</span><span class="dtm-choices">${pomodoroDisplayButtonsHtml(display)}</span></div>
+        <div class="dock-countdown-session-actions" role="group" aria-label="${escapeHtml(i18n.t("app.포모도로_타이머"))}">
+          <button type="button" class="dock-widget-btn dock-countdown-text-btn is-quiet" data-role="dock-countdown-reset"
+            title="${escapeHtml(i18n.t("app.타이머_초기화"))}" aria-label="${escapeHtml(i18n.t("app.타이머_초기화"))}">
+            ${dockTimerResetIconHtml()}
+            <span>${escapeHtml(i18n.t("app.타이머_초기화"))}</span>
+          </button>
+          <button type="button" class="dock-widget-btn dock-countdown-text-btn is-quiet" data-role="dock-countdown-back"
+            title="${escapeHtml(i18n.t("app.타이머_이전화면"))}" aria-label="${escapeHtml(i18n.t("app.타이머_이전화면"))}">
+            ${dockTimerBackIconHtml()}
+            <span>${escapeHtml(i18n.t("app.타이머_이전화면"))}</span>
+          </button>
         </div>
-        ${overwrite}
-      </details>
+      </div>
     </div>
   `;
+}
+
+/** 기록·타이머 설정 팝오버 열기/닫기 — 위젯과 체크 탭 ⚙가 같은 팝오버를 쓴다 */
+function setWritingTimerSettingsOpen(open) {
+  writingTimerSettingsOpen = Boolean(open);
+  const body = dockFloatBody(DOCK_WRITING_TIMER_KEY);
+  const pop = body?.querySelector("[data-role='dtm-pop']");
+  if (pop) pop.hidden = !writingTimerSettingsOpen;
+  body?.querySelector("[data-role='dtm-gear']")?.setAttribute("aria-expanded", writingTimerSettingsOpen ? "true" : "false");
+  const win = ideaFloatWindows.get(DOCK_WRITING_TIMER_KEY);
+  fitDockWritingTimerShell(win);
+  keepDockTimerInView(win);
+}
+
+/** 설정 팝오버가 열려 커져도 위젯이 화면 아래로 잘리지 않게 위로 올린다 */
+function keepDockTimerInView(win) {
+  if (!win) return;
+  window.requestAnimationFrame(() => {
+    const r = win.getBoundingClientRect();
+    const vh = Number(window.innerHeight) || 800;
+    if (r.bottom > vh - 8) win.style.top = `${Math.max(8, Math.round(vh - r.height - 8))}px`;
+  });
 }
 
 function bindDockWritingTimerBody(body) {
@@ -21397,6 +21427,18 @@ function bindDockWritingTimerBody(body) {
       return;
     }
     if (writingTimerCycleOpen) closeDockTimerCycleOpen(body.querySelector("[data-role='dock-countdown']"));
+    if (event.target.closest("[data-role='dtm-gear']") && body.contains(event.target)) {
+      event.preventDefault();
+      setWritingTimerSettingsOpen(!writingTimerSettingsOpen);
+      return;
+    }
+    const soundPick = event.target.closest("[data-role='pomodoro-sound']");
+    const displayPick = event.target.closest("[data-role='pomodoro-display']");
+    if ((soundPick || displayPick) && body.contains(event.target)) {
+      event.preventDefault();
+      applyDockTimerCycleChoice(soundPick ? "sound" : "display", soundPick || displayPick);
+      return;
+    }
     if (event.target.closest("[data-role='dock-timer-toggle']") && body.contains(event.target)) {
       event.preventDefault();
       toggleWritingRecording();
@@ -21543,20 +21585,11 @@ function writingTimerRecordText(seconds, recording) {
 function renderDockWritingTimer(body) {
   if (!body) return;
   ensurePomodoroState();
-  const style = loadWritingTimerStyle();
   const recording = Boolean(writingTracker.recording);
   const running = Boolean(pomodoroState.running);
   const session = pomodoroSessionActive();
-  const seconds = recording ? liveRecordingSeconds() : 0;
   body.innerHTML = `
-    <div class="dock-timer-card${session ? " is-timer-session" : ""}${running ? " is-timer-running" : ""}" data-timer-style="${escapeHtml(style)}" data-recording="${recording ? "1" : "0"}">
-      <button type="button" class="dock-timer-record" data-role="dock-timer-toggle"
-        title="${escapeHtml(recording ? i18n.t("app.클릭_집필_시간_기록_정지_우클릭_달력_설정") : i18n.t("app.클릭_집필_시간_기록_시작_정지_글자수는_자"))}"
-        aria-pressed="${recording ? "true" : "false"}">
-        <span class="dock-timer-record-label">${escapeHtml(i18n.t("app.기록"))}</span>
-        <span class="dock-timer-readout" data-role="dock-timer-readout">${escapeHtml(writingTimerRecordText(seconds, recording))}</span>
-        <span class="dock-timer-hint">${escapeHtml(recording ? i18n.t("app.기록_위젯_기록중_안내") : i18n.t("app.기록_위젯_대기_안내"))}</span>
-      </button>
+    <div class="dock-timer-card dtm${session ? " is-timer-session" : ""}${running ? " is-timer-running" : ""}" data-timer-style="digits" data-recording="${recording ? "1" : "0"}">
       ${dockCountdownHtml()}
     </div>
   `;
@@ -32370,7 +32403,9 @@ function fitFormatSelects() {
     ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
     const text = sel.options[sel.selectedIndex]?.textContent || sel.value || "";
     const w = Math.ceil(ctx.measureText(text).width) + 28;
-    sel.style.setProperty("width", `${Math.max(36, w)}px`, "important");
+    // 글꼴·문단 칸은 최소 폭을 둬서 서식줄 좌우 균형을 맞춘다
+    const floor = sel.id === "formatFont" ? 76 : 36;
+    sel.style.setProperty("width", `${Math.max(floor, w)}px`, "important");
   });
   scheduleFitFormatRow();
 }
@@ -32406,6 +32441,83 @@ function setupSplitCompareItem() {
     try { closeViewModeMenu?.(); } catch (_) { /* ignore */ }
     $("compareSplitButton")?.click();
   });
+}
+
+/** 전체 문서에 적용: 서식줄의 글꼴·크기·줄간격·장평 값을 문서 전체에 */
+function markEditorDirtyAfterBulk(editor) {
+  if (!editor) return;
+  if (editor.id === "sceneContent" && state.sceneId) markSceneDirty();
+  else if (editor.id === "synopsisContent" || editor.id === "synopsisContentB") markSettingsDocEditorDirty?.(editor);
+}
+function applyCurrentFormatsToEntireDocument(editor) {
+  const val = (id) => String($(id)?.value || "");
+  const font = val("formatFont");
+  const size = val("formatSize");
+  const lineHeight = val("formatLineHeight");
+  const jang = val("formatJangpyeong");
+  if (font) applyFontFamilyToEntireDocument(font, editor);
+  if (size) applyFontSizeToEntireDocument(size, editor);
+  if (lineHeight) applyLineHeightToEntireDocument(lineHeight, editor);
+  if (jang) applyJangpyeongToEntireDocument(jang, editor);
+  toast(i18n.t("app.전체_문서에_적용했습니다"));
+  markEditorDirtyAfterBulk(editor);
+}
+
+/** 따옴표 정리: 곧은 따옴표(" ')를 문맥에 따라 여는/닫는 둥근 따옴표(“ ” ‘ ’)로 바꾼다 */
+function tidyQuotesInEditor(editor) {
+  if (!editor) return 0;
+  const clone = editor.cloneNode(true);
+  const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
+  const blockRe = /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|PRE|TD|TH)$/;
+  const blockOf = (node) => {
+    let el = node.parentElement;
+    while (el && el !== clone && !blockRe.test(el.tagName)) el = el.parentElement;
+    return el || clone;
+  };
+  const opensAfter = /[\s([{<\u2014\u2013\-/\u201C\u2018]/;
+  const wordChar = /[\p{L}\p{N}]/u;
+  let lastBlock = null;
+  let prev = "";
+  let count = 0;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const block = blockOf(node);
+    if (block !== lastBlock) { lastBlock = block; prev = ""; }
+    const text = node.nodeValue || "";
+    let out = "";
+    for (const ch of text) {
+      let next = ch;
+      if (ch === '"') {
+        next = (!prev || opensAfter.test(prev)) ? "\u201C" : "\u201D";
+      } else if (ch === "'") {
+        next = (prev && wordChar.test(prev)) ? "\u2019" : "\u2018";
+      }
+      if (next !== ch) count += 1;
+      out += next;
+      prev = next;
+    }
+    if (out !== text) node.nodeValue = out;
+  }
+  if (!count) {
+    toast(i18n.t("island.따옴표_없음"));
+    return 0;
+  }
+  focusEditor(editor);
+  let ok = false;
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    ok = document.execCommand("insertHTML", false, clone.innerHTML);
+  } catch (_) {
+    ok = false;
+  }
+  if (!ok) editor.innerHTML = clone.innerHTML;
+  try { editor.dispatchEvent(new Event("input", { bubbles: true })); } catch (_) { /* ignore */ }
+  markEditorDirtyAfterBulk(editor);
+  toast(i18n.t("island.따옴표_정리됨", { n: count }));
+  return count;
 }
 
 function setupFormatMorePopover() {
@@ -32452,7 +32564,14 @@ function setupFormatMorePopover() {
     const text = $("islFpTextSw"); const hl = $("islFpHlSw"); const chars = $("islFpChars");
     if (text && !text.childElementCount) {
       FORMAT_PRESET_COLORS.forEach((c) => text.appendChild(swatch(c.hex, c.label, () => withSelection((ed) => applyFormatColorToSelection("text", c.hex, ed, { forceApply: true })))));
-      text.appendChild(clearDot(i18n.t("island.fp_지우기"), () => withSelection(() => clearTextColor())));
+      const picker = document.createElement("input");
+      picker.type = "color"; picker.value = "#d6564a"; picker.className = "isl-fp-picker"; picker.tabIndex = -1; picker.setAttribute("aria-hidden", "true");
+      picker.addEventListener("change", () => withSelection((ed) => applyFormatColorToSelection("text", picker.value, ed, { forceApply: true })));
+      const plus = document.createElement("button");
+      plus.type = "button"; plus.className = "isl-fp-dot is-clear"; plus.textContent = "+";
+      plus.title = i18n.t("island.fp_글자색"); plus.setAttribute("aria-label", i18n.t("island.fp_글자색"));
+      plus.addEventListener("click", () => picker.click());
+      text.appendChild(plus); text.appendChild(picker);
     }
     if (hl && !hl.childElementCount) {
       FORMAT_HIGHLIGHT_PRESET_COLORS.forEach((c) => hl.appendChild(swatch(c.hex, c.label, () => withSelection((ed) => applyFormatColorToSelection("highlight", c.hex, ed, { forceApply: true })))));
@@ -32543,6 +32662,15 @@ function setupFormatMorePopover() {
     if (list) { withSelection((ed) => applyListStyle(list.dataset.islList, ed)); return; }
     const ins = event.target.closest("[data-isl-insert]");
     if (ins) { withSelection((ed) => insertSpecialChar(ins.dataset.islInsert, ed)); return; }
+    const docAct = event.target.closest("[data-isl-doc]");
+    if (docAct) {
+      const ed = editorOf();
+      if (!ed) return;
+      if (docAct.dataset.islDoc === "applyAll") applyCurrentFormatsToEntireDocument(ed);
+      else if (docAct.dataset.islDoc === "quotes") tidyQuotesInEditor(ed);
+      close();
+      return;
+    }
     const cmd = event.target.closest("[data-isl-cmd]");
     if (cmd) { withSelection(() => { try { document.execCommand(cmd.dataset.islCmd, false, null); } catch (_) { /* ignore */ } }); }
   });
@@ -32784,6 +32912,14 @@ function syncIslTimer() {
   const label = $("islTimerLabel");
   if (label) label.textContent = i18n.t(pomodoroState.running ? "island.정지" : "island.시작");
   $("islTimerToggle")?.classList.toggle("is-running", Boolean(pomodoroState.running));
+  const cycle = $("islCycleLine");
+  if (cycle) {
+    const preset = getActivePomodoroPreset();
+    const nameEl = cycle.querySelector("b");
+    const metaEl = cycle.querySelector("span");
+    if (nameEl) nameEl.textContent = pomodoroPresetLabel(preset);
+    if (metaEl) metaEl.textContent = pomodoroPhaseLabel(preset);
+  }
 }
 
 /** 체크 탭 실시간 체크: ToryCheckEngine으로 최근 본문을 읽기만 해서 걸리는 항목 3개까지 */
@@ -33004,6 +33140,11 @@ function setupAiCheckHub() {
   $("aiCheckView")?.addEventListener("click", (event) => {
     const btn = event.target.closest?.("[data-isl-dock]");
     if (!btn) return;
+    if (btn.dataset.islSettings === "1") {
+      // 위젯이 이미 열려 있으면 설정만 토글, 닫혀 있으면 설정을 연 채로 연다
+      if (ideaFloatWindows.has(DOCK_WRITING_TIMER_KEY)) { setWritingTimerSettingsOpen(!writingTimerSettingsOpen); return; }
+      writingTimerSettingsOpen = true;
+    }
     document.querySelector(`[data-dock-item="${btn.dataset.islDock}"]`)?.click();
   });
   if (!aiCheckHubTimer) {
@@ -37901,7 +38042,7 @@ function setupWritingLogPurgeControls() {
 async function loadWritingCalendarMonth() {
   const y = writingTracker.calYear;
   const m = writingTracker.calMonth;
-  if ($("writingCalTitle")) $("writingCalTitle").textContent = `${y}.${m + 1}`;
+  if ($("writingCalTitle")) $("writingCalTitle").textContent = i18n.t("island.년월", { y, m: m + 1 });
   const from = `${y}-${String(m + 1).padStart(2, "0")}-01`;
   const lastDate = new Date(y, m + 1, 0).getDate();
   const to = `${y}-${String(m + 1).padStart(2, "0")}-${String(lastDate).padStart(2, "0")}`;
@@ -37917,6 +38058,70 @@ async function loadWritingCalendarMonth() {
     writingTracker.daysMap = {};
   }
   renderWritingCalendarGrid();
+}
+
+/** 집필 기록 달력 오른쪽 요약 카드: 이번 달 · 연속 집필 · 오늘 (이미 불러온 기록만 계산) */
+let writingSummaryCache = { at: 0, map: null };
+async function loadWritingSummaryRange() {
+  if (writingSummaryCache.map && Date.now() - writingSummaryCache.at < 30000) return writingSummaryCache.map;
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - 400);
+  const key = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const map = {};
+  try {
+    const data = await api(`/api/writing/days?from=${encodeURIComponent(key(from))}&to=${encodeURIComponent(key(to))}`);
+    for (const day of data?.days || []) if (day?.day) map[day.day] = day;
+  } catch (_) { /* 요약은 실패해도 달력은 그대로 */ }
+  writingSummaryCache = { at: Date.now(), map };
+  return map;
+}
+async function refreshWritingSummary() {
+  const setText = (id, text) => { const el = $(id); if (el) el.textContent = text; };
+  if (!$("wsMonth")) return;
+  const fmt = (n) => i18n.t("island.ws_chars", { n: Math.round(n).toLocaleString("ko-KR") });
+  const y = writingTracker.calYear;
+  const m = writingTracker.calMonth;
+  const prefix = `${y}-${String(m + 1).padStart(2, "0")}-`;
+  const today = localDayKey();
+  let sum = 0;
+  let writtenDays = 0;
+  Object.entries(writingTracker.daysMap || {}).forEach(([day, rec]) => {
+    if (!day.startsWith(prefix)) return;
+    let chars = Number(rec?.chars_added) || 0;
+    if (day === today) chars += writingTracker.pendingChars || 0;
+    if (chars > 0) { sum += chars; writtenDays += 1; }
+  });
+  setText("wsMonth", fmt(sum));
+  setText("wsMonthSub", writtenDays ? i18n.t("island.ws_avg", { n: Math.round(sum / writtenDays).toLocaleString("ko-KR") }) : "");
+  const map = await loadWritingSummaryRange();
+  const wrote = (day) => {
+    const rec = map[day];
+    let chars = Number(rec?.chars_added) || 0;
+    if (day === today) chars += writingTracker.pendingChars || 0;
+    return chars > 0;
+  };
+  const keyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const cursor = new Date();
+  if (!wrote(keyOf(cursor))) cursor.setDate(cursor.getDate() - 1);
+  let streak = 0;
+  while (wrote(keyOf(cursor)) && streak < 400) { streak += 1; cursor.setDate(cursor.getDate() - 1); }
+  let best = 0;
+  let run = 0;
+  const walk = new Date();
+  walk.setDate(walk.getDate() - 400);
+  for (let i = 0; i <= 400; i += 1) {
+    if (wrote(keyOf(walk))) { run += 1; best = Math.max(best, run); } else run = 0;
+    walk.setDate(walk.getDate() + 1);
+  }
+  setText("wsStreak", i18n.t("island.ws_days", { n: streak }));
+  setText("wsStreakSub", best ? i18n.t("island.ws_best", { n: best }) : "");
+  const rec = map[today] || {};
+  const chars = (Number(rec.chars_added) || 0) + (writingTracker.pendingChars || 0);
+  const active = (Number(rec.active_seconds) || 0) + (writingTracker.pendingActive || 0);
+  const sessions = (Number(rec.session_count) || 0) + (writingTracker.pendingSessionStart ? 1 : 0);
+  setText("wsToday", fmt(chars));
+  setText("wsTodaySub", chars || active ? i18n.t("island.ws_today_sub", { t: islFormatDuration(active), n: sessions }) : "");
 }
 
 function renderWritingCalendarGrid() {
@@ -37946,6 +38151,7 @@ function renderWritingCalendarGrid() {
     let chars = Number(rec?.chars_added) || 0;
     if (key === today) chars += writingTracker.pendingChars || 0;
     const heat = chars > 0 ? Math.max(12, Math.round((chars / maxChars) * 55)) : 0;
+    const level = chars <= 0 ? 0 : (chars / maxChars > 0.66 ? 3 : (chars / maxChars > 0.33 ? 2 : 1));
     const firstMet = isFirstMetDay(key);
     const purgePicked = purgeOn && purgeSet.has(key);
     const classes = [
@@ -37962,13 +38168,14 @@ function renderWritingCalendarGrid() {
     if (chars) titleBits.push(`${i18n.t('app.chars_자', {chars: chars})}`);
     if (purgeOn) titleBits.push(purgePicked ? i18n.t('app.삭제_선택됨') : i18n.t('app.클릭해서_삭제_선택'));
     cells.push(
-      `<button type="button" class="${classes}" data-day="${key}" style="--write-heat:${heat}" title="${escapeHtml(titleBits.join(" · "))}"${purgePicked ? ' aria-pressed="true"' : ""}>`
+      `<button type="button" class="${classes}" data-day="${key}" data-level="${level}" style="--write-heat:${heat}" title="${escapeHtml(titleBits.join(" · "))}"${purgePicked ? ' aria-pressed="true"' : ""}>`
       + `<span>${day}</span>`
       + `${firstMet ? CAL_ACORN_SVG : (chars > 0 ? '<span class="cal-dot"></span>' : "")}`
       + `</button>`,
     );
   }
   grid.innerHTML = cells.join("");
+  refreshWritingSummary();
 }
 
 async function selectWritingDay(dayKey, { silent = false } = {}) {
@@ -74643,6 +74850,7 @@ function isSynopsisListOpen() {
 
 function closeSynopsisList() {
   $("synopsisListModal")?.classList.add("hidden");
+  $("synopsisToggleButton")?.setAttribute("aria-expanded", "false");
 }
 
 function renderSynopsisListBody() {
@@ -74661,12 +74869,12 @@ function renderSynopsisListBody() {
   body.innerHTML = items.map((item) => {
     const text = item.synopsis
       ? escapeHtml(item.synopsis)
-      : i18n.t('app.요약_없음_2');
+      : i18n.t("island.아직_요약_없음");
     const emptyClass = item.synopsis ? "" : " is-empty";
     const currentClass = Number(item.sceneId) === currentId ? " is-current" : "";
     return `
       <button type="button" class="synopsis-list-item${currentClass}" data-synopsis-scene="${item.sceneId}">
-        <span class="synopsis-list-index">${item.index}</span>
+        <span class="synopsis-list-index">${escapeHtml(i18n.t("island.회차_번호", { n: item.index }))}</span>
         <span class="synopsis-list-title">${escapeHtml(item.title)}</span>
         <span class="synopsis-list-text${emptyClass}">${text}</span>
       </button>
@@ -74697,6 +74905,19 @@ async function openSynopsisList() {
   }
   renderSynopsisListBody();
   $("synopsisListModal")?.classList.remove("hidden");
+  positionSynopsisPop();
+  $("synopsisToggleButton")?.setAttribute("aria-expanded", "true");
+}
+
+/** 요약 목록 카드를 요약 줄 바로 아래에 맞춘다 */
+function positionSynopsisPop() {
+  const card = document.querySelector("#synopsisListModal .synopsis-list-modal-card");
+  const anchor = $("editorMetaShell");
+  if (!card || !anchor) return;
+  const r = anchor.getBoundingClientRect();
+  card.style.left = `${Math.round(r.left)}px`;
+  card.style.top = `${Math.round(r.bottom + 6)}px`;
+  card.style.width = `${Math.round(r.width)}px`;
 }
 
 function setupSynopsisList() {
@@ -74707,6 +74928,15 @@ function setupSynopsisList() {
   synopsisBtn?.addEventListener("click", () => {
     openSynopsisList().catch(handleError);
   });
+  $("synopsisToggleButton")?.addEventListener("click", () => {
+    if (isSynopsisListOpen()) closeSynopsisList();
+    else openSynopsisList().catch(handleError);
+  });
+  $("synopsisEditButton")?.addEventListener("click", () => {
+    closeSynopsisList();
+    $("sceneSynopsis")?.focus();
+  });
+  window.addEventListener("resize", () => { if (isSynopsisListOpen()) positionSynopsisPop(); });
   if (synopsisBtn && synopsisBtn.dataset.torySummaryBound !== "1") {
     synopsisBtn.dataset.torySummaryBound = "1";
     synopsisBtn.addEventListener("contextmenu", (event) => {
