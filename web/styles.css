@@ -11621,6 +11621,8 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   gap: 3px;
   min-width: 0;
   flex: 1 1 auto;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 .tory-check-tab {
   display: inline-flex;

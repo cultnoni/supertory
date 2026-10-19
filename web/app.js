@@ -33402,8 +33402,11 @@ function islRailAreaEl() {
   }
   return $("workArea");
 }
+/** 레일 한 칸의 최소 폭. 여백이 이보다 좁아도 화면 밖으로 잘리게 두지 않고 이 폭까지는 유지한다. */
+const ISL_RAIL_MIN_W = 180;
 /** 좌·우 레일은 각자 담긴 위젯이 있으면 그대로 보인다 — 어느 한쪽을 "켠" 상태라는 개념 없이
- *  두 레일이 항상 동시에 쓸 수 있고, 위젯을 놓은 자리를 기준으로 독립적으로 정렬된다. */
+ *  두 레일이 항상 동시에 쓸 수 있고, 위젯을 놓은 자리를 기준으로 독립적으로 정렬된다.
+ *  여백이 표준 폭(340px)보다 좁으면(예: 큰 창 모드) 화면 밖으로 잘리지 않도록 폭을 줄인다. */
 function islRailLayout() {
   const area = islRailAreaEl()?.getBoundingClientRect();
   const body = document.body;
@@ -33414,7 +33417,14 @@ function islRailLayout() {
     const active = wins.length > 0;
     rail.hidden = !active;
     body.classList.toggle(`isl-rail-${side}`, active);
-    if (active) widths[side] = DOCK_WIDGET_STD_W;
+    if (!active) return;
+    let width = DOCK_WIDGET_STD_W;
+    if (area) {
+      const margin = side === "left" ? area.left : (window.innerWidth - area.right);
+      const maxFit = Math.floor(margin - ISL_RAIL_GAP);
+      width = maxFit >= DOCK_WIDGET_STD_W ? DOCK_WIDGET_STD_W : Math.max(ISL_RAIL_MIN_W, maxFit);
+    }
+    widths[side] = width;
   });
   body.style.setProperty("--isl-rail-l", widths.left ? `${widths.left + ISL_RAIL_GAP}px` : "0px");
   body.style.setProperty("--isl-rail-r", widths.right ? `${widths.right + ISL_RAIL_GAP}px` : "0px");
