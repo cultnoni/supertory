@@ -1306,7 +1306,7 @@ main { padding-top: 6px !important; }
   background: var(--panel) !important; border-top: 1px solid var(--line) !important;
   box-shadow: none !important; border-radius: 0 !important;
 }
-#manuscriptStatusBar { padding: 8px 16px !important; background: transparent !important; border: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
+#manuscriptStatusBar { padding: 4px 16px !important; background: transparent !important; border: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
 .manuscript-status-bar .status-seg, .manuscript-status-bar .status-seg-btn, .manuscript-status-bar .stat-chip { background: transparent !important; box-shadow: none !important; border: 0 !important; }
 .scene-workspace:not(.split-active) .manuscript-page { margin-bottom: 0 !important; border-radius: 4px 4px 0 0 !important; }
 .ms-toolbar-shell, #formatToolbarShell, #formatIconsShell, .scene-workspace .ms-toolbar-shell { border-radius: 0 !important; box-shadow: none !important; }
