@@ -33713,6 +33713,21 @@ function ensureIslWidgetDock() {
 function renderIslWidgetDock() {
   const dock = ensureIslWidgetDock();
   dock.textContent = "";
+  const showPanelExpand = document.body.classList.contains("ai-panel-collapsed") && !document.body.classList.contains("focus-write-open");
+  if (showPanelExpand) {
+    const foot = document.createElement("button");
+    foot.type = "button";
+    foot.className = "isl-wd isl-wdock-panel";
+    foot.dataset.islDockPanel = "1";
+    foot.dataset.label = i18n.t("island.패널_펼치기");
+    foot.title = i18n.t("island.패널_펼치기");
+    foot.setAttribute("aria-label", i18n.t("island.패널_펼치기"));
+    foot.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>';
+    dock.appendChild(foot);
+    const sep = document.createElement("i");
+    sep.className = "isl-wdock-sep";
+    dock.appendChild(sep);
+  }
   islWidgetItems().forEach((g, gi) => {
     if (gi) {
       const sep = document.createElement("i");
@@ -33743,20 +33758,6 @@ function renderIslWidgetDock() {
   alignBox.innerHTML = islAlignButtons(false);
   dock.appendChild(alignBox);
   syncIslAlignButtons();
-  if (document.body.classList.contains("ai-panel-collapsed") && !document.body.classList.contains("focus-write-open")) {
-    const sep = document.createElement("i");
-    sep.className = "isl-wdock-sep";
-    dock.appendChild(sep);
-    const foot = document.createElement("button");
-    foot.type = "button";
-    foot.className = "isl-wd isl-wdock-panel";
-    foot.dataset.islDockPanel = "1";
-    foot.dataset.label = i18n.t("island.패널_펼치기");
-    foot.title = i18n.t("island.패널_펼치기");
-    foot.setAttribute("aria-label", i18n.t("island.패널_펼치기"));
-    foot.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>';
-    dock.appendChild(foot);
-  }
 }
 function isIslWidgetDockOpen() {
   return Boolean($("islWidgetDock") && !$("islWidgetDock").hidden);
