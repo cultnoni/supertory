@@ -21,8 +21,15 @@
   --outline-width: var(--isl-panel-w);
   --ai-panel-width: var(--isl-panel-w);
 }
-/* 기본(라이트) 팔레트 — C1: 차가운 회색 책상 · 흰 종이 · 청록 강조 */
-html[data-theme="light"], body[data-ui-theme="light"] {
+/* 기본(라이트)·샌드 팔레트 — 시안 main-design-c-variations #c1 (섬과 종이)의 색을 그대로 */
+html[data-theme="light"],
+html[data-ui-theme="light"],
+body[data-theme="light"],
+body[data-ui-theme="light"],
+html[data-theme="sand"],
+html[data-ui-theme="sand"],
+body[data-theme="sand"],
+body[data-ui-theme="sand"] {
   /* C1 reference palette. Other themes keep their own semantic colors. */
   --bg-main: #eceef1;
   --chrome-bg: #eceef1;
@@ -34,19 +41,29 @@ html[data-theme="light"], body[data-ui-theme="light"] {
   --surface-input: #f2f4f6;
   --isl-desk: #edf0f2;
   --isl-sunk: #f2f4f6;
-  --text-primary: #1f2429;
-  --isl-ink2: #5c656e;
-  --isl-ink3: #8b939b;
-  --muted: #5c656e;
-  --toolbar-icon: #5c656e;
   --line: #e0e4e8;
   --border-color: #e0e4e8;
-  --primary: #2f7566;
+  --border-strong: #e0e4e8;
+  --hover-border: #cfd5db;
+  --text-primary: #1f2429;
+  --ink: #1f2429;
+  --muted: #5c656e;
+  --toolbar-icon: #5c656e;
+  --sub-accent: #8b939b;
+  --isl-ink2: #5c656e;
+  --isl-ink3: #8b939b;
   --accent: #2f7566;
+  --primary: #2f7566;
   --accent-dark: #245d51;
-  --accent-sand: #e3efeb;
+  --accent-sand: #f2f4f6;
+  --accent-soft: #e3efeb;
+  --accent-line: #bfdad1;
+  --accent-ink: #f2f7f5;
   --selection: #e3efeb;
-  --isl-st-outline: #aab2bb;
+  --page-bg: #ffffff;
+  --page-editor-bg: #ffffff;
+  --page-ink: #262b31;
+  --isl-st-outline: hsl(345 70% 85%);
   --isl-st-idea: #a99ac8;
   --isl-st-draft: #d2a456;
   --isl-st-revision: #6f92c6;
@@ -1740,3 +1757,17 @@ main { padding-top: 8px !important; }
   .isl-paper-sheet { padding-top: 32px; padding-bottom: 48px; }
   .scene-workspace:not(.split-active) .manuscript-page.isl-paper-scroll { padding: 12px !important; }
 }
+
+/* 양끝 패널은 창 가장자리에 붙인다: 바깥쪽 여백·테두리·둥근 모서리 없음 (가운데 쪽 모서리와 패널 사이 간격은 그대로) */
+main { padding-left: 0 !important; padding-right: 0 !important; }
+.outline-panel-inner {
+  border-left: 0 !important;
+  border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important;
+}
+.ai-panel-inner {
+  border-right: 0 !important;
+  border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important;
+}
+.binder-dock-rail { border-left: 0 !important; border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; }
+.ai-dock-rail { border-right: 0 !important; border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+.isl-ask-send { padding: 0 !important; display: grid; place-items: center; }

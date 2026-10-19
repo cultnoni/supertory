@@ -51157,10 +51157,9 @@ function syncHeaderNoticeStripLayout() {
   const ld = lead.getBoundingClientRect();
   const padRight = parseFloat(getComputedStyle(titlebar).paddingRight) || 0;
   const gap = 6;
-  // 시안: 아이콘 오른쪽부터 창 가운데까지가 고정 메모 자리(오른쪽 반은 검색)
+  // 검색바를 없앴으므로 아이콘 오른쪽부터 메인 페이지 오른쪽 끝(창 컨트롤 앞)까지가 고정 메모 자리
   const leftVp = ld.right + gap;
-  const centerVp = wr.left + wr.width / 2 - gap;
-  let rightVp = Math.min(wr.right, centerVp);
+  let rightVp = wr.right;
   const capRight = tb.right - padRight - 4;
   if (Number.isFinite(capRight)) rightVp = Math.min(rightVp, capRight);
   const badge = $("offlineModeBadge");

@@ -113,7 +113,7 @@ class IslandDesignContractTests(unittest.TestCase):
     def test_titlebar_halves_overflow_label_and_pinned_binder_tiles(self) -> None:
         # 타이틀바: 오른쪽 반 = 검색, 왼쪽 반 = 고정 메모 / 좁은 창 »는 ⋯ 더보기 / 설정집 타일·하단 바는 스크롤되지 않음
         self.assertIn("left: 50% !important;", self.css)
-        self.assertIn("const centerVp = wr.left + wr.width / 2 - gap;", self.js)
+        self.assertIn("let rightVp = wr.right;", self.js)  # 검색바 제거: 고정 메모가 메인 오른쪽 끝까지
         self.assertIn("--isl-main-center", self.js)
         self.assertIn("calc(var(--isl-main-right, 100%) - var(--isl-main-center, 50%))", self.css)
         self.assertEqual(self.html.count('class="format-overflow-label" data-i18n="island.더보기"'), 3)
@@ -183,9 +183,9 @@ class IslandDesignContractTests(unittest.TestCase):
             self.assertEqual(missing, [], f"{lc} missing {missing}")
 
     def test_island_css_uses_theme_variables_not_brand_hex(self) -> None:
-        # 색은 기존 테마 변수로. 라이트 팔레트 정의 블록과 그림자·링은 예외.
+        # 색은 기존 테마 변수로. 라이트·샌드 팔레트 정의 블록(data-theme/data-ui-theme × html/body)과 그림자·링은 예외.
         body = re.sub(
-            r'html\[data-theme="light"\](?:,\s*body\[data-ui-theme="light"\])?\s*\{.*?\}',
+            r'html\[data-theme="light"\](?:,\s*(?:html|body)\[data-(?:ui-)?theme="(?:light|sand)"\])*\s*\{.*?\}',
             "",
             self.css,
             flags=re.S,
