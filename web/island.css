@@ -2020,3 +2020,11 @@ body.isl-snap-right::before { right: var(--isl-snap-right, 12px); }
 
 /* 토리 마스코트는 위젯·레일 위에 항상 보인다 */
 body.ai-panel-collapsed .isl-ai-badge { z-index: 230 !important; }
+
+/* 아이콘 도구줄: 아이콘 사이 간격을 고르게 — 그룹 구분선(분석·뷰어 앞)은 유지하되 나머지 구간에도 숨 쉴 틈을 준다 */
+#formatIconsToolbar .format-toolbar-row-body.format-toolbar-row-body-split { gap: 3px !important; }
+#formatIconsToolbar :is(.analyze-menu-control, .format-analyze-control)[data-icon-key="analyze"],
+#formatIconsToolbar .format-tool-item[data-icon-key="viewer"] { margin-left: 8px !important; }
+
+/* 아래 글자수 표시칸(글자수 트래커 위젯) 폭을 살짝 좁게 */
+.idea-float.dock-float-mini[data-dock-float="statsTracker"] { width: 188px !important; }
