@@ -33736,7 +33736,7 @@ function renderIslWidgetDock() {
     dock.appendChild(row);
   });
   const alignSep = document.createElement("i");
-  alignSep.className = "isl-wdock-sep";
+  alignSep.className = "isl-wdock-sep isl-wdock-align-sep";
   dock.appendChild(alignSep);
   const alignBox = document.createElement("div");
   alignBox.className = "isl-wdock-grid isl-wdock-align";
@@ -33761,10 +33761,33 @@ function renderIslWidgetDock() {
 function isIslWidgetDockOpen() {
   return Boolean($("islWidgetDock") && !$("islWidgetDock").hidden);
 }
+/** 아이콘 독(패널 접힘 상태): 열린 오른쪽 패널과 동일한 세로 길이·위치에 맞춰 고정하고,
+ *  칸이 모자라면 좌우정렬 묶음부터 숨긴다. 집중 모드(focus-write-open)는 기존 중앙 배치를 그대로 둔다. */
+function layoutIslWidgetDock() {
+  const dock = $("islWidgetDock");
+  if (!dock || dock.hidden) return;
+  if (document.body.classList.contains("focus-write-open")) {
+    dock.style.top = "";
+    dock.style.bottom = "";
+    dock.style.right = "";
+    dock.classList.remove("is-compact");
+    return;
+  }
+  const host = document.querySelector("main") || document.body;
+  const rect = host.getBoundingClientRect();
+  dock.style.top = `${Math.round(rect.top)}px`;
+  dock.style.bottom = `${Math.round(window.innerHeight - rect.bottom)}px`;
+  dock.style.right = `${Math.round(window.innerWidth - rect.right)}px`;
+  dock.classList.remove("is-compact");
+  const available = rect.height;
+  if (dock.scrollHeight > available) dock.classList.add("is-compact");
+}
 function closeIslWidgetDock() {
   const dock = $("islWidgetDock");
   if (dock) { dock.hidden = true; dock.classList.add("hidden"); }
   $("islDockHandle")?.setAttribute("aria-expanded", "false");
+  document.body.classList.remove("isl-wdock-open");
+  window.removeEventListener("resize", layoutIslWidgetDock);
 }
 function openIslWidgetDock() {
   renderIslWidgetDock();
@@ -33772,6 +33795,9 @@ function openIslWidgetDock() {
   dock.hidden = false;
   dock.classList.remove("hidden");
   $("islDockHandle")?.setAttribute("aria-expanded", "true");
+  document.body.classList.add("isl-wdock-open");
+  layoutIslWidgetDock();
+  window.addEventListener("resize", layoutIslWidgetDock);
 }
 function toggleIslWidgetDock() {
   if (isIslWidgetDockOpen()) closeIslWidgetDock();

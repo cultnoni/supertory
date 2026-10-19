@@ -1885,9 +1885,9 @@ main { padding-left: 0 !important; padding-right: 0 !important; }
 .isl-wtiles .isl-tile.is-open::after { content: ""; position: absolute; top: 8px; right: 8px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 
 .isl-wdock {
-  position: fixed; right: 14px; bottom: 130px; z-index: 260; width: 224px; padding: 8px;
+  position: fixed; top: 0; bottom: 0; right: 0; z-index: 260; width: 224px; padding: 8px;
   display: flex; flex-direction: column; gap: 6px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--isl-pop-shadow);
+  background: var(--panel); border: 1px solid var(--line); box-shadow: var(--isl-pop-shadow);
 }
 .isl-wdock[hidden], .isl-wdock.hidden { display: none !important; }
 body.focus-write-open .isl-wdock { top: 50%; bottom: auto; right: 12px; transform: translateY(-50%); }
@@ -1961,18 +1961,24 @@ body.binder-panel-collapsed:not(.binder-mini):not(.focus-write-open) .isl-binder
 .isl-ref-seg button { flex: none; border: 0 !important; background: transparent !important; padding: 4px 10px; border-radius: 8px !important; color: var(--isl-ink2); font-size: 12.5px; font-weight: 400; cursor: pointer; box-shadow: none !important; white-space: nowrap; }
 .isl-ref-seg button.is-on { background: var(--panel) !important; color: var(--text-primary); box-shadow: 0 0 0 1px var(--line) !important; }
 
-/* 아이콘 독: 세로 한 줄 (시안 ④) — 이름은 마우스를 올리면 왼쪽에 말풍선 */
-.isl-wdock { width: auto !important; align-items: center; gap: 4px; padding: 6px !important; right: 14px; bottom: 126px; border-radius: 16px; }
+/* 아이콘 독: 세로 한 줄 (시안 ④) — 이름은 마우스를 올리면 왼쪽에 말풍선
+   패널을 접었을 때는 열린 오른쪽 패널과 동일한 세로 길이·위치로 고정(top/bottom/right는 JS가 지정),
+   타이틀바 쪽으로는 올라가지 않는다. 칸이 모자라면 .is-compact가 좌우정렬 묶음을 먼저 숨긴다. */
+.isl-wdock { width: auto !important; align-items: center; gap: 4px; padding: 10px 6px !important; border-radius: 0; border: 0 !important; border-left: 1px solid var(--line) !important; justify-content: flex-start; }
 .isl-wdock-grid { display: flex !important; flex-direction: column; gap: 4px; grid-template-columns: none; }
-.isl-wdock .isl-wd { position: relative; width: 38px; height: 38px; aspect-ratio: auto; border-radius: 11px !important; }
-.isl-wdock-sep { width: 22px; margin: 2px 0; }
+.isl-wdock .isl-wd { position: relative; width: 38px; height: 38px; aspect-ratio: auto; border-radius: 11px !important; flex: 0 0 auto; }
+.isl-wdock-sep { width: 22px; margin: 2px 0; flex: 0 0 auto; }
 .isl-wdock .isl-wdock-panel { background: transparent !important; color: var(--isl-ink3) !important; padding: 0 !important; font-size: 0; }
 .isl-wdock .isl-wd:hover::after {
   content: attr(data-label); position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%);
   padding: 3px 9px; border-radius: 99px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 1px 6px rgba(31, 36, 41, 0.12);
   color: var(--text-primary); font-size: 12px; line-height: 1.5; white-space: nowrap; pointer-events: none; z-index: 2;
 }
-body.focus-write-open .isl-wdock { right: 12px; }
+.isl-wdock.is-compact .isl-wdock-align,
+.isl-wdock.is-compact .isl-wdock-align-sep { display: none !important; }
+body.focus-write-open .isl-wdock { right: 12px; border-radius: 16px; border: 1px solid var(--line) !important; }
+/* 독이 열려 있는 동안은 마스코트를 숨긴다(독 안에 마스코트가 같이 보이지 않도록) */
+body.isl-wdock-open:not(.focus-write-open) .isl-ai-badge { display: none !important; }
 
 /* 토리 체크 위젯: 인칭·시제 인라인 배너 (팝업 대신) */
 .isl-tc-vp[hidden] { display: none !important; }
