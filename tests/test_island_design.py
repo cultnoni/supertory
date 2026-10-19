@@ -137,7 +137,9 @@ class IslandDesignContractTests(unittest.TestCase):
         self.assertIn("function setupFormatMorePopover(", self.js)
         self.assertIn('!row.closest("#formatToolbarShell")', self.js)
         # 기본은 모두 바깥 · 폭이 모자랄 때만 단계(is-tight → is-compact)로 접고 ⋯ 더보기 표시
-        self.assertIn('#formatToolbar.is-compact [data-format="justifyLeft"]', self.css)
+        # 단락 정렬 4개는 compact 단계에서도 ⋯ 더보기 왼쪽에 남는다
+        self.assertIn('#formatToolbar.is-compact [data-format="list"]', self.css)
+        self.assertNotIn('#formatToolbar.is-compact [data-format="justifyLeft"]', self.css)
         self.assertIn("function fitFormatRow(", self.js)
         self.assertIn('#formatToolbar.is-tight .isl-fmt-more', self.css)
 

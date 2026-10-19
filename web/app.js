@@ -33339,11 +33339,112 @@ function islWidgetIcon(svg, size) {
   copy.setAttribute("height", String(size));
   return copy;
 }
+/** 위젯 정렬: 열린 위젯을 작업 영역의 왼쪽/오른쪽 가장자리에 한 줄(340px)로 쌓는다. 공간이 모자라면 높이를 줄이고, 그래도 넘치면 두 번째 줄로 */
+let islAlignUndo = null;
+function islAlignWidgets(side) {
+  const wins = [...ideaFloatWindows.entries()].filter(([, win]) => win && win.isConnected && !win.hidden);
+  if (!wins.length) return;
+  const area = ($("workArea") || document.body).getBoundingClientRect();
+  const GAP = 8;
+  const COL_W = DOCK_WIDGET_STD_W;
+  const MIN_H = 200;
+  const left0 = Math.max(area.left, 0) + GAP;
+  const right0 = Math.min(area.right, window.innerWidth) - GAP;
+  const top0 = Math.max(area.top, 0) + GAP;
+  const availH = Math.min(area.bottom, window.innerHeight) - GAP - top0;
+  const maxCols = Math.max(1, Math.min(2, Math.floor((right0 - left0 + GAP) / (COL_W + GAP))));
+  islAlignUndo = new Map(wins.map(([key, win]) => {
+    const r = win.getBoundingClientRect();
+    return [key, { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) }];
+  }));
+  const items = wins.map(([key, win]) => {
+    const r = win.getBoundingClientRect();
+    const mini = win.classList.contains("dock-float-mini");
+    return { key, win, mini, top: r.top, w: mini ? Math.round(r.width) : COL_W, h: mini ? Math.round(r.height) : DOCK_WIDGET_STD_H, minH: mini ? Math.round(r.height) : MIN_H };
+  });
+  // 작은 위젯(타이머·글자수)이 위로, 나머지는 지금 위치(위→아래) 순서
+  items.sort((a, b) => (Number(b.mini) - Number(a.mini)) || (a.top - b.top));
+  const cols = [[]];
+  let used = 0;
+  items.forEach((it) => {
+    const cur = cols[cols.length - 1];
+    const need = it.minH + (cur.length ? GAP : 0);
+    if (cur.length && used + need > availH && cols.length < maxCols) {
+      cols.push([]);
+      used = 0;
+    }
+    const target = cols[cols.length - 1];
+    used += it.minH + (target.length ? GAP : 0);
+    target.push(it);
+  });
+  cols.forEach((col, ci) => {
+    let free = availH - GAP * (col.length - 1) - col.reduce((sum, it) => sum + it.minH, 0);
+    col.forEach((it) => { it.out = it.minH; });
+    // 남는 공간은 큰 위젯부터 기본 높이까지 채운다
+    col.filter((it) => !it.mini).forEach((it) => {
+      const grow = Math.max(0, Math.min(it.h - it.minH, free));
+      it.out += grow;
+      free -= grow;
+    });
+    const colLeft = side === "right" ? right0 - (ci + 1) * COL_W - ci * GAP : left0 + ci * (COL_W + GAP);
+    let y = top0;
+    col.forEach((it, i) => {
+      const overflow = y + it.out > top0 + availH;
+      const top = overflow ? top0 + Math.min(i * 24, 96) : y;
+      const x = side === "right" ? colLeft + COL_W - it.w : colLeft;
+      it.win.style.left = `${Math.round(x)}px`;
+      it.win.style.top = `${Math.round(top)}px`;
+      it.win.style.width = `${it.w}px`;
+      it.win.style.height = `${Math.round(it.out)}px`;
+      y += it.out + GAP;
+    });
+  });
+  items.forEach((it) => { raiseIdeaFloat(it.win); rememberIdeaFloatLayout(it.win, it.key); });
+  window.dispatchEvent(new Event("resize"));
+}
+function islAlignRestore() {
+  if (!islAlignUndo) return;
+  islAlignUndo.forEach((r, key) => {
+    const win = ideaFloatWindows.get(key);
+    if (!win || !win.isConnected) return;
+    win.style.left = `${r.left}px`;
+    win.style.top = `${r.top}px`;
+    win.style.width = `${r.width}px`;
+    win.style.height = `${r.height}px`;
+    rememberIdeaFloatLayout(win, key);
+  });
+  islAlignUndo = null;
+  window.dispatchEvent(new Event("resize"));
+}
+const ISL_ALIGN_ICONS = {
+  left: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16"/><rect x="8" y="5" width="11" height="6" rx="1.5"/><rect x="8" y="14" width="11" height="6" rx="1.5"/></svg>',
+  right: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 4v16"/><rect x="5" y="5" width="11" height="6" rx="1.5"/><rect x="5" y="14" width="11" height="6" rx="1.5"/></svg>',
+  undo: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>',
+};
+function islAlignButtons(withLabel) {
+  const defs = [["left", "island.정렬_왼쪽"], ["right", "island.정렬_오른쪽"], ["undo", "island.정렬_되돌리기"]];
+  return defs.map(([act, key]) => {
+    const label = escapeHtml(i18n.t(key));
+    return `<button type="button" class="isl-align-btn${withLabel ? "" : " isl-wd"}" data-isl-align="${act}" title="${label}" data-label="${label}" aria-label="${label}">${ISL_ALIGN_ICONS[act]}${withLabel ? `<span>${label}</span>` : ""}</button>`;
+  }).join("");
+}
+function handleIslAlignClick(event) {
+  const btn = event.target.closest?.("[data-isl-align]");
+  if (!btn) return false;
+  if (btn.dataset.islAlign === "undo") islAlignRestore();
+  else islAlignWidgets(btn.dataset.islAlign);
+  return true;
+}
+
 function renderIslWidgetTiles() {
   const host = $("islWidgetTiles");
   if (!host) return;
   const groups = islWidgetItems();
   host.textContent = "";
+  const alignRow = document.createElement("div");
+  alignRow.className = "isl-align-row";
+  alignRow.innerHTML = islAlignButtons(true);
+  host.appendChild(alignRow);
   groups.forEach((g) => {
     const head = document.createElement("div");
     head.className = "isl-wgroup";
@@ -33379,6 +33480,7 @@ function ensureIslWidgetDock() {
   dock.hidden = true;
   document.body.appendChild(dock);
   dock.addEventListener("click", (event) => {
+    if (handleIslAlignClick(event)) return;
     const btn = event.target.closest?.("[data-isl-widget]");
     if (btn) {
       closeIslWidgetDock();
@@ -33417,6 +33519,13 @@ function renderIslWidgetDock() {
     });
     dock.appendChild(row);
   });
+  const alignSep = document.createElement("i");
+  alignSep.className = "isl-wdock-sep";
+  dock.appendChild(alignSep);
+  const alignBox = document.createElement("div");
+  alignBox.className = "isl-wdock-grid isl-wdock-align";
+  alignBox.innerHTML = islAlignButtons(false);
+  dock.appendChild(alignBox);
   if (document.body.classList.contains("ai-panel-collapsed") && !document.body.classList.contains("focus-write-open")) {
     const sep = document.createElement("i");
     sep.className = "isl-wdock-sep";
@@ -33541,6 +33650,7 @@ function setupAiCheckHub() {
     playOnce();
   }
   $("islWidgetTiles")?.addEventListener("click", (event) => {
+    if (handleIslAlignClick(event)) return;
     const tile = event.target.closest?.("[data-isl-widget]");
     if (!tile) return;
     islOpenWidget(tile.dataset.islWidget);
