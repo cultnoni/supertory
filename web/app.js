@@ -33719,8 +33719,16 @@ function ensureIslWidgetDock() {
     if (handleIslAlignClick(event)) return;
     const btn = event.target.closest?.("[data-isl-widget]");
     if (btn) {
-      closeIslWidgetDock();
+      // 독은 그대로 열어 둔다 — 위젯 하나 골랐다고 사용자가 끄지 않은 독이 같이 닫히면 안 된다.
+      // 여러 위젯을 이어서 열 때 매번 마스코트를 다시 눌러야 하는 것도 막아준다.
       islOpenWidget(btn.dataset.islWidget);
+      // 다시 그리기는 다음 틱으로 미룬다 — 지금 바로 dock.textContent를 비우면 이 클릭의
+      // 원래 타깃(btn)이 DOM에서 떨어져 나가, 이어서 버블링되는 document 클릭 리스너의
+      // "독 바깥 클릭이다" 판정(closest)이 어긋나서 독이 같이 닫혀 버린다
+      window.setTimeout(() => {
+        renderIslWidgetDock();
+        layoutIslWidgetDock();
+      }, 0);
       return;
     }
     if (event.target.closest?.("[data-isl-dock-panel]")) {
@@ -33823,6 +33831,9 @@ function setupIslWidgetDock() {
   $("islDockHandle")?.addEventListener("click", (event) => { event.stopPropagation(); toggleIslWidgetDock(); });
   document.addEventListener("click", (event) => {
     if (!isIslWidgetDockOpen()) return;
+    // isTrusted가 아니면(위젯을 열 때 다른 버튼을 코드로 .click()하는 등) 진짜 바깥 클릭이 아니다 —
+    // 안 그러면 독 안의 위젯을 고를 때마다 그 부수적인 합성 클릭 때문에 독이 같이 닫혀 버린다
+    if (!event.isTrusted) return;
     if (event.target.closest?.("#islWidgetDock, #islAiBadge, #islDockHandle")) return;
     closeIslWidgetDock();
   });
