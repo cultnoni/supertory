@@ -193,6 +193,27 @@ class IslandDesignContractTests(unittest.TestCase):
         self.assertIn(".writing-timer-style-fieldset { display: none", self.css)
         self.assertIn('return "digits";', self.js.split("function normalizeWritingTimerStyle(", 1)[1].split("}", 1)[0])
 
+    def test_widget_single_entrance_tabs_and_icon_dock(self) -> None:
+        # 위젯 단일 입구: 위젯 탭은 그룹 타일, 접힘·확장 중에는 아이콘 독(Ctrl+Shift+W)
+        self.assertIn("function islWidgetItems(", self.js)
+        self.assertIn("#binderDockRail [data-dock-item], #aiDockRail [data-dock-item]", self.js)
+        self.assertIn("function toggleIslWidgetDock(", self.js)
+        self.assertIn("event.ctrlKey && event.shiftKey", self.js)
+        self.assertIn('id="islDockHandle"', self.html)
+        self.assertIn(".isl-wdock", self.css)
+        self.assertIn("body.binder-panel-collapsed .binder-dock-rail .panel-dock-rail-items { display: none", self.css)
+
+    def test_left_panel_collapse_default_zero_width_and_optional_mini_nav(self) -> None:
+        # 왼쪽 패널 접힘: 기본은 너비 0(레일 없음) + 가장자리 손잡이, 설정을 켜면 회차 번호 줄
+        self.assertIn('id="islBinderHandle"', self.html)
+        self.assertIn('id="islMiniNav"', self.html)
+        self.assertIn('id="adminBinderMiniNav"', self.html)
+        self.assertIn("function syncBinderCollapseUi(", self.js)
+        self.assertIn("function renderIslMiniNav(", self.js)
+        self.assertIn("event.ctrlKey && event.altKey", self.js)
+        self.assertIn("--isl-binder-rail-w: 0px", self.css)
+        self.assertIn("body.binder-panel-collapsed.binder-mini { --isl-binder-rail-w: 44px", self.css)
+
     def test_island_css_uses_theme_variables_not_brand_hex(self) -> None:
         # 색은 기존 테마 변수로. 라이트·샌드 팔레트 정의 블록(data-theme/data-ui-theme × html/body)과 그림자·링은 예외.
         body = re.sub(

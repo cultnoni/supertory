@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>위젯 단일 입구 시안 5가지</title>
+<style>
+  :root {
+    --bg: #eceef1; --panel: #fbfbfc; --sunk: #f2f4f6; --desk: #edf0f2;
+    --ink: #1f2429; --ink2: #5c656e; --ink3: #8b939b; --line: #e0e4e8;
+    --accent: #2f7566; --accent-soft: #e3efeb; --accent-ink: #f2f7f5;
+    --pop: 0 2px 6px rgba(31,36,41,.1), 0 16px 40px rgba(31,36,41,.16);
+    --sans: "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 13px; line-height: 1.5; }
+  header.top { padding: 22px 28px 4px; }
+  header.top h1 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+  header.top p { margin: 0; color: var(--ink2); max-width: 900px; }
+  .picker { display: flex; gap: 6px; flex-wrap: wrap; padding: 14px 28px 0; }
+  .picker button { border: 0; border-radius: 99px; padding: 6px 14px; background: var(--panel); color: var(--ink2); box-shadow: 0 0 0 1px var(--line); cursor: pointer; font: inherit; }
+  .picker button.on { background: var(--accent); color: var(--accent-ink); box-shadow: none; }
+  .why { padding: 10px 28px 0; color: var(--ink2); max-width: 920px; min-height: 44px; }
+  .frames { display: flex; gap: 22px; padding: 14px 28px 20px; flex-wrap: wrap; align-items: flex-start; }
+  .fr h3 { margin: 0 0 6px; font-size: 12px; font-weight: 400; color: var(--ink3); }
+  .frame { width: 320px; height: 470px; border-radius: 16px; border: 1px solid var(--line); background: var(--desk); position: relative; overflow: hidden; }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .num { font-variant-numeric: tabular-nums; }
+  .lab { color: var(--ink3); font-size: 12px; }
+  .panel { position: absolute; inset: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+  .ptabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 3px; background: var(--sunk); border-radius: 10px; }
+  .ptabs span { text-align: center; padding: 5px 0; border-radius: 8px; color: var(--ink2); font-size: 12.5px; }
+  .ptabs span.on { background: var(--panel); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+  .gh { margin: 4px 2px 0; font-size: 12px; color: var(--ink3); display: flex; justify-content: space-between; }
+  .dotopen { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; }
+  /* V1 타일 */
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .tile { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 9px 10px; display: flex; flex-direction: column; gap: 4px; text-align: left; position: relative; }
+  .tile svg { color: var(--accent); }
+  .tile.open { background: var(--accent-soft); border-color: transparent; }
+  .tile .od { position: absolute; top: 8px; right: 8px; }
+  /* V2 리스트 */
+  .li { display: flex; align-items: center; gap: 10px; padding: 8px 8px; border-radius: 9px; border: 0; background: transparent; width: 100%; text-align: left; color: var(--ink2); }
+  .li:hover { background: var(--sunk); }
+  .li svg { color: var(--ink3); }
+  .li .r { margin-left: auto; color: var(--ink3); font-size: 11.5px; display: flex; align-items: center; gap: 6px; }
+  .li.open { color: var(--ink); } .li.open svg { color: var(--accent); }
+  /* 팝오버 공통 */
+  .pop { position: absolute; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--pop); padding: 8px; }
+  .badge { position: absolute; right: 12px; bottom: 12px; width: 52px; height: 52px; background: url(/final_mascots/supertory-badge-clean.webp) center/contain no-repeat; }
+  .page { position: absolute; inset: 0; background: var(--panel); padding: 34px 28px; color: var(--ink2); }
+  .page p { margin: 0 0 14px; font-family: Batang, serif; font-size: 14px; line-height: 1.9; color: var(--ink); }
+  .pill { display: inline-flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--pop); border-radius: 99px; padding: 5px 10px 5px 14px; position: absolute; }
+  .pill .num { font-size: 16px; font-weight: 600; }
+  .wbtn { position: absolute; display: inline-flex; align-items: center; gap: 6px; border: 0; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 1px 6px rgba(31,36,41,.12); border-radius: 99px; padding: 6px 12px; color: var(--ink2); }
+  .search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; background: var(--panel); color: var(--ink3); }
+  .search kbd { margin-left: auto; font: inherit; font-size: 11px; background: var(--sunk); border-radius: 5px; padding: 1px 6px; color: var(--ink3); }
+  .chip { border: 0; background: var(--sunk); border-radius: 8px; padding: 4px 9px; color: var(--ink2); font-size: 12px; display: inline-flex; gap: 5px; align-items: center; }
+  .chip.on { background: var(--accent-soft); color: var(--accent); }
+  .row2 { display: flex; gap: 6px; flex-wrap: wrap; }
+  .fan { position: absolute; right: 18px; display: flex; align-items: center; gap: 8px; }
+  .fan span { background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: 3px 10px; font-size: 12px; box-shadow: 0 1px 6px rgba(31,36,41,.1); }
+  .fan i { width: 38px; height: 38px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); display: grid; place-items: center; color: var(--accent); box-shadow: 0 1px 6px rgba(31,36,41,.12); }
+  .fan i.open { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  /* 설정집 참조 위젯 */
+  .ref-section { margin: 4px 28px 40px; }
+  .ref-section h2 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+  .ref-wrap { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; margin-top: 10px; }
+  .refw { width: 330px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--pop); overflow: hidden; }
+  .refw .h { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 0; }
+  .refw .h b { font-weight: 600; }
+  .rtabs { display: flex; gap: 2px; padding: 8px 8px 0; overflow: hidden; }
+  .rtabs button { border: 0; background: transparent; padding: 5px 9px; border-radius: 8px; color: var(--ink2); white-space: nowrap; font-size: 12.5px; }
+  .rtabs button.on { background: var(--accent-soft); color: var(--accent); }
+  .rbody { padding: 8px 12px 12px; display: flex; flex-direction: column; }
+  .item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); color: var(--ink2); }
+  .item:last-child { border-bottom: 0; }
+  .item b { font-weight: 400; color: var(--ink); }
+  .item .out { margin-left: auto; border: 0; background: transparent; color: var(--ink3); width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; }
+  .item .out:hover { background: var(--sunk); color: var(--accent); }
+  .side-mock { width: 280px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+  .side-mock .row { display: flex; align-items: center; gap: 8px; padding: 7px 6px; border-radius: 8px; color: var(--ink2); }
+  .side-mock .row .out { margin-left: auto; opacity: .0; color: var(--ink3); }
+  .side-mock .row:hover .out, .side-mock .row.hov .out { opacity: 1; }
+  .side-mock .row.hov { background: var(--sunk); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>위젯 단일 입구 — 시안 5가지</h1>
+  <p>위젯 입구를 한 곳으로 합쳤습니다. 오른쪽 패널의 <b>위젯 탭</b>(평소) · 패널을 접었을 때의 <b>마스코트 런처</b> · <b>확장(집중 모드)</b> 안의 입구, 이 세 장면을 시안마다 보여줍니다. 모두 같은 목록(쓰기 도구 5 · 작품 자료 4 = 9개)을 쓰고 입구 모양만 다릅니다. 아래에는 설정집 참조 위젯과 왼쪽 설정집 탭의 <b>↗ 띄우기</b>를 따로 보여줍니다.</p>
+</header>
+<div class="picker" id="picker"></div>
+<div class="why" id="why"></div>
+<div class="frames" id="frames"></div>
+
+<section class="ref-section">
+  <h2>설정집 참조 위젯 · 왼쪽 설정집 탭의 ↗ 띄우기</h2>
+  <p class="lab" style="margin:0;max-width:880px">탭으로 캐릭터·세계관·사전 등을 바꿔 보고, 항목의 ↗ 로 그 항목만 따로 띄웁니다(캐릭터와 세계관을 나란히 볼 때). 왼쪽 설정집 탭의 각 줄에 마우스를 올리면 ↗ 가 나타나 위젯 입구를 거치지 않고 바로 띄울 수 있습니다.</p>
+  <div class="ref-wrap" id="refwrap"></div>
+</section>
+
+<script>
+const IC = {
+  timer: '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg>',
+  chars: '<svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2M9 20h6M12 4v16"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="M13 5h8M13 12h8M13 19h8M3 17l2 2 4-4"/><rect x="3" y="4" width="6" height="6" rx="1"/></svg>',
+  chat: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>',
+  result: '<svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>',
+  toc: '<svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
+  ref: '<svg viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>',
+  prof: '<svg viewBox="0 0 24 24"><path d="M3 3v18h18M7 14l4-4 3 3 5-6"/></svg>',
+  search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7.5"/><path d="m20.5 20.5-4.2-4.2"/></svg>',
+  out: '<svg viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg>',
+  grid: '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
+  pin: '<svg viewBox="0 0 24 24"><path d="M12 17v5M9 3h6l-1 6 3 3v2H7v-2l3-3z"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+};
+const W = [
+  ['timer','기록·타이머',IC.timer,'쓰기 도구',true,'25:00'],
+  ['chars','글자수',IC.chars,'쓰기 도구',true,'3,293자'],
+  ['check','토리 체크',IC.check,'쓰기 도구',false,'7건'],
+  ['chat','대화',IC.chat,'쓰기 도구',false,''],
+  ['result','결과',IC.result,'쓰기 도구',false,''],
+  ['toc','목차',IC.toc,'작품 자료',false,''],
+  ['ref','설정집 참조',IC.ref,'작품 자료',false,''],
+  ['prof','흥행작 프로파일',IC.prof,'작품 자료',false,''],
+  ['search','설정 검색',IC.search,'작품 자료',false,''],
+];
+const G = ['쓰기 도구','작품 자료'];
+const tabsHtml = '<div class="ptabs"><span>체크</span><span>대화</span><span>도구</span><span class="on">위젯</span></div>';
+const tile = w => `<button class="tile ${w[4]?'open':''}">${w[2]}<span>${w[1]}</span>${w[4]?'<i class="dotopen od"></i>':''}</button>`;
+const li = w => `<button class="li ${w[4]?'open':''}">${w[2]}<span>${w[1]}</span><span class="r">${w[5]||''}${w[4]?'<i class="dotopen"></i>':''}</span></button>`;
+
+const V = {
+  v1: {
+    t: '① 그룹 타일',
+    why: '지금 위젯 탭 모양 그대로 그룹 제목만 붙인 가장 보수적인 안입니다. 열린 위젯은 타일이 초록으로 표시됩니다. 접힘 런처는 같은 타일을 작은 팝오버로, 확장 중에는 구석의 "위젯" 버튼 하나가 같은 팝오버를 엽니다.',
+    panel: () => tabsHtml + G.map(g => `<div class="gh"><span>${g}</span></div><div class="tiles">${W.filter(w=>w[3]===g).map(tile).join('')}</div>`).join(''),
+    pop: () => `<div class="tiles" style="grid-template-columns:1fr 1fr 1fr;width:260px">${W.map(w=>`<button class="tile ${w[4]?'open':''}">${w[2]}<span style="font-size:11.5px">${w[1]}</span></button>`).join('')}</div>`,
+    popFocus: 'grid',
+  },
+  v2: {
+    t: '② 한 줄 리스트',
+    why: '타일 대신 한 줄 행입니다. 오른쪽에 현재 값(25:00, 3,293자)과 열림 점이 보여서, 위젯을 "열기 전에" 상태를 알 수 있습니다. 같은 행을 접힘 런처 팝오버와 확장 중 입구에서 그대로 씁니다. 목록이 길어져도 한 줄씩이라 가장 안정적입니다.',
+    panel: () => tabsHtml + G.map(g => `<div class="gh"><span>${g}</span></div><div>${W.filter(w=>w[3]===g).map(li).join('')}</div>`).join(''),
+    pop: () => `<div style="width:230px">${W.map(li).join('')}</div>`,
+    popFocus: 'list',
+  },
+  v3: {
+    t: '③ 검색 런처',
+    why: '입구가 검색창(커맨드 팔레트)입니다. 위젯 탭 맨 위에 검색창과 단축키(Ctrl+Shift+W)가 있고, 아래에 "열려 있음 / 최근 / 전체"가 있습니다. 확장 중에는 단축키로 같은 팔레트가 뜨는 방식이라 큰 창 안에 별도 버튼이 필요 없습니다.',
+    panel: () => tabsHtml + `<div class="search">${IC.search}<span>위젯 찾기</span><kbd>Ctrl Shift W</kbd></div><div class="gh"><span>열려 있음</span></div><div>${W.filter(w=>w[4]).map(li).join('')}</div><div class="gh"><span>최근</span></div><div>${[W[2],W[6]].map(li).join('')}</div><div class="gh"><span>전체</span><span>9개 ⌄</span></div>`,
+    pop: () => `<div style="width:250px"><div class="search">${IC.search}<span>위젯 찾기</span></div><div style="margin-top:6px">${[W[0],W[1],W[2],W[6]].map(li).join('')}</div></div>`,
+    popFocus: 'palette',
+  },
+  v4: {
+    t: '④ 아이콘 독 (부채꼴)',
+    why: '이름 대신 아이콘만 있는 독입니다. 위젯 탭에는 아이콘 두 줄(쓰기 도구 / 작품 자료)이, 접힘 상태에서는 마스코트를 누르면 아이콘이 위로 펼쳐집니다. 확장 중에는 화면 가장자리에 마우스를 가져가면 같은 독이 나옵니다. 공간을 가장 적게 쓰지만 이름을 외워야 합니다.',
+    panel: () => tabsHtml + G.map(g => `<div class="gh"><span>${g}</span></div><div class="row2">${W.filter(w=>w[3]===g).map(w=>`<button class="chip ${w[4]?'on':''}" title="${w[1]}" style="width:44px;height:44px;justify-content:center;border-radius:12px">${w[2]}</button>`).join('')}</div>`).join('') + `<p class="lab" style="margin:6px 2px 0">아이콘에 마우스를 올리면 이름과 현재 값이 말풍선으로 보입니다.</p>`,
+    pop: null, popFocus: 'dock',
+  },
+  v5: {
+    t: '⑤ 고정 · 열림 · 전체',
+    why: '"지금 상태" 중심입니다. 위젯 탭 맨 위에 열려 있는 위젯이 칩으로 있어 하나씩 닫거나 "모두 정리"할 수 있고, 고정(항상 시작 시 열기) 설정이 아래에 있습니다. 위젯을 여러 개 띄우는 사람에게 가장 편한 안입니다.',
+    panel: () => tabsHtml + `<div class="gh"><span>열려 있음 2</span><span style="color:var(--accent)">모두 정리</span></div><div class="row2">${W.filter(w=>w[4]).map(w=>`<span class="chip on">${w[2]}${w[1]}<span style="opacity:.6">${IC.x.replace('<svg','<svg style="width:11px;height:11px"')}</span></span>`).join('')}</div><div class="gh"><span>고정 (시작할 때 자동으로 열기)</span></div><div class="row2"><span class="chip on">${IC.pin}기록·타이머</span><span class="chip on">${IC.pin}글자수</span><span class="chip">${IC.pin}토리 체크</span></div><div class="gh"><span>전체</span></div><div>${W.filter(w=>!w[4]).slice(0,5).map(li).join('')}</div>`,
+    pop: () => `<div style="width:240px"><div class="gh" style="margin-top:0"><span>열려 있음 2</span><span style="color:var(--accent)">모두 정리</span></div><div class="row2" style="margin-bottom:6px">${W.filter(w=>w[4]).map(w=>`<span class="chip on">${w[1]}</span>`).join('')}</div>${W.filter(w=>!w[4]).slice(0,4).map(li).join('')}</div>`,
+    popFocus: 'list',
+  },
+};
+let cur = 'v1';
+function frames() {
+  const v = V[cur];
+  const A = `<div class="fr"><h3>평소 — 오른쪽 패널의 위젯 탭</h3><div class="frame"><div class="panel">${v.panel()}</div></div></div>`;
+  let B;
+  if (cur === 'v4') {
+    B = `<div class="fr"><h3>패널을 접었을 때 — 마스코트 런처</h3><div class="frame"><div class="badge"></div>${W.slice(0,9).map((w,i)=>`<div class="fan" style="bottom:${76+i*40}px">${i<3?`<span>${w[1]}</span>`:''}<i class="${w[4]?'open':''}">${w[2]}</i></div>`).join('')}</div></div>`;
+  } else {
+    B = `<div class="fr"><h3>패널을 접었을 때 — 마스코트 런처</h3><div class="frame"><div class="badge"></div><div class="pop" style="right:10px;bottom:72px">${v.pop()}</div></div></div>`;
+  }
+  let C;
+  const page = '<div class="page"><p>그때 문에 달린 종이 울렸다. 바람도 불지 않는 아침이었다. 윤서는 고개를 들었고, 문간에 서 있는 낯선 소년의 손에 젖은 책 한 권이 들려 있는 것을 보았다.</p><p>“반납하러 왔어요.”</p></div>';
+  const timer = '<div class="pill" style="left:14px;top:14px"><span class="num">24:12</span><span class="lab">글쓰기 1/4</span></div>';
+  if (v.popFocus === 'dock') {
+    C = `<div class="fr"><h3>확장(집중 모드) 중 — 가장자리에 마우스를 대면</h3><div class="frame">${page}${timer}<div style="position:absolute;right:8px;top:90px;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--pop);padding:6px;display:flex;flex-direction:column;gap:4px">${W.map(w=>`<button class="chip ${w[4]?'on':''}" style="width:34px;height:34px;justify-content:center;border-radius:10px;padding:0">${w[2]}</button>`).join('')}</div></div></div>`;
+  } else if (v.popFocus === 'palette') {
+    C = `<div class="fr"><h3>확장(집중 모드) 중 — Ctrl+Shift+W</h3><div class="frame">${page}${timer}<div class="pop" style="left:30px;top:60px;width:260px">${v.pop().replace('width:250px','width:100%')}</div></div></div>`;
+  } else {
+    C = `<div class="fr"><h3>확장(집중 모드) 중 — 구석의 위젯 버튼</h3><div class="frame">${page}${timer}<button class="wbtn" style="right:12px;bottom:12px">${IC.grid}위젯</button><div class="pop" style="right:12px;bottom:56px">${v.pop()}</div></div></div>`;
+  }
+  document.getElementById('frames').innerHTML = A + B + C;
+  document.getElementById('why').textContent = v.why;
+}
+document.getElementById('picker').innerHTML = Object.keys(V).map(k => `<button data-v="${k}" class="${k===cur?'on':''}">${V[k].t}</button>`).join('');
+document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { cur = b.dataset.v; document.querySelectorAll('[data-v]').forEach(x => x.classList.toggle('on', x === b)); frames(); });
+
+// 설정집 참조 위젯
+const REF = {
+  '캐릭터': [['윤서','사서 · 주인공'],['라브네','선배 사서'],['소년','낯선 방문자']],
+  '세계관': [['달빛 서고','마을 끝의 오래된 도서관'],['반납의 규칙','책은 달이 질 때까지']],
+  '떡밥': [['잠긴 서가','2화 · 열쇠를 찾는다'],['대출 기록 없는 책','4화 · 미해결']],
+  '사전': [['서가','책을 꽂아 두는 틀'],['대출 카드','대출 기록을 적는 카드']],
+  '연대기': [['1년 전','윤서 서고 부임'],['오늘','소년의 방문']],
+};
+let refTab = '캐릭터';
+function refw() {
+  const items = REF[refTab];
+  const w = document.getElementById('refwrap');
+  w.innerHTML = `<div class="refw"><div class="h"><b>설정집 참조</b><button class="chip" style="padding:3px 7px">${IC.x}</button></div>
+    <div class="rtabs">${Object.keys(REF).map(k => `<button data-r="${k}" class="${k===refTab?'on':''}">${k}</button>`).join('')}<button>＋ 더보기</button></div>
+    <div class="rbody">${items.map(i => `<div class="item"><span><b>${i[0]}</b><br><span class="lab">${i[1]}</span></span><button class="out" title="따로 띄우기">${IC.out}</button></div>`).join('')}<p class="lab" style="margin:8px 0 0">항목 오른쪽 ↗ 를 누르면 이 항목만 따로 띄웁니다.</p></div></div>
+    <div class="refw" style="width:260px"><div class="h"><b>캐릭터 · 윤서</b><button class="chip" style="padding:3px 7px">${IC.x}</button></div><div class="rbody"><div class="item"><span class="lab">나이</span><b style="margin-left:auto">27</b></div><div class="item"><span class="lab">역할</span><b style="margin-left:auto">사서</b></div><div class="item"><span class="lab">말투</span><b style="margin-left:auto">차분함</b></div></div></div>
+    <div class="side-mock"><div class="lab" style="margin:0 6px 6px">왼쪽 패널 · 설정집 탭 (마우스를 올린 모습)</div>
+      <div class="row">${IC.ref}<span>캐릭터</span><span class="out">${IC.out}</span></div>
+      <div class="row hov">${IC.ref}<span>세계관</span><span class="out">${IC.out}</span></div>
+      <div class="row">${IC.ref}<span>토리 사전</span><span class="out">${IC.out}</span></div>
+      <div class="row">${IC.ref}<span>열린 떡밥</span><span class="out">${IC.out}</span></div></div>`;
+  w.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { refTab = b.dataset.r; refw(); });
+}
+const q = new URLSearchParams(location.search); if (q.get('v') && V[q.get('v')]) { cur = q.get('v'); document.querySelectorAll('[data-v]').forEach(x => x.classList.toggle('on', x.dataset.v === cur)); }
+frames(); refw();
+</script>
+</body>
+</html>

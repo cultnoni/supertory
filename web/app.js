@@ -32780,6 +32780,7 @@ function refreshPartCard() {
   const card = $("islPartCard");
   const outline = $("outline");
   if (!card || !outline) return;
+  renderIslMiniNav();
   const dots = [...outline.querySelectorAll(".scene-row .scene-status[data-status]")];
   const setText = (id, text) => { const el = $(id); if (el) el.textContent = text; };
   // 설정집 바로가기 타일 · 하단 바 개수 (이미 불러온 상태값만 읽음)
@@ -33000,32 +33001,160 @@ async function refreshAiCheckHub() {
     }
   }
 }
+const ISL_WIDGET_GROUPS = [
+  { id: "write", labelKey: "island.위젯_그룹_쓰기", keys: ["writingTimer", "statsTracker", "toryCheck", "spellcheck", "toryChat", "characterChat", "readerChat", "aiResult", "aiHistory", "credits"] },
+  { id: "ref", labelKey: "island.위젯_그룹_자료", keys: ["manuscript", "ideas", "world", "characters", "timeline", "items", "appearances", "dictionary", "baits", "successProfile", "toryVault", "sources", "settingsSearch"] },
+];
+/** 왼쪽·오른쪽 레일에 흩어진 위젯을 하나의 목록(그룹별)으로 모은다 — 위젯 탭과 아이콘 독이 같은 목록을 쓴다 */
+function islWidgetItems() {
+  const byKey = new Map();
+  document.querySelectorAll("#binderDockRail [data-dock-item], #aiDockRail [data-dock-item]").forEach((btn) => {
+    const key = btn.dataset.dockItem;
+    if (key === "screenProtect" || byKey.has(key)) return;
+    byKey.set(key, {
+      key,
+      name: btn.getAttribute("aria-label") || btn.getAttribute("title") || key,
+      svg: btn.querySelector("svg"),
+      open: btn.classList.contains("is-active") || btn.getAttribute("aria-pressed") === "true",
+    });
+  });
+  return ISL_WIDGET_GROUPS.map((g) => ({
+    ...g,
+    items: g.keys.map((k) => byKey.get(k)).filter(Boolean),
+  })).filter((g) => g.items.length);
+}
+function islWidgetIcon(svg, size) {
+  if (!svg) return null;
+  const copy = svg.cloneNode(true);
+  copy.removeAttribute("id");
+  copy.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+  copy.setAttribute("width", String(size));
+  copy.setAttribute("height", String(size));
+  return copy;
+}
 function renderIslWidgetTiles() {
   const host = $("islWidgetTiles");
   if (!host) return;
-  const items = [...document.querySelectorAll("#aiDockRail [data-dock-item]")];
+  const groups = islWidgetItems();
   host.textContent = "";
-  items.forEach((btn) => {
-    const key = btn.dataset.dockItem;
-    const name = btn.getAttribute("aria-label") || btn.getAttribute("title") || key;
-    const tile = document.createElement("button");
-    tile.type = "button";
-    tile.className = "isl-tile";
-    tile.dataset.islWidget = key;
-    const svg = btn.querySelector("svg");
-    if (svg) {
-      const copy = svg.cloneNode(true);
-      copy.removeAttribute("id");
-      copy.setAttribute("width", "17");
-      copy.setAttribute("height", "17");
-      tile.appendChild(copy);
-    }
-    const strong = document.createElement("strong");
-    strong.textContent = name;
-    tile.appendChild(strong);
-    host.appendChild(tile);
+  groups.forEach((g) => {
+    const head = document.createElement("div");
+    head.className = "isl-wgroup";
+    head.textContent = i18n.t(g.labelKey);
+    host.appendChild(head);
+    const grid = document.createElement("div");
+    grid.className = "isl-tiles isl-wtiles";
+    g.items.forEach((item) => {
+      const tile = document.createElement("button");
+      tile.type = "button";
+      tile.className = `isl-tile${item.open ? " is-open" : ""}`;
+      tile.dataset.islWidget = item.key;
+      const icon = islWidgetIcon(item.svg, 17);
+      if (icon) tile.appendChild(icon);
+      const strong = document.createElement("strong");
+      strong.textContent = item.name;
+      tile.appendChild(strong);
+      grid.appendChild(tile);
+    });
+    host.appendChild(grid);
   });
-  $("islWidgetEmpty")?.classList.toggle("hidden", items.length > 0);
+  $("islWidgetEmpty")?.classList.toggle("hidden", groups.length > 0);
+}
+
+/** 아이콘 독: 패널을 접었을 때(마스코트)와 확장(집중 모드) 중의 위젯 입구 */
+function ensureIslWidgetDock() {
+  let dock = $("islWidgetDock");
+  if (dock) return dock;
+  dock = document.createElement("div");
+  dock.id = "islWidgetDock";
+  dock.className = "isl-wdock hidden";
+  dock.setAttribute("role", "menu");
+  dock.hidden = true;
+  document.body.appendChild(dock);
+  dock.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-isl-widget]");
+    if (btn) {
+      closeIslWidgetDock();
+      document.querySelector(`[data-dock-item="${btn.dataset.islWidget}"]`)?.click();
+      return;
+    }
+    if (event.target.closest?.("[data-isl-dock-panel]")) {
+      closeIslWidgetDock();
+      setAiPanelOpen(true);
+    }
+  });
+  return dock;
+}
+function renderIslWidgetDock() {
+  const dock = ensureIslWidgetDock();
+  dock.textContent = "";
+  islWidgetItems().forEach((g, gi) => {
+    if (gi) {
+      const sep = document.createElement("i");
+      sep.className = "isl-wdock-sep";
+      dock.appendChild(sep);
+    }
+    const row = document.createElement("div");
+    row.className = "isl-wdock-grid";
+    g.items.forEach((item) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `isl-wd${item.open ? " is-open" : ""}`;
+      b.dataset.islWidget = item.key;
+      b.title = item.name;
+      b.setAttribute("aria-label", item.name);
+      const icon = islWidgetIcon(item.svg, 18);
+      if (icon) b.appendChild(icon);
+      row.appendChild(b);
+    });
+    dock.appendChild(row);
+  });
+  if (document.body.classList.contains("ai-panel-collapsed") && !document.body.classList.contains("focus-write-open")) {
+    const foot = document.createElement("button");
+    foot.type = "button";
+    foot.className = "isl-wdock-panel";
+    foot.dataset.islDockPanel = "1";
+    foot.textContent = i18n.t("island.패널_펼치기");
+    dock.appendChild(foot);
+  }
+}
+function isIslWidgetDockOpen() {
+  return Boolean($("islWidgetDock") && !$("islWidgetDock").hidden);
+}
+function closeIslWidgetDock() {
+  const dock = $("islWidgetDock");
+  if (dock) { dock.hidden = true; dock.classList.add("hidden"); }
+  $("islDockHandle")?.setAttribute("aria-expanded", "false");
+}
+function openIslWidgetDock() {
+  renderIslWidgetDock();
+  const dock = ensureIslWidgetDock();
+  dock.hidden = false;
+  dock.classList.remove("hidden");
+  $("islDockHandle")?.setAttribute("aria-expanded", "true");
+}
+function toggleIslWidgetDock() {
+  if (isIslWidgetDockOpen()) closeIslWidgetDock();
+  else openIslWidgetDock();
+}
+function setupIslWidgetDock() {
+  if (setupIslWidgetDock._bound) return;
+  setupIslWidgetDock._bound = true;
+  $("islAiBadge")?.addEventListener("click", (event) => { event.stopPropagation(); toggleIslWidgetDock(); });
+  $("islDockHandle")?.addEventListener("click", (event) => { event.stopPropagation(); toggleIslWidgetDock(); });
+  document.addEventListener("click", (event) => {
+    if (!isIslWidgetDockOpen()) return;
+    if (event.target.closest?.("#islWidgetDock, #islAiBadge, #islDockHandle")) return;
+    closeIslWidgetDock();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.ctrlKey && event.shiftKey && (event.key === "W" || event.key === "w")) {
+      event.preventDefault();
+      toggleIslWidgetDock();
+      return;
+    }
+    if (event.key === "Escape" && isIslWidgetDockOpen()) closeIslWidgetDock();
+  });
 }
 // C1: keep the existing scroll host and editor intact; only rehost the paper
 // header. Restore every node to its anchor for the existing split layout.
@@ -33082,7 +33211,7 @@ function setupAiCheckHub() {
     hideToryPersonaMenu();
     setAiPanelTab("widgets");
   });
-  $("islAiBadge")?.addEventListener("click", () => setAiPanelOpen(true));
+  setupIslWidgetDock();
   const badge = $("islAiBadge");
   if (badge && typeof MutationObserver !== "undefined") {
     let played = false;
@@ -33100,7 +33229,7 @@ function setupAiCheckHub() {
   $("islWidgetTiles")?.addEventListener("click", (event) => {
     const tile = event.target.closest?.("[data-isl-widget]");
     if (!tile) return;
-    document.querySelector(`#aiDockRail [data-dock-item="${tile.dataset.islWidget}"]`)?.click();
+    document.querySelector(`[data-dock-item="${tile.dataset.islWidget}"]`)?.click();
   });
   $("islTimerToggle")?.addEventListener("click", () => {
     try { ensurePomodoroState(); togglePomodoro(); } catch (error) { handleError(error); }
@@ -56360,6 +56489,7 @@ function setBinderPanelOpen(open, options = {}) {
     }
   }
   scheduleHeaderNoticeStripLayout();
+  syncBinderCollapseUi();
   // Split layout may need a reflow after side panels change.
   if (typeof applySplitLayout === "function" && state.splitEnabled && state.splitMode === "split") {
     requestAnimationFrame(() => {
@@ -56371,6 +56501,66 @@ function setBinderPanelOpen(open, options = {}) {
       }
     });
   }
+}
+
+/** 왼쪽 패널 접힘: 기본은 완전히 접기(레일 없음), 설정을 켜면 회차 번호 줄(미니 내비)이 남는다 */
+const ISL_MINI_NAV_KEY = "supertory.islBinderMiniNav";
+function isIslMiniNavOn() {
+  try { return localStorage.getItem(ISL_MINI_NAV_KEY) === "1"; } catch (_) { return false; }
+}
+function syncBinderCollapseUi() {
+  const collapsed = document.body.classList.contains("binder-panel-collapsed");
+  document.body.classList.toggle("binder-mini", collapsed && isIslMiniNavOn());
+  if (collapsed) renderIslMiniNav();
+}
+function renderIslMiniNav() {
+  const list = $("islMiniList");
+  if (!list || !document.body.classList.contains("binder-panel-collapsed")) return;
+  let items = [];
+  try { items = getSynopsisSequence() || []; } catch (_) { items = []; }
+  const statusOf = new Map();
+  (state.outline || []).forEach((chapter) => (chapter.scenes || []).forEach((scene) => statusOf.set(Number(scene.id), scene.status || "draft")));
+  const current = Number(state.sceneId) || 0;
+  list.textContent = "";
+  items.forEach((item) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `isl-mn${Number(item.sceneId) === current ? " is-current" : ""}`;
+    b.dataset.sceneId = String(item.sceneId);
+    b.dataset.status = statusOf.get(Number(item.sceneId)) || "draft";
+    b.textContent = String(item.index);
+    b.title = item.title || "";
+    list.appendChild(b);
+  });
+  list.querySelector(".is-current")?.scrollIntoView({ block: "nearest" });
+}
+function setupBinderCollapseUi() {
+  if (setupBinderCollapseUi._bound) return;
+  setupBinderCollapseUi._bound = true;
+  const toggle = () => setBinderPanelOpen(!isBinderPanelOpen());
+  $("islBinderHandle")?.addEventListener("click", () => setBinderPanelOpen(true));
+  $("islMiniNew")?.addEventListener("click", () => $("islNewEpisode")?.click());
+  $("islMiniList")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-scene-id]");
+    if (!btn) return;
+    const id = Number(btn.dataset.sceneId);
+    if (Number.isFinite(id) && id > 0) requestOpenScene(id, { force: true });
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.ctrlKey && event.altKey && (event.key === "b" || event.key === "B")) {
+      event.preventDefault();
+      toggle();
+    }
+  });
+  const mini = $("adminBinderMiniNav");
+  if (mini) {
+    mini.checked = isIslMiniNavOn();
+    mini.addEventListener("change", () => {
+      try { localStorage.setItem(ISL_MINI_NAV_KEY, mini.checked ? "1" : "0"); } catch (_) { /* ignore */ }
+      syncBinderCollapseUi();
+    });
+  }
+  syncBinderCollapseUi();
 }
 
 function setupBinderPanelToggle() {
@@ -56385,6 +56575,7 @@ function setupBinderPanelToggle() {
   setBinderPanelOpen(preferred);
   $("collapseBinderPanelButton")?.addEventListener("click", () => setBinderPanelOpen(false));
   $("expandBinderPanelButton")?.addEventListener("click", () => setBinderPanelOpen(true));
+  setupBinderCollapseUi();
 }
 
 /** Windows 화면 분할(스냅) 등으로 창 폭이 좁아지면 본문(집필) 영역을 확보하기 위해

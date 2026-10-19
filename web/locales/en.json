@@ -5721,5 +5721,12 @@
   "island.wl_d_타이머": "When off, only “Recording” is shown",
   "island.wl_d_목표": "Daily goal in characters",
   "island.wl_d_미집필": "Remind me after this many days",
-  "island.wl_월_표기": "${n}"
+  "island.wl_월_표기": "${n}",
+  "island.위젯_그룹_쓰기": "Writing tools",
+  "island.위젯_그룹_자료": "Story reference",
+  "island.위젯_독_열기": "Open widgets (Ctrl+Shift+W)",
+  "island.패널_토글": "Collapse / expand left panel (Ctrl+Alt+B)",
+  "island.미니_내비_제목": "When the left panel is collapsed",
+  "island.미니_내비_설명": "When on, a slim episode-number strip stays so you can jump between episodes. When off, the panel disappears and the page gets wider.",
+  "island.미니_내비_켜기": "Show episode-number strip"
 }

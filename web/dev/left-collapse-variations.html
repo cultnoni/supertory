@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>왼쪽 패널 접힘 시안 2가지</title>
+<style>
+  :root {
+    --bg: #eceef1; --panel: #fbfbfc; --sunk: #f2f4f6; --desk: #edf0f2;
+    --ink: #1f2429; --ink2: #5c656e; --ink3: #8b939b; --line: #e0e4e8;
+    --accent: #2f7566; --accent-soft: #e3efeb; --accent-ink: #f2f7f5;
+    --pop: 0 2px 6px rgba(31,36,41,.1), 0 16px 40px rgba(31,36,41,.16);
+    --sans: "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 13px; line-height: 1.5; }
+  header.top { padding: 22px 28px 4px; }
+  header.top h1 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+  header.top p { margin: 0; color: var(--ink2); max-width: 900px; }
+  .case { padding: 18px 28px 4px; }
+  .case h2 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+  .case .why { margin: 0 0 12px; color: var(--ink2); max-width: 920px; }
+  .row { display: flex; gap: 20px; flex-wrap: wrap; }
+  .cap { color: var(--ink3); font-size: 12px; margin: 0 0 6px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  /* 앱 틀 */
+  .app { width: 540px; height: 340px; background: var(--bg); border-radius: 12px; border: 1px solid var(--line); overflow: hidden; display: flex; flex-direction: column; position: relative; }
+  .tb { height: 28px; display: flex; align-items: center; gap: 4px; padding: 0 8px; flex: none; color: var(--ink2); }
+  .tb .ic { width: 22px; height: 22px; display: grid; place-items: center; border: 0; background: transparent; border-radius: 6px; color: var(--ink2); }
+  .tb .ic:hover { background: var(--panel); }
+  .tb .ic.hl { color: var(--accent); box-shadow: 0 0 0 1.5px var(--accent) inset; }
+  .tb .ic svg { width: 14px; height: 14px; }
+  .mascot { width: 18px; height: 18px; border-radius: 5px; background: #f0b27a; }
+  .body { flex: 1; display: flex; gap: 6px; padding: 0 6px 6px 0; min-height: 0; position: relative; }
+  .lp { width: 150px; background: var(--panel); border: 1px solid var(--line); border-left: 0; border-radius: 0 12px 12px 0; padding: 8px; display: flex; flex-direction: column; gap: 4px; flex: none; transition: width .2s; overflow: hidden; }
+  .lp .h { display: flex; align-items: center; gap: 6px; padding: 2px 4px 6px; }
+  .lp .h b { font-weight: 400; font-size: 12px; flex: 1; }
+  .lp .ep { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 7px; color: var(--ink2); font-size: 12px; }
+  .lp .ep i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .lp .ep.on { background: var(--accent-soft); color: var(--ink); }
+  .ctr { flex: 1; background: var(--desk); border: 1px solid var(--line); border-radius: 12px; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .ctr .tabs { height: 26px; border-bottom: 1px solid var(--line); background: var(--bg); display: flex; align-items: flex-end; padding: 0 8px; gap: 2px; }
+  .ctr .tabs span { background: var(--panel); border: 1px solid var(--line); border-bottom: 0; border-radius: 6px 6px 0 0; padding: 2px 10px; font-size: 11.5px; }
+  .ctr .paper { margin: 10px auto; background: #fff; width: 78%; flex: 1; border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; font-family: Batang, serif; font-size: 12px; color: var(--ink); line-height: 1.8; overflow: hidden; }
+  .rp { width: 96px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; flex: none; padding: 8px; color: var(--ink3); font-size: 11.5px; }
+  /* A: 접힘 = 너비 0 */
+  .a.collapsed .lp { width: 0; padding: 0; border: 0; }
+  .handle { position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 14px; height: 48px; border: 1px solid var(--line); border-left: 0; background: var(--panel); border-radius: 0 10px 10px 0; display: none; place-items: center; color: var(--ink3); padding: 0; z-index: 3; box-shadow: 0 1px 6px rgba(31,36,41,.12); }
+  .handle svg { width: 12px; height: 12px; }
+  .a.collapsed .handle { display: grid; }
+  /* B: 접힘 = 미니 회차 내비 */
+  .b.collapsed .lp { width: 40px; padding: 8px 4px; align-items: center; }
+  .b .lp .full { display: contents; }
+  .b.collapsed .lp .full { display: none; }
+  .mini { display: none; flex-direction: column; align-items: center; gap: 3px; width: 100%; }
+  .b.collapsed .mini { display: flex; }
+  .mini .n { width: 28px; height: 22px; display: grid; place-items: center; border-radius: 6px; font-size: 11.5px; color: var(--ink2); position: relative; }
+  .mini .n::after { content: ""; position: absolute; right: 3px; top: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--c, var(--accent)); }
+  .mini .n.on { background: var(--accent-soft); color: var(--accent); }
+  .mini .sp { height: 1px; width: 20px; background: var(--line); margin: 3px 0; }
+  .mini .add { color: var(--accent); }
+  .mini .exp { margin-top: auto; border: 0; background: transparent; color: var(--ink3); width: 26px; height: 26px; display: grid; place-items: center; border-radius: 7px; }
+  .mini .exp:hover { background: var(--sunk); }
+  .tip { position: absolute; left: 50px; top: 120px; background: var(--ink); color: #fff; border-radius: 8px; padding: 4px 9px; font-size: 11.5px; display: none; z-index: 5; }
+  .b .mini .n:nth-child(4):hover ~ .tip { display: block; }
+  .legend { color: var(--ink3); font-size: 12px; margin-top: 8px; max-width: 540px; }
+  .note { margin: 22px 28px 40px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; color: var(--ink2); line-height: 1.75; max-width: 880px; }
+  .note b { color: var(--ink); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>왼쪽 패널 접힘 — 시안 2가지</h1>
+  <p>패널을 접은 모습과 연 모습을 나란히 보여줍니다. 앱 틀 안의 토글(제목줄 아이콘)을 눌러 접고 펼쳐 보세요.</p>
+</header>
+
+<section class="case">
+  <h2>A. 레일 없애기 — 접으면 너비 0 + 제목줄 토글 + 가장자리 손잡이</h2>
+  <p class="why">접으면 왼쪽 칸이 완전히 사라지고 본문이 넓어집니다. 다시 여는 길은 둘입니다. ① 제목줄 왼쪽의 패널 토글 아이콘(열려 있을 때도 같은 자리) ② 왼쪽 가장자리 가운데의 작은 손잡이. 단축키도 하나 둡니다(Ctrl+B).</p>
+  <div class="row">
+    <div><p class="cap">열린 모습</p>
+      <div class="app a" id="a1">
+        <div class="tb"><i class="mascot"></i><button class="ic hl" data-t="a1" title="패널 접기 (Ctrl+B)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button><button class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></svg></button></div>
+        <div class="body"><div class="lp"><div class="h"><svg viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg><b>달빛 서고의 사서</b></div><div class="ep"><i></i>1화 비 오는 서고</div><div class="ep"><i></i>2화 잠긴 서가</div><div class="ep on"><i></i>3화 문 앞의 소년</div><div class="ep"><i></i>4화 첫 번째 대출자</div></div>
+        <div class="ctr"><div class="tabs"><span>3화 · 문 앞의 소년</span></div><div class="paper">그때 문에 달린 종이 울렸다. 바람도 불지 않는 아침이었다. 윤서는 고개를 들었고, 문간에 서 있는 낯선 소년의 손에 젖은 책 한 권이 들려 있는 것을 보았다.</div></div><div class="rp">SuperTORY</div></div>
+      </div>
+    </div>
+    <div><p class="cap">접은 모습 — 본문이 왼쪽 끝까지 넓어지고, 가장자리에 손잡이만</p>
+      <div class="app a collapsed" id="a2">
+        <div class="tb"><i class="mascot"></i><button class="ic hl" data-t="a2" title="패널 펼치기 (Ctrl+B)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button><button class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></svg></button></div>
+        <div class="body"><div class="lp"></div>
+        <div class="ctr"><div class="tabs"><span>3화 · 문 앞의 소년</span></div><div class="paper" style="width:70%">그때 문에 달린 종이 울렸다. 바람도 불지 않는 아침이었다. 윤서는 고개를 들었고, 문간에 서 있는 낯선 소년의 손에 젖은 책 한 권이 들려 있는 것을 보았다.</div></div><div class="rp">SuperTORY</div>
+        <button class="handle" data-t="a2" title="패널 펼치기"><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button></div>
+      </div>
+    </div>
+  </div>
+  <p class="legend">장점: 본문 영역이 가장 넓고, 오른쪽 접힘(마스코트만 남음)과 대칭입니다. 단점: 손잡이와 토글을 모르면 처음에는 다시 여는 곳을 찾을 수 있습니다.</p>
+</section>
+
+<section class="case">
+  <h2>B. 미니 회차 내비 — 접으면 폭 40px 레일에 회차 번호만</h2>
+  <p class="why">접힌 레일에 현재 작품의 회차 번호를 세로로 쌓습니다. 번호를 누르면 그 회차로 이동하고, 오른쪽 위 점은 작성 상태 색입니다. 현재 회차는 초록 칸, 맨 위에 ＋ 새 회차, 맨 아래에 펼치기 버튼이 있습니다. 긴 작품(30화 이상)이면 레일 안에서 스크롤됩니다.</p>
+  <div class="row">
+    <div><p class="cap">열린 모습</p>
+      <div class="app b" id="b1">
+        <div class="tb"><i class="mascot"></i><button class="ic hl" data-t="b1" title="패널 접기"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button></div>
+        <div class="body"><div class="lp"><div class="full"><div class="h"><svg viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg><b>달빛 서고의 사서</b></div><div class="ep"><i></i>1화 비 오는 서고</div><div class="ep"><i></i>2화 잠긴 서가</div><div class="ep on"><i></i>3화 문 앞의 소년</div><div class="ep"><i></i>4화 첫 번째 대출자</div></div></div>
+        <div class="ctr"><div class="tabs"><span>3화 · 문 앞의 소년</span></div><div class="paper">그때 문에 달린 종이 울렸다. 바람도 불지 않는 아침이었다. 윤서는 고개를 들었고, 문간에 서 있는 낯선 소년의 손에 젖은 책 한 권이 들려 있는 것을 보았다.</div></div><div class="rp">SuperTORY</div></div>
+      </div>
+    </div>
+    <div><p class="cap">접은 모습 — 번호를 누르면 회차 이동</p>
+      <div class="app b collapsed" id="b2">
+        <div class="tb"><i class="mascot"></i><button class="ic hl" data-t="b2" title="패널 펼치기"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button></div>
+        <div class="body"><div class="lp"><div class="full"></div>
+          <div class="mini"><button class="exp" style="margin:0 0 2px" title="새 회차"><svg viewBox="0 0 24 24" class="add"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg></button><span class="sp"></span>
+            <span class="n" style="--c:#4f9b7d">1</span><span class="n" style="--c:#4f9b7d">2</span><span class="n on" style="--c:#d2a456">3</span><span class="n" style="--c:#d2a456">4</span><span class="n" style="--c:#a99ac8">5</span><span class="n" style="--c:#aab2bb">6</span><span class="n" style="--c:#aab2bb">7</span><span class="n" style="--c:#aab2bb">8</span>
+            <button class="exp" data-t="b2" title="패널 펼치기"><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button></div></div>
+        <div class="ctr"><div class="tabs"><span>3화 · 문 앞의 소년</span></div><div class="paper">그때 문에 달린 종이 울렸다. 바람도 불지 않는 아침이었다. 윤서는 고개를 들었고, 문간에 서 있는 낯선 소년의 손에 젖은 책 한 권이 들려 있는 것을 보았다.</div></div><div class="rp">SuperTORY</div></div>
+      </div>
+    </div>
+  </div>
+  <p class="legend">장점: 패널을 안 열고도 회차를 이동하고 새 회차를 만들 수 있어 긴 작품에 유용합니다. 단점: 본문이 A보다 좁고 접힌 레일이 다시 하나의 UI가 됩니다.</p>
+</section>
+
+<div class="note">
+  <b>비교:</b> 본문 폭을 우선하면 A, 긴 작품에서 이동 편의를 우선하면 B입니다. 두 안 모두 위젯 아이콘은 없고(위젯 입구는 오른쪽 하나), 접힘 상태의 열기 버튼은 같은 위치(왼쪽)에 있습니다. <b>A+B 혼합</b>도 가능합니다: 기본은 A로 접되, 설정에서 "접었을 때 회차 번호 레일 보이기"를 켜면 B처럼 동작합니다.
+</div>
+
+<script>
+  document.querySelectorAll('[data-t]').forEach(b => b.addEventListener('click', () => {
+    const id = b.dataset.t;
+    // 열린 틀(…1)과 접힌 틀(…2)은 서로 다른 그림이라, 눌러서 상태를 바꾸는 것은 같은 쌍의 다른 쪽을 강조한다
+    const pair = document.getElementById(id.slice(0, 1) + (id.endsWith('1') ? '2' : '1'));
+    pair?.animate([{ boxShadow: '0 0 0 3px #2f7566' }, { boxShadow: '0 0 0 0 transparent' }], { duration: 700 });
+  }));
+</script>
+</body>
+</html>

@@ -261,7 +261,7 @@
 
     <link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
     <link rel="stylesheet" href="/styles.css?v=1.4.262">
-    <link rel="stylesheet" href="/island.css?v=53">
+    <link rel="stylesheet" href="/island.css?v=57">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -1711,6 +1711,7 @@
               <path d="M9 3v18"/>
             </svg>
           </button>
+          <div id="islMiniNav" class="isl-mini-nav" role="toolbar" aria-label="회차 번호" data-i18n-aria-label="island.미니_내비_제목"><button type="button" class="isl-mn-add" id="islMiniNew" title="새 회차" data-i18n-title="island.새_회차" aria-label="새 회차" data-i18n-aria-label="island.새_회차"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg></button><i class="isl-mn-sep"></i><div class="isl-mn-list" id="islMiniList"></div></div>
           <div class="panel-dock-rail-items" role="toolbar" aria-label="바인더 항목" data-i18n-aria-label="index.바인더_항목">
             <button type="button" class="panel-dock-item is-ready" data-dock-item="manuscript" title="목차보기" data-i18n-title="index.목차보기" aria-label="목차보기" data-i18n-aria-label="index.목차보기">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
@@ -4844,6 +4845,8 @@
           </div>
 
         </nav>
+        <button type="button" id="islBinderHandle" class="isl-binder-handle" title="왼쪽 패널 펼치기 (Ctrl+Alt+B)" data-i18n-title="island.패널_토글" aria-label="왼쪽 패널 펼치기" data-i18n-aria-label="island.패널_토글"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+        <button type="button" id="islDockHandle" class="isl-dock-handle" title="위젯 열기 (Ctrl+Shift+W)" data-i18n-title="island.위젯_독_열기" aria-label="위젯 열기" data-i18n-aria-label="island.위젯_독_열기" aria-expanded="false"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
         <button type="button" id="islAiBadge" class="isl-ai-badge" title="SuperTORY 펼치기" data-i18n-title="island.패널_펼치기" aria-label="SuperTORY 펼치기" data-i18n-aria-label="island.패널_펼치기"><img src="/final_mascots/supertory-badge-clean.webp" alt="" width="44" height="44" draggable="false"></button>
       </aside>
     </main>
@@ -7764,6 +7767,12 @@
                 <div id="adminAmbientTrackList" class="ambient-admin-list" aria-label="배경음 트랙 목록" data-i18n-aria-label="index.배경음_트랙_선택"></div>
               </div>
             </div>
+          </div>
+
+          <div class="admin-section-box">
+            <h3 class="admin-section-title" data-i18n="island.미니_내비_제목">왼쪽 패널을 접었을 때</h3>
+            <p class="hint" data-i18n="island.미니_내비_설명">켜면 접힌 자리에 회차 번호 줄이 남아 패널을 열지 않고도 회차를 옮길 수 있어요. 끄면 완전히 접혀 본문이 넓어집니다.</p>
+            <label class="writing-pref-check"><input type="checkbox" id="adminBinderMiniNav"><span data-i18n="island.미니_내비_켜기">회차 번호 줄 보이기</span></label>
           </div>
 
           <div class="admin-section-box">

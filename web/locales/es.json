@@ -5719,5 +5719,12 @@
   "island.wl_d_타이머": "Si se apaga, solo muestra «Grabando»",
   "island.wl_d_목표": "Meta diaria de caracteres",
   "island.wl_d_미집필": "Avisar tras estos días sin escribir",
-  "island.wl_월_표기": "${n}"
+  "island.wl_월_표기": "${n}",
+  "island.위젯_그룹_쓰기": "Herramientas de escritura",
+  "island.위젯_그룹_자료": "Material de la obra",
+  "island.위젯_독_열기": "Abrir widgets (Ctrl+Shift+W)",
+  "island.패널_토글": "Contraer / expandir panel izquierdo (Ctrl+Alt+B)",
+  "island.미니_내비_제목": "Al contraer el panel izquierdo",
+  "island.미니_내비_설명": "Si se activa, queda una tira con los números de capítulo para saltar entre ellos. Si se desactiva, el panel desaparece y el texto gana ancho.",
+  "island.미니_내비_켜기": "Mostrar tira de números de capítulo"
 }
