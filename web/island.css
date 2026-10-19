@@ -1334,13 +1334,16 @@ body.binder-panel-collapsed.ai-panel-collapsed main { grid-template-columns: var
 /* 아이콘 독이 열려 있는 동안은 오른쪽에 얇은 패널 자리를 실제로 띄워 본문을 밀어낸다(겹쳐 뜨지 않게) */
 body.ai-panel-collapsed.isl-wdock-open:not(.focus-write-open) main { grid-template-columns: var(--outline-width) minmax(0, 1fr) var(--isl-dock-rail-w, 64px) !important; }
 body.binder-panel-collapsed.ai-panel-collapsed.isl-wdock-open:not(.focus-write-open) main { grid-template-columns: var(--panel-dock-rail-w, 48px) minmax(0, 1fr) var(--isl-dock-rail-w, 64px) !important; }
-body.ai-panel-collapsed .isl-ai-badge {
+body.ai-panel-collapsed .isl-ai-badge,
+body.focus-write-open .isl-ai-badge {
   display: grid; place-items: center; position: fixed; right: 14px; bottom: 48px; z-index: 230;
   width: 52px; height: 52px; padding: 0; border: 1px solid var(--line); border-radius: 50%;
   background: var(--panel); box-shadow: var(--isl-pop-shadow, var(--isl-shadow)); cursor: pointer;
 }
-body.ai-panel-collapsed .isl-ai-badge img { width: 40px; height: 40px; object-fit: contain; }
-body.ai-panel-collapsed .isl-ai-badge:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+body.ai-panel-collapsed .isl-ai-badge img,
+body.focus-write-open .isl-ai-badge img { width: 40px; height: 40px; object-fit: contain; }
+body.ai-panel-collapsed .isl-ai-badge:hover,
+body.focus-write-open .isl-ai-badge:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
 
 /* 새 회차: 목록 아래 가운데 고정 아이콘 · 설정집 바로가기 접기 */
 .isl-binder-foot { display: none !important; }
@@ -1450,15 +1453,19 @@ body.ai-panel-collapsed .isl-ai-badge:hover { border-color: color-mix(in srgb, v
 #formatToolbar .format-toolbar-row { min-height: 32px; padding: 3px 6px !important; }
 #formatToolbar .format-toolbar-row-body { padding: 0 !important; }
 
-/* 접힘 마스코트: 동그라미 없이 마스코트만, 처음 한 번만 흔들린다 */
-body.ai-panel-collapsed .isl-ai-badge {
+/* 접힘 마스코트: 동그라미 없이 마스코트만, 처음 한 번만 흔들린다 (집중/확장 모드에서도 항상 오른쪽 아래에 떠 있는다) */
+body.ai-panel-collapsed .isl-ai-badge,
+body.focus-write-open .isl-ai-badge {
   width: 68px; height: 68px; border: 0 !important; border-radius: 0 !important;
   background: transparent !important; box-shadow: none !important;
   right: 10px; bottom: 44px;
 }
-body.ai-panel-collapsed .isl-ai-badge img { width: 64px; height: 64px; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.18)); }
-body.ai-panel-collapsed .isl-ai-badge:hover { border-color: transparent !important; transform: translateY(-2px); }
-body.ai-panel-collapsed .isl-ai-badge.is-intro img { animation: islBadgeIntro 1.4s ease-in-out 1 both; transform-origin: 50% 90%; }
+body.ai-panel-collapsed .isl-ai-badge img,
+body.focus-write-open .isl-ai-badge img { width: 64px; height: 64px; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.18)); }
+body.ai-panel-collapsed .isl-ai-badge:hover,
+body.focus-write-open .isl-ai-badge:hover { border-color: transparent !important; transform: translateY(-2px); }
+body.ai-panel-collapsed .isl-ai-badge.is-intro img,
+body.focus-write-open .isl-ai-badge.is-intro img { animation: islBadgeIntro 1.4s ease-in-out 1 both; transform-origin: 50% 90%; }
 @keyframes islBadgeIntro {
   0% { transform: translateY(14px) scale(0.85); opacity: 0; }
   35% { transform: translateY(-8px) scale(1.05); opacity: 1; }
@@ -1467,7 +1474,10 @@ body.ai-panel-collapsed .isl-ai-badge.is-intro img { animation: islBadgeIntro 1.
   80% { transform: rotate(-4deg); }
   100% { transform: none; opacity: 1; }
 }
-@media (prefers-reduced-motion: reduce) { body.ai-panel-collapsed .isl-ai-badge.is-intro img { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  body.ai-panel-collapsed .isl-ai-badge.is-intro img,
+  body.focus-write-open .isl-ai-badge.is-intro img { animation: none; }
+}
 
 /* 목차: 상태 점 ↔ 회차 제목 간격을 줄이고 전체를 왼쪽으로 */
 #outline .scene-row { gap: 0 !important; }
@@ -1904,13 +1914,8 @@ body.focus-write-open .isl-wdock { top: 50%; bottom: auto; right: 12px; transfor
 .isl-wd:hover { background: var(--isl-sunk) !important; color: var(--text-primary) !important; }
 .isl-wd.is-open { background: var(--accent-soft, var(--isl-sunk)) !important; color: var(--accent) !important; }
 .isl-wdock-panel { border: 0 !important; background: var(--isl-sunk) !important; color: var(--isl-ink2) !important; border-radius: 8px !important; padding: 6px 10px !important; font-size: 12px; cursor: pointer; }
-.isl-dock-handle { display: none; }
-body.focus-write-open .isl-dock-handle {
-  display: grid; place-items: center; position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 255;
-  width: 26px; height: 52px; padding: 0 !important; border: 1px solid var(--line) !important; border-right: 0 !important;
-  border-radius: 12px 0 0 12px !important; background: var(--panel) !important; color: var(--isl-ink3) !important; box-shadow: 0 1px 6px rgba(31, 36, 41, 0.12); cursor: pointer;
-}
-body.focus-write-open .isl-dock-handle:hover { color: var(--accent) !important; }
+/* 집중/확장 모드에서도 위젯 독 진입은 마스코트 하나로 통일 — 별도 핸들 아이콘은 쓰지 않는다 */
+.isl-dock-handle { display: none !important; }
 /* 왼쪽 패널을 접었을 때: 위젯 아이콘 줄은 없애고 펼치기 버튼만 남긴다 */
 body.binder-panel-collapsed .binder-dock-rail .panel-dock-rail-items { display: none !important; }
 #islWidgetTiles.isl-tiles { display: block !important; padding: 0; }
@@ -2033,7 +2038,8 @@ body.isl-snap-right::before { right: var(--isl-snap-right, 12px); }
 .format-toolbar-row-icons .format-toolbar-row-body.format-toolbar-row-body-split { justify-content: center !important; }
 
 /* 토리 마스코트는 위젯·레일 위에 항상 보인다 */
-body.ai-panel-collapsed .isl-ai-badge { z-index: 230 !important; }
+body.ai-panel-collapsed .isl-ai-badge,
+body.focus-write-open .isl-ai-badge { z-index: 230 !important; }
 
 /* 아이콘 도구줄: 아이콘 사이 간격을 고르게 — 그룹 구분선(분석·뷰어 앞)은 유지하되 나머지 구간에도 숨 쉴 틈을 준다 */
 #formatIconsToolbar .format-toolbar-row-body.format-toolbar-row-body-split { gap: 3px !important; }
