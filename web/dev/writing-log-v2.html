@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>집필 기록 — 시안 ② 다듬은 안</title>
+<style>
+  :root {
+    --bg: #eceef1; --panel: #fbfbfc; --sunk: #f2f4f6;
+    --ink: #1f2429; --ink2: #5c656e; --ink3: #8b939b; --line: #e0e4e8;
+    --accent: #2f7566; --accent-soft: #e3efeb; --accent-ink: #f2f7f5;
+    --l1: #e3efeb; --l2: #c4d9d1; --l3: #2f7566;
+    --pop: 0 2px 6px rgba(31,36,41,.1), 0 16px 40px rgba(31,36,41,.14);
+    --sans: "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 13px; line-height: 1.5; }
+  header.top { padding: 22px 28px 4px; }
+  header.top h1 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+  header.top p { margin: 0; color: var(--ink2); max-width: 880px; }
+  .stage { margin: 14px 28px 40px; padding: 28px 16px; background: rgba(31,36,41,.28); border-radius: 16px; display: flex; justify-content: center; }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .num { font-variant-numeric: tabular-nums; }
+  .modal { background: var(--panel); border-radius: 18px; box-shadow: var(--pop); width: 100%; max-width: 860px; display: flex; height: 560px; overflow: hidden; }
+  .side { width: 150px; flex: none; border-right: 1px solid var(--line); padding: 18px 10px; display: flex; flex-direction: column; gap: 2px; background: var(--sunk); }
+  .side h2 { margin: 0 8px 14px; font-size: 16px; font-weight: 600; }
+  .side button { text-align: left; border: 0; background: transparent; padding: 7px 10px; border-radius: 8px; color: var(--ink2); display: flex; gap: 8px; align-items: center; }
+  .side button.on { background: var(--panel); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  /* 위쪽 줄: 화면 이름 + 닫기 — 내용과 분리해 닫기가 버튼과 겹치지 않는다 */
+  .main-head { display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 14px 0 24px; flex: none; }
+  .main-head h3 { margin: 0; font-size: 13px; font-weight: 400; color: var(--ink3); }
+  .x { border: 0; background: transparent; color: var(--ink3); width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; }
+  .x:hover { background: var(--sunk); }
+  .body { padding: 0 24px 22px; flex: 1; overflow: auto; }
+  .lab { color: var(--ink3); font-size: 12px; }
+  .hint { color: var(--ink3); font-size: 12px; }
+  .seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--sunk); border-radius: 10px; }
+  .seg button { border: 0; background: transparent; padding: 4px 12px; border-radius: 8px; color: var(--ink2); display: inline-flex; gap: 5px; align-items: center; }
+  .seg button.on { background: var(--panel); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+  .btn { border: 0; border-radius: 8px; padding: 6px 12px; background: var(--accent); color: var(--accent-ink); }
+  .btn.ghost { background: var(--sunk); color: var(--ink2); }
+
+  /* 달력: 큰 달력 + 작고 정돈된 오른쪽 */
+  .cal-layout { display: grid; grid-template-columns: minmax(0, 1fr) 176px; gap: 28px; align-items: start; }
+  .cal-nav { display: flex; align-items: center; gap: 4px; margin-bottom: 10px; }
+  .cal-nav b { font-weight: 600; font-size: 14px; padding: 0 6px; }
+  .cal-nav button { border: 0; background: transparent; width: 26px; height: 26px; border-radius: 7px; color: var(--ink2); display: grid; place-items: center; }
+  .cal-nav button:hover { background: var(--sunk); }
+  .wd, .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+  .wd span { text-align: center; color: var(--ink3); font-size: 12px; padding-bottom: 3px; }
+  .cell { border: 0; border-radius: 9px; background: var(--sunk); color: var(--ink3); font-size: 13px; padding: 0; height: 46px; display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+  .cell.e { background: transparent; }
+  .cell[data-l="1"] { background: var(--l1); color: var(--ink2); }
+  .cell[data-l="2"] { background: var(--l2); color: var(--ink); }
+  .cell[data-l="3"] { background: var(--l3); color: #fff; }
+  .cell.today { box-shadow: inset 0 0 0 1.5px var(--ink); color: var(--ink); }
+  .cell.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .legend { display: flex; align-items: center; gap: 5px; margin-top: 10px; color: var(--ink3); font-size: 12px; }
+  .legend i { width: 12px; height: 12px; border-radius: 4px; display: inline-block; }
+  .side-info { display: flex; flex-direction: column; padding-top: 34px; }
+  .stat { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .stat:first-child { padding-top: 0; }
+  .stat span { color: var(--ink3); font-size: 12px; }
+  .stat b { font-weight: 600; font-size: 13px; text-align: right; }
+  .stat small { display: block; color: var(--ink3); font-size: 11.5px; text-align: right; font-weight: 400; }
+  .day-h { margin: 14px 0 4px; display: flex; justify-content: space-between; align-items: baseline; }
+  .day-h b { font-weight: 600; }
+  .day-h span { color: var(--ink3); font-size: 12px; }
+  .day-row { display: flex; justify-content: space-between; padding: 3px 0; color: var(--ink2); }
+  .daybar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 22px; margin-top: 14px; padding: 11px 14px; background: var(--sunk); border-radius: 12px; }
+  .daybar b { font-weight: 600; }
+  .daybar .d { display: inline-flex; gap: 8px; align-items: baseline; }
+  .daybar .purge { margin: 0 0 0 auto; }
+  .purge { display: flex; gap: 14px; margin-top: 0; }
+  .purge button { border: 0; background: transparent; color: var(--ink3); padding: 0; font-size: 12px; }
+  .purge button:hover { color: var(--ink); }
+
+  /* 집계 */
+  .sum-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 400; color: var(--ink3); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 8px; border-bottom: 1px solid var(--line); color: var(--ink2); }
+  th.r, td.r { text-align: right; }
+  td b { font-weight: 400; color: var(--ink); }
+  .chart { display: flex; flex-direction: column; gap: 10px; }
+  .chart-area { display: flex; align-items: flex-end; gap: 8px; height: 200px; padding: 8px 4px 0 34px; border-bottom: 1px solid var(--line); position: relative; }
+  .chart-area .gl { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--line); }
+  .chart-area .gl span { position: absolute; left: 0; top: -9px; width: 30px; text-align: right; color: var(--ink3); font-size: 11.5px; background: var(--panel); }
+  .col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; z-index: 1; }
+  .col i { width: 100%; max-width: 38px; background: var(--l2); border-radius: 6px 6px 2px 2px; display: block; transition: background .15s; }
+  .col.last i { background: var(--accent); }
+  .col:hover i { background: var(--accent); }
+  .col .v { position: absolute; top: -20px; font-size: 11.5px; color: var(--ink2); opacity: 0; }
+  .col:hover .v { opacity: 1; }
+  .xl { display: flex; gap: 8px; padding: 0 4px 0 34px; }
+  .xl span { flex: 1; text-align: center; color: var(--ink3); font-size: 12px; }
+  .metric { display: inline-flex; }
+
+  /* 설정 */
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .t { display: flex; flex-direction: column; gap: 1px; }
+  .t small { color: var(--ink3); font-size: 12px; }
+  .sw { width: 32px; height: 19px; border-radius: 99px; background: #d5dae0; position: relative; flex: none; border: 0; padding: 0; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .sw.on { background: var(--accent); } .sw.on::after { left: 15px; }
+  .field { width: 72px; text-align: right; border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; background: var(--panel); }
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
+  .sec-h { margin: 0 0 2px; font-size: 12px; font-weight: 400; color: var(--ink3); }
+
+  /* 폰 연동 */
+  .code-box { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; background: var(--sunk); border-radius: 12px; margin-bottom: 8px; }
+  .code { font-size: 24px; font-weight: 600; letter-spacing: .12em; }
+  .inbox .it { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); color: var(--ink2); }
+  .inbox .it b { font-weight: 400; color: var(--ink); }
+  .legend2 { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; color: var(--ink3); font-size: 12px; }
+  .legend2 i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+  .legend2 i:first-of-type { margin-left: 4px; } .legend2 i:last-of-type { margin-right: 4px; }
+  .side-info { padding-top: 38px; gap: 22px; }
+  .stat2 { display: flex; flex-direction: column; gap: 1px; }
+  .stat2 span { color: var(--ink3); font-size: 12px; }
+  .stat2 b { font-weight: 600; font-size: 18px; letter-spacing: -.01em; }
+  .stat2 small { color: var(--ink3); font-size: 12px; }
+  .daybar { justify-content: space-between; background: transparent; border-top: 1px solid var(--line); border-radius: 0; padding: 12px 2px 0; margin-top: 12px; flex-wrap: nowrap; }
+  .daybar .dl { display: inline-flex; align-items: baseline; gap: 14px; color: var(--ink2); }
+  .daybar .dl b { color: var(--ink); }
+  .daybar, .daybar * { white-space: nowrap; }
+  .cal-layout { align-items: stretch; }
+  .side-info { justify-content: flex-start; }
+  .side-info .purge { padding-top: 6px; }
+  .daycard { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px 14px; background: var(--panel); }
+  .dc-h { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .dc-h b { font-weight: 600; font-size: 13.5px; }
+  .dc-h span { color: var(--ink3); font-size: 12px; }
+  .dc-g { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; padding-top: 10px; }
+  .dc-g > div { display: flex; flex-direction: column; gap: 1px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>집필 기록 — 시안 ② 다듬은 안</h1>
+  <p>요청 반영: ① 집계에 <b>표 / 막대 그래프 보기</b> 추가 ② 폰 연동의 <b>코드 발급 버튼을 닫기(×)에서 떨어뜨림</b>(×는 맨 윗줄로 분리) ③ <b>달력은 더 크게</b>(칸 34→46px), 오른쪽은 <b>숫자 3개(이름·값·보조)</b>만, <b>선택한 날은 달력 아래 카드(2×2)</b>, 범례는 달 이동 줄 오른쪽 끝으로 정리. 왼쪽 메뉴와 탭을 눌러 보세요. 막대는 마우스를 올리면 값이 보입니다.</p>
+</header>
+<div class="stage"><div id="root" style="width:100%;display:flex;justify-content:center"></div></div>
+
+<script>
+const I = {
+  prev: '<svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>', next: '<svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  cal: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg>',
+  sum: '<svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>',
+  set: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>',
+  phone: '<svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>',
+  table: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/></svg>',
+  bars: '<svg viewBox="0 0 24 24"><path d="M5 20V12M12 20V5M19 20v-9"/></svg>',
+};
+const TABS = [['cal','달력',I.cal],['sum','집계',I.sum],['set','설정',I.set],['phone','폰 연동',I.phone]];
+const TITLE = { cal: '달력', sum: '집계', set: '설정', phone: '폰 연동' };
+const lv = {2:1,3:3,5:3,6:2,7:1,10:2,12:3,13:2,14:3};
+function grid(sel = 14) {
+  let h = '<div class="wd"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div><div class="grid">';
+  for (let i = 0; i < 4; i++) h += '<span class="cell e"></span>';
+  for (let d = 1; d <= 31; d++) h += `<button class="cell ${d===19?'today':''} ${d===sel?'sel':''}" ${lv[d]?`data-l="${lv[d]}"`:''}>${d}</button>`;
+  return h + '</div>';
+}
+const cal = () => `<div class="cal-layout"><div>
+  <div class="cal-nav"><button>${I.prev}</button><b>2026년 10월</b><button>${I.next}</button>
+    <span class="legend2">적음<i style="background:var(--sunk)"></i><i style="background:var(--l1)"></i><i style="background:var(--l2)"></i><i style="background:var(--l3)"></i>많음</span></div>${grid()}
+  <div class="daycard"><div class="dc-h"><b>10월 14일</b><span>선택한 날</span></div><div class="dc-g"><div><span class="lab">쓴 글자</span><span class="num">1,904자</span></div><div><span class="lab">집필 시간</span><span class="num">1시간 12분</span></div><div><span class="lab">시작 시각</span><span class="num">오후 2:10</span></div><div><span class="lab">세션</span><span class="num">3회</span></div></div></div>
+  </div><div class="side-info">
+    <div class="stat2"><span>이번 달</span><b class="num">20,004자</b><small>하루 평균 2,223자</small></div>
+    <div class="stat2"><span>연속 집필</span><b class="num">4일</b><small>최장 17일</small></div>
+    <div class="stat2"><span>오늘</span><b class="num">1,904자</b><small>1시간 12분 · 3회</small></div>
+    <div class="purge" style="margin-top:auto"><button>선택 삭제</button><button>전체 삭제</button></div>
+  </div></div>`;
+
+const DATA = {
+  daily: { rows: [['10/14',1904,'1시간 12분',3],['10/13',2000,'1시간 20분',2],['10/12',3500,'2시간 05분',4],['10/10',2600,'1시간 40분',2],['10/7',800,'35분',1],['10/6',2300,'1시간 30분',2],['10/5',3500,'2시간 10분',3]], head: ['날짜','글자','집필 시간','세션'] },
+  weekly: { rows: [['10/12 주',9404,'5시간 17분',4],['10/5 주',9900,'6시간 05분',5],['9/28 주',7200,'4시간 30분',4],['9/21 주',6100,'3시간 50분',3]], head: ['주','글자','집필 시간','집필일'] },
+  monthly: { rows: [['2026.10',20004,'14일',2223],['2026.9',31200,'22일',1418],['2026.8',18400,'12일',1533],['2026.7',24800,'19일',1305]], head: ['월','글자','집필일','일평균'] },
+};
+const fm = n => typeof n === 'number' ? n.toLocaleString() : n;
+const table = k => `<table><thead><tr>${DATA[k].head.map((h,i)=>`<th class="${i?'r':''}">${h}</th>`).join('')}</tr></thead><tbody>${DATA[k].rows.map(r=>`<tr>${r.map((c,i)=>`<td class="${i?'r num':''}">${i?fm(c):'<b>'+c+'</b>'}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+const chart = k => {
+  const rows = DATA[k].rows.slice().reverse();      // 오래된 → 최근
+  const max = Math.max(...rows.map(r => r[1])); const top = Math.ceil(max / 1000) * 1000;
+  const gl = [1, .5].map(f => `<div class="gl" style="bottom:${f*100*0.88}%"><span class="num">${Math.round(top*f/1000)}k</span></div>`).join('');
+  return `<div class="chart"><div class="chart-area">${gl}${rows.map((r,i)=>`<div class="col ${i===rows.length-1?'last':''}"><span class="v num">${fm(r[1])}자</span><i style="height:${Math.round(r[1]/top*88)}%"></i></div>`).join('')}</div><div class="xl">${rows.map(r=>`<span class="num">${r[0]}</span>`).join('')}</div></div>`;
+};
+let period = 'daily', mode = 'table';
+const sum = () => `<div class="sum-top"><div class="seg" data-p>${[['daily','일간'],['weekly','주간'],['monthly','월별']].map(([k,l])=>`<button data-k="${k}" class="${k===period?'on':''}">${l}</button>`).join('')}</div>
+  <div class="seg" data-m><button data-k="table" class="${mode==='table'?'on':''}">${I.table}표</button><button data-k="bars" class="${mode==='bars'?'on':''}">${I.bars}막대</button></div></div>
+  ${mode==='table' ? table(period) : chart(period)}<p class="hint" style="margin:10px 0 0">순수 집필 시간 · 순증가 글자 기준</p>`;
+
+const sw = (t, s, on) => `<div class="row"><div class="t"><span>${t}</span><small>${s}</small></div><button class="sw ${on?'on':''}"></button></div>`;
+const nf = (t, s, v) => `<div class="row"><div class="t"><span>${t}</span><small>${s}</small></div><input class="field num" value="${v}"></div>`;
+const set = () => `<div class="cols2"><div><p class="sec-h">집계</p>${sw('글자수 자동집계','기록 버튼 없이 본문 순증가 글자를 셉니다',1)}${sw('글쓴 시간 자동집계','끄면 기록을 누른 때만 시간을 셉니다',0)}${nf('미입력 시 시간 차감','입력이 없으면 제외 (분)',30)}${sw('기록 버튼에 타이머 표시','끄면 「기록중」만 표시',0)}</div><div><p class="sec-h">목표·알림</p>${nf('연속 달성 목표','하루 목표 글자 수',2000)}${sw('목표 달성 시 토리 응원','',1)}${nf('미집필 알림 기간','며칠 안 쓰면 알려줍니다 (일)',3)}${sw('「토리가 외로워요」 알림','PC · 추후 폰',1)}</div></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn">설정 저장</button></div>`;
+const phone = () => `<div class="code-box"><div class="t"><span class="lab">연동 코드</span><span class="code num">4821 · 0937</span></div><button class="btn">코드 발급</button></div>
+  <p class="hint" style="margin:0 0 6px">코드를 발급하면 앱 연동 준비 상태가 됩니다. 휴대폰 앱에서 「토리에게 보내기」하면 받은 글이 아래에 쌓입니다.</p>
+  ${sw('핸드폰에서 작성한 기록 포함','달력·통계에 휴대폰 글자수·시간도 합칩니다',1)}
+  <p class="sec-h" style="margin-top:14px">받은 글</p><div class="inbox"><div class="it"><b>골목에서 들은 이야기</b><span class="lab">10/18 · 420자</span></div><div class="it"><b>메모: 서고의 열쇠</b><span class="lab">10/16 · 96자</span></div></div>`;
+const VIEW = { cal, sum, set, phone };
+let tab = 'cal';
+function render() {
+  document.getElementById('root').innerHTML = `<div class="modal"><div class="side"><h2>집필 기록</h2>${TABS.map(([k,l,ic])=>`<button data-t="${k}" class="${k===tab?'on':''}">${ic}${l}</button>`).join('')}</div>
+   <div class="main"><div class="main-head"><h3>${TITLE[tab]}</h3><button class="x" aria-label="닫기">${I.x}</button></div><div class="body">${VIEW[tab]()}</div></div></div>`;
+  document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { tab = b.dataset.t; render(); });
+  document.querySelectorAll('[data-p] button').forEach(b => b.onclick = () => { period = b.dataset.k; render(); });
+  document.querySelectorAll('[data-m] button').forEach(b => b.onclick = () => { mode = b.dataset.k; render(); });
+  document.querySelectorAll('.sw').forEach(s => s.onclick = () => s.classList.toggle('on'));
+}
+const q = new URLSearchParams(location.search); if (q.get('t')) tab = q.get('t'); if (q.get('m')) mode = q.get('m'); if (q.get('p')) period = q.get('p');
+render();
+</script>
+</body>
+</html>

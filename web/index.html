@@ -261,7 +261,7 @@
 
     <link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
     <link rel="stylesheet" href="/styles.css?v=1.4.262">
-    <link rel="stylesheet" href="/island.css?v=49">
+    <link rel="stylesheet" href="/island.css?v=53">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -5262,30 +5262,62 @@
     <div id="writingLogModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="writingLogModalTitle">
       <div class="modal-backdrop" data-close-writing-log></div>
       <div class="modal-card writing-log-modal-card">
-        <div class="modal-heading">
+        <aside class="wl-side">
           <h2 id="writingLogModalTitle" data-i18n="island.집필_기록">집필 기록</h2>
-          <button type="button" class="modal-close" data-close-writing-log title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
-        </div>
-        <div class="writing-log-tabs" role="tablist" aria-label="기록 메뉴" data-i18n-aria-label="index.기록_메뉴">
-          <button type="button" class="writing-log-tab is-active" data-writing-tab="calendar" role="tab" aria-selected="true" data-i18n="index.달력">달력</button>
-          <button type="button" class="writing-log-tab" data-writing-tab="stats" role="tab" aria-selected="false" data-i18n="index.집계">집계</button>
-          <button type="button" class="writing-log-tab" data-writing-tab="settings" role="tab" aria-selected="false" data-i18n="app.설정">설정</button>
-          <button type="button" class="writing-log-tab" data-writing-tab="phone" role="tab" aria-selected="false" data-i18n="app.폰_연동">폰 연동</button>
-        </div>
+          <div class="writing-log-tabs" role="tablist" aria-label="기록 메뉴" data-i18n-aria-label="index.기록_메뉴">
+            <button type="button" class="writing-log-tab is-active" data-writing-tab="calendar" role="tab" aria-selected="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg><span data-i18n="index.달력">달력</span></button>
+            <button type="button" class="writing-log-tab" data-writing-tab="stats" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg><span data-i18n="index.집계">집계</span></button>
+            <button type="button" class="writing-log-tab" data-writing-tab="settings" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg><span data-i18n="app.설정">설정</span></button>
+            <button type="button" class="writing-log-tab" data-writing-tab="phone" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg><span data-i18n="app.폰_연동">폰 연동</span></button>
+          </div>
+        </aside>
+        <div class="wl-main">
+          <div class="wl-main-head">
+            <h3 id="wlTabTitle"></h3>
+            <button type="button" class="modal-close" data-close-writing-log title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+          </div>
+          <div class="wl-body">
 
         <div class="writing-log-pane" data-writing-pane="calendar">
-          <div class="writing-log-calendar-layout">
-            <div class="writing-log-calendar-side">
+          <div class="wl-cal-layout">
+            <div class="wl-cal-left">
               <div class="writing-cal-nav">
-                <button type="button" class="secondary compact-btn" id="writingCalPrev" title="이전 달" data-i18n-title="index.이전_달" aria-label="이전 달"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+                <button type="button" class="secondary compact-btn" id="writingCalPrev" title="이전 달" data-i18n-title="index.이전_달" aria-label="이전 달"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"/></svg></button>
                 <strong id="writingCalTitle">2026.8</strong>
-                <button type="button" class="secondary compact-btn" id="writingCalNext" title="다음 달" data-i18n-title="index.다음_달" aria-label="다음 달"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+                <button type="button" class="secondary compact-btn" id="writingCalNext" title="다음 달" data-i18n-title="index.다음_달" aria-label="다음 달"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 18 6-6-6-6"/></svg></button>
+                <span class="wl-legend" aria-hidden="true"><span data-i18n="island.wl_적음">적음</span><i></i><i></i><i></i><i></i><span data-i18n="island.wl_많음">많음</span></span>
               </div>
               <div class="writing-cal-weekdays" aria-hidden="true">
                 <span data-i18n="index.일">일</span><span data-i18n="app.월">월</span><span data-i18n="index.화">화</span><span data-i18n="index.수">수</span><span data-i18n="index.목">목</span><span data-i18n="index.금">금</span><span data-i18n="index.토">토</span>
               </div>
               <div id="writingCalGrid" class="writing-cal-grid" role="grid" aria-label="글쓰기 달력" data-i18n-aria-label="index.글쓰기_달력"></div>
-              <p class="hint writing-cal-legend" data-i18n="index.색이_진할수록_그날_더_많이_썼어요_순수_집">색이 진할수록 그날 더 많이 썼어요. 순수 집필 시간만 집계됩니다.</p>
+              <div class="wl-daycard">
+                <div class="wl-dc-h"><h3 id="writingDayTitle" class="writing-day-title" data-i18n="index.날짜를_선택하세요">날짜를 선택하세요</h3><span data-i18n="island.wl_선택한_날">선택한 날</span></div>
+                <div id="writingFirstMetBanner" class="writing-first-met-banner hidden" role="status">
+                <span class="writing-acorn-mascot" aria-hidden="true">
+                  <img src="/assets/tori-mascot.png" width="40" height="40" alt="">
+                </span>
+                <div class="writing-first-met-text">
+                  <strong data-i18n="app.토리와_처음_만난_날">토리와 처음 만난 날</strong>
+                  <span data-i18n="index.SuperTORY를_설치하고_글쓰기_친구_토">SuperTORY를 설치하고 글쓰기 친구 토리를 처음 만난 날이에요.</span>
+                </div>
+              </div>
+              
+                <dl class="writing-day-stats">
+                <div><dt data-i18n="index.쓴_글자">쓴 글자</dt><dd id="writingDayChars">—</dd></div>
+                <div><dt data-i18n="index.시작_시각">시작 시각</dt><dd id="writingDayStart">—</dd></div>
+                <div><dt data-i18n="app.집필_시간">집필 시간</dt><dd id="writingDayActive">—</dd></div>
+                <div><dt data-i18n="index.세션_수">세션 수</dt><dd id="writingDaySessions">—</dd></div>
+              </dl>
+                <p id="writingDayHint" class="hint" data-i18n="index.SuperTORY를_켜_두어도_입력이_없으면">SuperTORY를 켜 두어도 입력이 없으면 시간이 차감됩니다.</p>
+              </div>
+            </div>
+            <div class="wl-cal-right">
+              <div class="wlog-summary" id="writingSummary">
+                <div class="wlog-card"><span data-i18n="island.ws_month">이번 달</span><strong id="wsMonth">—</strong><small id="wsMonthSub"></small></div>
+                <div class="wlog-card"><span data-i18n="island.ws_streak">연속 집필</span><strong id="wsStreak">—</strong><small id="wsStreakSub"></small></div>
+                <div class="wlog-card"><span data-i18n="island.ws_today">오늘</span><strong id="wsToday">—</strong><small id="wsTodaySub"></small></div>
+              </div>
               <div class="writing-log-purge-bar" id="writingLogPurgeBar" aria-label="기록 지우기" data-i18n-aria-label="index.기록_지우기">
                 <button
                   type="button"
@@ -5301,94 +5333,55 @@
                   aria-pressed="false"
                  data-i18n="app.기록_선택_삭제">기록 선택 삭제</button>
               </div>
+              
               <div class="writing-log-purge-actions hidden" id="writingLogPurgeActions" aria-live="polite">
                 <span id="writingLogPurgeCount" class="hint writing-log-purge-count" data-i18n="app.달력에서_지울_날짜를_고르세요">달력에서 지울 날짜를 고르세요</span>
                 <button type="button" class="secondary compact-btn" id="writingLogPurgeCancel" data-i18n="index.선택_취소">선택 취소</button>
                 <button type="button" class="primary compact-btn" id="writingLogPurgeConfirm" disabled data-i18n="index.선택한_기록_삭제">선택한 기록 삭제</button>
               </div>
             </div>
-            <div class="writing-log-detail-side">
-              <div class="wlog-summary" id="writingSummary">
-                <div class="wlog-card"><span data-i18n="island.ws_month">이번 달</span><strong id="wsMonth">—</strong><small id="wsMonthSub"></small></div>
-                <div class="wlog-card"><span data-i18n="island.ws_streak">연속 집필</span><strong id="wsStreak">—</strong><small id="wsStreakSub"></small></div>
-                <div class="wlog-card"><span data-i18n="island.ws_today">오늘</span><strong id="wsToday">—</strong><small id="wsTodaySub"></small></div>
-              </div>
-              <h3 id="writingDayTitle" class="writing-day-title" data-i18n="index.날짜를_선택하세요">날짜를 선택하세요</h3>
-              <div id="writingFirstMetBanner" class="writing-first-met-banner hidden" role="status">
-                <span class="writing-acorn-mascot" aria-hidden="true">
-                  <img src="/assets/tori-mascot.png" width="40" height="40" alt="">
-                </span>
-                <div class="writing-first-met-text">
-                  <strong data-i18n="app.토리와_처음_만난_날">토리와 처음 만난 날</strong>
-                  <span data-i18n="index.SuperTORY를_설치하고_글쓰기_친구_토">SuperTORY를 설치하고 글쓰기 친구 토리를 처음 만난 날이에요.</span>
-                </div>
-              </div>
-              <dl class="writing-day-stats">
-                <div><dt data-i18n="index.쓴_글자">쓴 글자</dt><dd id="writingDayChars">—</dd></div>
-                <div><dt data-i18n="index.시작_시각">시작 시각</dt><dd id="writingDayStart">—</dd></div>
-                <div><dt data-i18n="app.집필_시간">집필 시간</dt><dd id="writingDayActive">—</dd></div>
-                <div><dt data-i18n="index.세션_수">세션 수</dt><dd id="writingDaySessions">—</dd></div>
-              </dl>
-              <p id="writingDayHint" class="hint" data-i18n="index.SuperTORY를_켜_두어도_입력이_없으면">SuperTORY를 켜 두어도 입력이 없으면 시간이 차감됩니다.</p>
-            </div>
           </div>
         </div>
 
         <div class="writing-log-pane hidden" data-writing-pane="stats">
-          <p class="hint" data-i18n="index.일간_주간_월별_글자_수와_집필_시간을_한눈">일간 · 주간 · 월별 글자 수와 집필 시간을 한눈에 봅니다. (순수 집필 시간 · 순증가 글자)</p>
-          <div class="writing-stats-highlights" id="writingStatsHighlights" aria-label="현재 집계 요약" data-i18n-aria-label="index.현재_집계_요약"></div>
-          <section class="writing-stats-section" aria-labelledby="writingStatsDailyTitle">
+          <div class="wl-sum-top">
+            <div class="wl-seg" id="wlPeriodSeg" role="tablist"><button type="button" class="is-on" data-period="daily" data-i18n="island.wl_일간">일간</button><button type="button" data-period="weekly" data-i18n="island.wl_주간">주간</button><button type="button" data-period="monthly" data-i18n="island.wl_월별">월별</button></div>
+            <div class="wl-seg" id="wlModeSeg"><button type="button" class="is-on" data-mode="table"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/></svg><span data-i18n="island.wl_표">표</span></button><button type="button" data-mode="bars"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 20V12M12 20V5M19 20v-9"/></svg><span data-i18n="island.wl_막대">막대</span></button></div>
+          </div>
+          <div class="writing-stats-highlights" id="writingStatsHighlights" aria-label="현재 집계 요약" data-i18n-aria-label="index.현재_집계_요약" hidden></div>
+          <section class="writing-stats-section" data-period="daily" aria-labelledby="writingStatsDailyTitle">
             <h3 id="writingStatsDailyTitle" class="writing-stats-heading" data-i18n="index.일간_집계">일간 집계</h3>
             <div id="writingStatsDaily" class="writing-stats-table-wrap"></div>
           </section>
-          <section class="writing-stats-section" aria-labelledby="writingStatsWeeklyTitle">
+          <section class="writing-stats-section hidden" data-period="weekly" aria-labelledby="writingStatsWeeklyTitle">
             <h3 id="writingStatsWeeklyTitle" class="writing-stats-heading" data-i18n="index.주간_집계">주간 집계</h3>
             <div id="writingStatsWeekly" class="writing-stats-table-wrap"></div>
           </section>
-          <section class="writing-stats-section" aria-labelledby="writingStatsMonthlyTitle">
+          <section class="writing-stats-section hidden" data-period="monthly" aria-labelledby="writingStatsMonthlyTitle">
             <h3 id="writingStatsMonthlyTitle" class="writing-stats-heading" data-i18n="index.월별_집계">월별 집계</h3>
             <div id="writingStatsMonthly" class="writing-stats-table-wrap"></div>
           </section>
+          <div id="writingStatsChart" class="wl-chart hidden"></div>
+          <p class="hint wl-sum-note" data-i18n="island.wl_집계_안내">순수 집필 시간 · 순증가 글자 기준</p>
         </div>
 
         <div class="writing-log-pane hidden" data-writing-pane="settings">
-          <p class="hint" data-i18n="index.글자수_집필_시간_집계_방식_목표_알림_미입">글자수·집필 시간 집계 방식, 목표 알림, 미입력 시간 차감을 조절합니다.</p>
-          <fieldset class="writing-pref-fieldset">
-            <legend data-i18n="index.집계_방식">집계 방식</legend>
-            <label class="writing-pref-check">
-              <input type="checkbox" id="writingCharsAuto" checked>
-              <span data-i18n="app.글자수_자동집계">글자수 자동집계</span>
-            </label>
-            <p class="hint" data-i18n="index.체크_시_기록_버튼을_누르지_않아도_장면_본">체크 시 기록 버튼을 누르지 않아도 장면 본문 순증가 글자를 집계합니다. 해제하면 글자수 수동집계 — <strong data-i18n="app.기록">기록</strong>을 눌러야 글자수 집계가 시작됩니다.</p>
-            <label class="writing-pref-check">
-              <input type="checkbox" id="writingTimeAuto">
-              <span data-i18n="app.글쓴_시간_자동집계">글쓴 시간 자동집계</span>
-            </label>
-            <p class="hint" data-i18n="index.기본은_해제_수동">기본은 해제(수동): <strong data-i18n="app.기록">기록</strong>을 눌렀을 때만 집필 시간을 셉니다. 체크하면 기록 없이 입력 중일 때도 시간이 쌓입니다.</p>
-          </fieldset>
-          <label class="writing-pref-field"><span data-i18n="app.연속_달성_목표_글자_수">연속 달성 목표 글자 수</span>
-            <input type="number" id="writingGoalChars" min="100" max="1000000" step="100" value="2000">
-          </label>
-          <label class="writing-pref-check">
-            <input type="checkbox" id="writingGoalNotify" checked>
-            <span data-i18n="app.목표_달성_시_토리_응원_알림">목표 달성 시 토리 응원 알림</span>
-          </label>
-          <label class="writing-pref-field"><span data-i18n="app.미집필_알림_기간_일">미집필 알림 기간 (일)</span>
-            <input type="number" id="writingLonelyDays" min="1" max="365" step="1" value="3">
-          </label>
-          <label class="writing-pref-check">
-            <input type="checkbox" id="writingLonelyNotify" checked>
-            <span data-i18n="app.오랫동안_안_쓰면_토리가_외로워요_알림_PC_추후_폰">오랫동안 안 쓰면 「토리가 외로워요」 알림 (PC · 추후 폰)</span>
-          </label>
-          <label class="writing-pref-field"><span data-i18n="app.미입력_시_시간_차감_기준_분">미입력 시 시간 차감 기준 (분)</span>
-            <input type="number" id="writingIdleMinutes" min="5" max="240" step="1" value="30">
-          </label>
-          <p class="hint" data-i18n="index.기본_30분_직접_바꿀_수_있습니다_이_시간">기본 30분 — 직접 바꿀 수 있습니다. 이 시간 동안 키 입력이 없으면 집필 시간에서 제외합니다.</p>
-          <label class="writing-pref-check">
-            <input type="checkbox" id="writingShowTimer">
-            <span data-i18n="app.기록_버튼에_타이머_표시">기록 버튼에 타이머 표시</span>
-          </label>
-          <p class="hint" data-i18n="index.끄면_기록_중일_때_버튼에_기록중_만_표시됩">끄면 기록 중일 때 버튼에 「기록중」만 표시됩니다.</p>
+          <div class="wl-cols">
+            <div>
+              <p class="wl-sec" data-i18n="island.wl_섹션_집계">집계</p>
+              <label class="wl-row"><span class="wl-t"><span data-i18n="app.글자수_자동집계">글자수 자동집계</span><small data-i18n="island.wl_d_글자수">기록 버튼 없이 본문 순증가 글자를 셉니다</small></span><input type="checkbox" class="wl-switch" id="writingCharsAuto" checked></label>
+              <label class="wl-row"><span class="wl-t"><span data-i18n="app.글쓴_시간_자동집계">글쓴 시간 자동집계</span><small data-i18n="island.wl_d_시간">끄면 기록을 누른 때만 시간을 셉니다</small></span><input type="checkbox" class="wl-switch" id="writingTimeAuto"></label>
+              <label class="wl-row"><span class="wl-t"><span data-i18n="app.미입력_시_시간_차감_기준_분">미입력 시 시간 차감 기준 (분)</span><small data-i18n="island.wl_d_차감">이 시간 동안 입력이 없으면 시간에서 뺍니다</small></span><input type="number" class="wl-field" id="writingIdleMinutes" min="5" max="240" step="1" value="30"></label>
+              <label class="wl-row"><span class="wl-t"><span data-i18n="app.기록_버튼에_타이머_표시">기록 버튼에 타이머 표시</span><small data-i18n="island.wl_d_타이머">끄면 「기록중」만 표시됩니다</small></span><input type="checkbox" class="wl-switch" id="writingShowTimer"></label>
+            </div>
+            <div>
+              <p class="wl-sec" data-i18n="island.wl_섹션_목표">목표·알림</p>
+              <label class="wl-row"><span class="wl-t"><span data-i18n="app.연속_달성_목표_글자_수">연속 달성 목표 글자 수</span><small data-i18n="island.wl_d_목표">하루 목표 글자 수</small></span><input type="number" class="wl-field" id="writingGoalChars" min="100" max="1000000" step="100" value="2000"></label>
+              <label class="wl-row"><span class="wl-t"><span data-i18n="app.목표_달성_시_토리_응원_알림">목표 달성 시 토리 응원 알림</span></span><input type="checkbox" class="wl-switch" id="writingGoalNotify" checked></label>
+              <label class="wl-row"><span class="wl-t"><span data-i18n="app.미집필_알림_기간_일">미집필 알림 기간 (일)</span><small data-i18n="island.wl_d_미집필">며칠 안 쓰면 알려줄까요</small></span><input type="number" class="wl-field" id="writingLonelyDays" min="1" max="365" step="1" value="3"></label>
+              <label class="wl-row"><span class="wl-t"><span data-i18n="app.오랫동안_안_쓰면_토리가_외로워요_알림_PC_추후_폰">오랫동안 안 쓰면 「토리가 외로워요」 알림 (PC · 추후 폰)</span></span><input type="checkbox" class="wl-switch" id="writingLonelyNotify" checked></label>
+            </div>
+          </div>
           <fieldset class="writing-pref-fieldset writing-timer-style-fieldset">
             <legend data-i18n="app.기록_위젯_디자인">기록 위젯 디자인</legend>
             <p class="hint" data-i18n="app.기록_위젯_디자인_설명">타이머에서 모래시계·알람시계·숫자 표시를 고릅니다. 도구 아이콘 기록과 연동됩니다.</p>
@@ -5413,25 +5406,17 @@
         </div>
 
         <div class="writing-log-pane hidden" data-writing-pane="phone">
-          <p class="hint" data-i18n="app.나중에_휴대폰_전용_앱에서_토리에게_보내기">
-            나중에 휴대폰 전용 앱에서 「토리에게 보내기」하면 여기에 쌓입니다.
-            PC에서 SuperTORY를 열면 받은 글을 확인할 수 있어요.
-          </p>
-          <label class="writing-pref-check writing-phone-include-check">
-            <input type="checkbox" id="writingIncludePhoneLog" checked>
-            <span data-i18n="app.핸드폰에서_작성한_기록_포함">핸드폰에서 작성한 기록 포함</span>
-          </label>
-          <p class="hint writing-phone-include-hint" data-i18n="index.체크하면_휴대폰_앱에서_쓴_글자수_집필_시간">체크하면 휴대폰 앱에서 쓴 글자수·집필 시간도 달력·통계에 합산합니다.</p>
-          <div class="writing-pair-box">
-            <div>
-              <span class="writing-pair-label" data-i18n="index.연동_코드">연동 코드</span>
-              <strong id="writingPairCode" class="writing-pair-code">————</strong>
-            </div>
-            <button type="button" class="secondary compact-btn" id="writingPairRefresh" data-i18n="index.코드_발급">코드 발급</button>
+          <div class="wl-code-box">
+            <div><span class="writing-pair-label" data-i18n="index.연동_코드">연동 코드</span><strong id="writingPairCode" class="writing-pair-code">————</strong></div>
+            <button type="button" class="primary compact-btn" id="writingPairRefresh" data-i18n="index.코드_발급">코드 발급</button>
           </div>
           <p id="writingPairHint" class="hint" data-i18n="index.코드를_발급하면_앱_연동_준비_상태가_됩니다">코드를 발급하면 앱 연동 준비 상태가 됩니다.</p>
+          <label class="wl-row writing-phone-include-check"><span class="wl-t"><span data-i18n="app.핸드폰에서_작성한_기록_포함">핸드폰에서 작성한 기록 포함</span></span><input type="checkbox" class="wl-switch" id="writingIncludePhoneLog" checked></label>
           <h3 class="writing-inbox-title" data-i18n="app.받은_글_섹션제목">받은 글</h3>
           <div id="writingInboxList" class="writing-inbox-list" aria-label="폰에서 보낸 글" data-i18n-aria-label="index.폰에서_보낸_글"></div>
+        </div>
+
+          </div>
         </div>
       </div>
     </div>

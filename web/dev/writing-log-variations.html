@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>집필 기록 화면 시안 5가지</title>
+<style>
+  :root {
+    --bg: #eceef1; --panel: #fbfbfc; --sunk: #f2f4f6; --desk: #edf0f2;
+    --ink: #1f2429; --ink2: #5c656e; --ink3: #8b939b; --line: #e0e4e8;
+    --accent: #2f7566; --accent-soft: #e3efeb; --accent-ink: #f2f7f5;
+    --l1: #e3efeb; --l2: #c4d9d1; --l3: #2f7566;
+    --pop: 0 2px 6px rgba(31,36,41,.1), 0 16px 40px rgba(31,36,41,.14);
+    --sans: "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 13px; line-height: 1.5; }
+  header.top { padding: 22px 28px 4px; }
+  header.top h1 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+  header.top p { margin: 0; color: var(--ink2); max-width: 860px; }
+  .picker { display: flex; gap: 6px; flex-wrap: wrap; padding: 14px 28px 0; }
+  .picker button { border: 0; border-radius: 99px; padding: 6px 14px; background: var(--panel); color: var(--ink2); box-shadow: 0 0 0 1px var(--line); cursor: pointer; font: inherit; }
+  .picker button.on { background: var(--accent); color: var(--accent-ink); box-shadow: none; }
+  .why { padding: 10px 28px 0; color: var(--ink2); max-width: 900px; min-height: 44px; }
+  .stage { margin: 12px 28px 40px; padding: 28px 16px; background: rgba(31,36,41,.28); border-radius: 16px; display: flex; justify-content: center; }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .num { font-variant-numeric: tabular-nums; }
+  .modal { background: var(--panel); border-radius: 18px; box-shadow: var(--pop); width: 100%; display: flex; flex-direction: column; overflow: hidden; }
+  .m-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 0; }
+  .m-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+  .x { border: 0; background: transparent; color: var(--ink3); width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; }
+  .x:hover { background: var(--sunk); }
+  .body { padding: 14px 20px 20px; }
+  .hint { color: var(--ink3); font-size: 12px; }
+  .lab { color: var(--ink3); font-size: 12px; }
+  .big { font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+  /* 공통 부품 */
+  .tabs-line { display: flex; gap: 20px; padding: 0 20px; border-bottom: 1px solid var(--line); margin-top: 8px; }
+  .tabs-line button { border: 0; background: transparent; padding: 9px 0 10px; color: var(--ink3); position: relative; }
+  .tabs-line button.on { color: var(--ink); }
+  .tabs-line button.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); border-radius: 2px; }
+  .seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--sunk); border-radius: 10px; }
+  .seg button { border: 0; background: transparent; padding: 4px 12px; border-radius: 8px; color: var(--ink2); }
+  .seg button.on { background: var(--panel); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+  .cal-nav { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; }
+  .cal-nav b { font-weight: 600; font-size: 13.5px; padding: 0 4px; }
+  .cal-nav button { border: 0; background: transparent; width: 24px; height: 24px; border-radius: 7px; color: var(--ink2); display: grid; place-items: center; }
+  .cal-nav button:hover { background: var(--sunk); }
+  .wd, .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .wd span { text-align: center; color: var(--ink3); font-size: 11.5px; padding-bottom: 2px; }
+  .cell { border: 0; border-radius: 8px; background: var(--sunk); color: var(--ink3); font-size: 12px; padding: 0; height: 34px; display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+  .cell.e { background: transparent; }
+  .cell[data-l="1"] { background: var(--l1); color: var(--ink2); }
+  .cell[data-l="2"] { background: var(--l2); color: var(--ink); }
+  .cell[data-l="3"] { background: var(--l3); color: #fff; }
+  .cell.today { box-shadow: inset 0 0 0 1.5px var(--ink); color: var(--ink); }
+  .cell.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .kv { display: flex; flex-direction: column; gap: 2px; }
+  .kv small { color: var(--ink3); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 400; color: var(--ink3); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 8px; border-bottom: 1px solid var(--line); color: var(--ink2); }
+  th.r, td.r { text-align: right; }
+  td b { font-weight: 400; color: var(--ink); }
+  .bar { height: 6px; border-radius: 4px; background: var(--sunk); overflow: hidden; min-width: 60px; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row .t { display: flex; flex-direction: column; gap: 1px; }
+  .row .t small { color: var(--ink3); font-size: 12px; }
+  .sw { width: 32px; height: 19px; border-radius: 99px; background: #d5dae0; position: relative; flex: none; border: 0; padding: 0; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .sw.on { background: var(--accent); } .sw.on::after { left: 15px; }
+  .field { width: 72px; text-align: right; border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; background: var(--panel); }
+  .btn { border: 0; border-radius: 8px; padding: 6px 12px; background: var(--accent); color: var(--accent-ink); }
+  .btn.ghost { background: var(--sunk); color: var(--ink2); }
+  .code { font-size: 26px; font-weight: 600; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
+  .inbox { display: flex; flex-direction: column; }
+  .inbox .it { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); color: var(--ink2); }
+  .inbox .it b { font-weight: 400; color: var(--ink); }
+  .sec-h { margin: 0 0 6px; font-size: 12px; font-weight: 400; color: var(--ink3); }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--panel); }
+
+  /* V1 컴팩트 한 장 */
+  .v1 { max-width: 700px; }
+  .v1 .cal-wrap { display: grid; grid-template-columns: 1fr 190px; gap: 22px; }
+  .v1 .kpis { display: flex; flex-direction: column; gap: 14px; padding-top: 28px; }
+  /* V2 사이드 탭 */
+  .v2 { max-width: 780px; flex-direction: row; min-height: 430px; }
+  .v2 .side { width: 150px; border-right: 1px solid var(--line); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; background: var(--sunk); }
+  .v2 .side h2 { margin: 0 8px 12px; font-size: 16px; font-weight: 600; }
+  .v2 .side button { text-align: left; border: 0; background: transparent; padding: 7px 10px; border-radius: 8px; color: var(--ink2); display: flex; gap: 8px; align-items: center; }
+  .v2 .side button.on { background: var(--panel); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+  .v2 .main { flex: 1; position: relative; }
+  .v2 .main .x { position: absolute; right: 12px; top: 12px; }
+  /* V3 상단 요약 띠 */
+  .v3 { max-width: 640px; }
+  .v3 .strip { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 14px; }
+  .v3 .strip > div { padding: 10px 14px; }
+  .v3 .strip > div + div { border-left: 1px solid var(--line); }
+  .v3 .cell { height: 38px; }
+  /* V4 카드 없는 문서형 */
+  .v4 { max-width: 520px; }
+  .v4 .cell { background: transparent; height: 38px; position: relative; }
+  .v4 .cell::after { content: ""; position: absolute; bottom: 5px; left: 50%; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: transparent; }
+  .v4 .cell[data-l="1"]::after { background: var(--l2); } .v4 .cell[data-l="2"]::after { background: #7fb0a1; } .v4 .cell[data-l="3"]::after { background: var(--accent); }
+  .v4 .cell[data-l] { color: var(--ink); background: transparent; }
+  .v4 .cell.today { box-shadow: none; font-weight: 700; }
+  .v4 .cell.sel { outline: 0; background: var(--sunk); }
+  .v4 .tabs-line { gap: 16px; }
+  /* V5 듀얼 패널 */
+  .v5 { max-width: 760px; }
+  .v5 .dual { display: grid; grid-template-columns: 1fr 1px 230px; gap: 0 20px; }
+  .v5 .dual .div { background: var(--line); }
+  .v5 .mini { display: flex; flex-direction: column; gap: 0; }
+  .v5 .mini .kv { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .v5 .mini .kv:last-child { border-bottom: 0; }
+  .v5 .spark { display: flex; align-items: flex-end; gap: 3px; height: 40px; margin-top: 6px; }
+  .v5 .spark i { flex: 1; background: var(--l2); border-radius: 2px; }
+  .v5 .spark i.t { background: var(--accent); }
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>집필 기록 — 달력 · 집계 · 설정 · 폰 연동 시안 5가지</h1>
+  <p>지금 화면의 문제: 칸이 크고 비어 있는 곳이 많고, 글자 크기·굵기가 구역마다 다릅니다. 5가지 시안은 모두 <b>글자 3단계(12 / 13 / 22)만</b>, 굵기는 보통(제목 1단계만 600), 카드·선은 한 가지 규칙으로 통일했고 4개 탭(달력·집계·설정·폰 연동)을 전부 보여줍니다. 위 버튼으로 시안을, 안의 탭으로 화면을 바꿔 보세요.</p>
+</header>
+<div class="picker" id="picker"></div>
+<div class="why" id="why"></div>
+<div class="stage"><div id="root" style="width:100%;display:flex;justify-content:center"></div></div>
+
+<script>
+const I = {
+  prev: '<svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>', next: '<svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  cal: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg>',
+  sum: '<svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>',
+  set: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>',
+  phone: '<svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>',
+};
+const TABS = [['cal','달력',I.cal],['sum','집계',I.sum],['set','설정',I.set],['phone','폰 연동',I.phone]];
+const lv = {2:1,3:3,5:3,6:2,7:1,10:2,12:3,13:2,14:3};
+function grid(sel = 14) {
+  let h = '<div class="wd"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div><div class="grid">';
+  for (let i = 0; i < 4; i++) h += '<span class="cell e"></span>';
+  for (let d = 1; d <= 31; d++) h += `<button class="cell ${d===19?'today':''} ${d===sel?'sel':''}" ${lv[d]?`data-l="${lv[d]}"`:''}>${d}</button>`;
+  return h + '</div>';
+}
+const nav = '<div class="cal-nav"><button>' + I.prev + '</button><b>2026년 10월</b><button>' + I.next + '</button></div>';
+const kv = (l, v, s) => `<div class="kv"><span class="lab">${l}</span><span class="big num">${v}</span><small>${s}</small></div>`;
+const KPI = kv('이번 달','20,004자','하루 평균 2,223자') + kv('연속 집필','4일','최장 17일') + kv('오늘','1,904자','1시간 12분 · 3회');
+const day = '<div class="card" style="margin-top:12px"><div class="row" style="padding:0 0 8px"><b style="font-weight:600">10월 14일</b><span class="lab">선택한 날</span></div><div class="cols2"><div class="kv"><span class="lab">쓴 글자</span><span class="num">1,904자</span></div><div class="kv"><span class="lab">집필 시간</span><span class="num">1시간 12분</span></div><div class="kv" style="margin-top:8px"><span class="lab">시작 시각</span><span class="num">오후 2:10</span></div><div class="kv" style="margin-top:8px"><span class="lab">세션</span><span class="num">3회</span></div></div></div>';
+const purge = '<div style="display:flex;gap:6px;margin-top:10px"><button class="btn ghost">기록 선택 삭제</button><button class="btn ghost">기록 전체 삭제</button></div>';
+
+const DAILY = [['10/14',1904,'1시간 12분',3,90],['10/13',2000,'1시간 20분',2,95],['10/12',3500,'2시간 05분',4,100],['10/10',2600,'1시간 40분',2,80],['10/7',800,'35분',1,40],['10/6',2300,'1시간 30분',2,85],['10/5',3500,'2시간 10분',3,100]];
+const WEEKLY = [['10/12 주',9404,'5시간 17분',4],['10/5 주',9900,'6시간 05분',5],['9/28 주',7200,'4시간 30분',4],['9/21 주',6100,'3시간 50분',3]];
+const MONTHLY = [['2026.10',20004,'14일',2223],['2026.9',31200,'22일',1418],['2026.8',18400,'12일',1533],['2026.7',24800,'19일',1305]];
+const tbl = (head, rows, rt) => `<table><thead><tr>${head.map((h,i)=>`<th class="${i?'r':''}">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map((c,i)=>`<td class="${i?'r num':''}">${i===0?'<b>'+c+'</b>':(typeof c==='number'&&c>999?c.toLocaleString():c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+const stats = {
+  daily: tbl(['날짜','글자','집필 시간','세션'], DAILY.map(r=>r.slice(0,4))),
+  weekly: tbl(['주','글자','집필 시간','집필일'], WEEKLY),
+  monthly: tbl(['월','글자','집필일','일평균'], MONTHLY),
+};
+const segStats = (cur='daily') => `<div class="seg" data-seg>${[['daily','일간'],['weekly','주간'],['monthly','월별']].map(([k,l])=>`<button class="${k===cur?'on':''}" data-k="${k}">${l}</button>`).join('')}</div>`;
+const switchRow = (t, s, on) => `<div class="row"><div class="t"><span>${t}</span><small>${s}</small></div><button class="sw ${on?'on':''}"></button></div>`;
+const numRow = (t, s, v) => `<div class="row"><div class="t"><span>${t}</span><small>${s}</small></div><input class="field num" value="${v}"></div>`;
+const settingsAll = `<div class="cols2"><div><p class="sec-h">집계</p>${switchRow('글자수 자동집계','기록 버튼 없이 본문 순증가 글자를 셉니다',1)}${switchRow('글쓴 시간 자동집계','끄면 기록을 누른 때만 시간을 셉니다',0)}${numRow('미입력 시 시간 차감','이 시간 동안 입력이 없으면 제외 (분)',30)}${switchRow('기록 버튼에 타이머 표시','끄면 「기록중」만 표시',0)}</div><div><p class="sec-h">목표·알림</p>${numRow('연속 달성 목표','하루 목표 글자 수',2000)}${switchRow('목표 달성 시 토리 응원','',1)}${numRow('미집필 알림 기간','며칠 안 쓰면 알려줍니다 (일)',3)}${switchRow('「토리가 외로워요」 알림','PC · 추후 폰',1)}</div></div><div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn">설정 저장</button></div>`;
+const settingsOne = settingsAll.replace('class="cols2"','style="display:block"');
+const phoneBody = `<div class="row" style="border:0;padding-top:0"><div class="t"><span class="lab">연동 코드</span><span class="code">4821 · 0937</span></div><button class="btn">코드 발급</button></div><p class="hint" style="margin:0 0 12px">코드를 발급하면 앱 연동 준비 상태가 됩니다. 휴대폰 앱에서 「토리에게 보내기」하면 받은 글이 아래에 쌓입니다.</p>${switchRow('핸드폰에서 작성한 기록 포함','달력·통계에 휴대폰 글자수·시간도 합칩니다',1)}<p class="sec-h" style="margin-top:12px">받은 글</p><div class="inbox"><div class="it"><b>골목에서 들은 이야기</b><span class="lab">10/18 · 420자</span></div><div class="it"><b>메모: 서고의 열쇠</b><span class="lab">10/16 · 96자</span></div></div>`;
+
+const screens = {
+  v1: {
+    cal: () => `<div class="cal-wrap"><div>${nav}${grid()}${purge}</div><div class="kpis">${KPI}</div></div>${day}`,
+    sum: () => `<div class="row" style="border:0;padding-top:0">${segStats()}<span class="hint">순수 집필 시간 · 순증가 글자</span></div><div id="statbody">${stats.daily}</div>`,
+    set: () => settingsOne, phone: () => phoneBody,
+  },
+  v2: {
+    cal: () => `<div class="cols2" style="grid-template-columns:1.25fr 1fr;gap:24px"><div>${nav}${grid()}</div><div style="display:flex;flex-direction:column;gap:14px;padding-top:30px">${KPI}</div></div>${day}`,
+    sum: () => `<div class="row" style="border:0;padding-top:0">${segStats()}</div><div id="statbody">${stats.daily}</div>`,
+    set: () => settingsAll, phone: () => phoneBody,
+  },
+  v3: {
+    cal: () => `<div class="strip">${KPI.split('</div><div').map((x,i,a)=>x+(i<a.length-1?'</div>':'')).map((x,i)=>i?'<div'+x:x).join('')}</div>${nav}${grid()}${day}`,
+    sum: () => `<div class="strip">${kv('이번 주','9,404자','5시간 17분')}${kv('이번 달','20,004자','14일 집필')}${kv('올해','94,400자','86일 집필')}</div><div class="row" style="border:0;padding-top:0">${segStats()}</div><div id="statbody">${stats.daily}</div>`,
+    set: () => settingsOne, phone: () => phoneBody,
+  },
+  v4: {
+    cal: () => `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px"><span class="big num">20,004자</span><span class="lab">이번 달 · 하루 평균 2,223자 · 연속 4일 · 오늘 1,904자</span></div>${nav}${grid()}<p class="hint" style="margin:10px 0 0">점이 진할수록 그날 더 많이 썼어요 · 14일 1,904자 · 1시간 12분 · 3회</p>`,
+    sum: () => `<p class="hint" style="margin:0 0 6px">일간 · 주간 · 월별을 한 줄씩 모았어요.</p><p class="sec-h">일간</p>${stats.daily}<p class="sec-h" style="margin-top:14px">월별</p>${stats.monthly}`,
+    set: () => settingsOne, phone: () => phoneBody,
+  },
+  v5: {
+    cal: () => `<div class="dual"><div>${nav}${grid()}</div><span class="div"></span><div class="mini">${KPI}<div class="kv" style="padding:10px 0"><span class="lab">최근 14일</span><div class="spark">${[0,0,40,70,10,90,60,0,50,100,70,0,55,45].map((h,i,a)=>`<i class="${i===a.length-1?'t':''}" style="height:${Math.max(6,h)}%"></i>`).join('')}</div></div></div></div>`,
+    sum: () => `<div class="cols2"><div><p class="sec-h">주간</p>${stats.weekly}</div><div><p class="sec-h">월별</p>${stats.monthly}</div></div><p class="sec-h" style="margin-top:14px">일간</p>${stats.daily}`,
+    set: () => settingsAll, phone: () => phoneBody,
+  },
+};
+const META = {
+  v1: ['① 컴팩트 한 장 (밑줄 탭)', '가장 단순합니다. 위쪽 밑줄 탭, 달력 옆에 요약 3줄, 선택한 날은 아래 카드 하나. 집계는 일간·주간·월별 표 3개를 세그먼트 하나로 합쳤고, 설정은 "이름 + 설명 · 오른쪽 조절"의 한 줄 목록입니다.'],
+  v2: ['② 왼쪽 세로 메뉴', '4개 화면을 왼쪽 메뉴로 빼서 위쪽 공간을 없앴습니다. 설정은 두 칸 배치라 스크롤 없이 한 화면에 다 보입니다. 앱 안의 좌측 패널 느낌과 가장 비슷합니다.'],
+  v3: ['③ 위쪽 요약 띠', '모든 화면 맨 위에 숫자 요약 3칸을 고정했습니다(달력: 이번 달·연속·오늘 / 집계: 이번 주·이번 달·올해). 값을 먼저 보고 아래에서 자세히 보는 구조입니다.'],
+  v4: ['④ 카드 없는 문서형', '카드·테두리를 거의 없애고 글자와 선 하나만 씁니다. 달력은 색 칸 대신 점 하나의 농도로 표시해 가장 조용합니다. 폭이 520px로 가장 좁습니다.'],
+  v5: ['⑤ 듀얼 패널 + 막대 그래프', '달력과 요약을 가운데 선으로 나눈 한 면에 두고, 오른쪽에 최근 14일 막대를 더했습니다. 집계는 주간·월별을 나란히, 일간을 아래에 둡니다. 정보량이 가장 많습니다.'],
+};
+let cur = 'v1', tab = 'cal';
+function render() {
+  const sc = screens[cur];
+  const tabsTop = `<div class="tabs-line">${TABS.map(([k,l])=>`<button data-t="${k}" class="${k===tab?'on':''}">${l}</button>`).join('')}</div>`;
+  let html;
+  if (cur === 'v2') {
+    html = `<div class="modal v2"><div class="side"><h2>집필 기록</h2>${TABS.map(([k,l,ic])=>`<button data-t="${k}" class="${k===tab?'on':''}">${ic}${l}</button>`).join('')}</div><div class="main"><button class="x">${I.x}</button><div class="body" style="padding-top:20px">${sc[tab]()}</div></div></div>`;
+  } else {
+    html = `<div class="modal ${cur}"><div class="m-head"><h2>집필 기록</h2><button class="x">${I.x}</button></div>${tabsTop}<div class="body">${sc[tab]()}</div></div>`;
+  }
+  document.getElementById('root').innerHTML = html;
+  document.getElementById('why').textContent = META[cur][1];
+  document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { tab = b.dataset.t; render(); });
+  document.querySelectorAll('[data-seg] button').forEach(b => b.onclick = () => { document.getElementById('statbody').innerHTML = stats[b.dataset.k]; b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); });
+  document.querySelectorAll('.sw').forEach(s => s.onclick = () => s.classList.toggle('on'));
+}
+document.getElementById('picker').innerHTML = Object.keys(META).map(k => `<button data-v="${k}" class="${k===cur?'on':''}">${META[k][0]}</button>`).join('');
+document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { cur = b.dataset.v; document.querySelectorAll('[data-v]').forEach(x => x.classList.toggle('on', x === b)); render(); });
+const q = new URLSearchParams(location.search); if (q.get('v')) { cur = q.get('v'); document.querySelectorAll('[data-v]').forEach(x => x.classList.toggle('on', x.dataset.v === cur)); } if (q.get('t')) tab = q.get('t');
+render();
+</script>
+</body>
+</html>

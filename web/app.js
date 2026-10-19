@@ -33114,6 +33114,7 @@ function setupAiCheckHub() {
     if ($("aiCheckView")?.hidden) return;
     refreshIslCheckList();
   }, 4000);
+  setupWritingStatsUi();
   setupStatusStepper();
   setupPartCard();
   setupFormatMorePopover();
@@ -37668,6 +37669,8 @@ function setWritingLogTab(tab) {
   document.querySelectorAll(".writing-log-pane").forEach((pane) => {
     pane.classList.toggle("hidden", pane.dataset.writingPane !== tab);
   });
+  const activeTabBtn = document.querySelector(`.writing-log-tab[data-writing-tab="${tab}"] span`);
+  if ($("wlTabTitle") && activeTabBtn) $("wlTabTitle").textContent = activeTabBtn.textContent;
   if (tab === "phone") refreshWritingPhonePane().catch(handleError);
   if (tab === "settings") syncWritingPrefsForm();
   if (tab === "stats") refreshWritingStatsPane().catch(handleError);
@@ -37871,6 +37874,59 @@ async function refreshWritingStatsPane() {
     { label: i18n.t('app.글자_수'), render: (r) => `${i18n.t('app.r_chars_0_toLocaleStrin', {'(r.chars || 0).toLocaleString("ko-KR")': (r.chars || 0).toLocaleString("ko-KR")})}` },
     { label: i18n.t('app.집필_시간'), render: (r) => escapeHtml(formatActiveDuration(r.seconds || 0)) },
   ]);
+  writingStatsViews = { daily: dailyView, weekly: weeklyView, monthly: monthlyView };
+  applyWritingStatsUi();
+}
+
+/** 집계 화면: 기간(일간·주간·월별) × 보기(표·막대) */
+let writingStatsViews = { daily: [], weekly: [], monthly: [] };
+const writingStatsUi = { period: "daily", mode: "table" };
+function writingStatsBarLabel(period, row) {
+  if (period === "monthly") return i18n.t("island.wl_월_표기", { n: Number(String(row.key).slice(5, 7)) });
+  const key = period === "weekly" ? row.key : row.day;
+  const m = String(key || "").match(/^\d{4}-(\d{2})-(\d{2})$/);
+  return m ? `${Number(m[1])}/${Number(m[2])}` : String(key || "");
+}
+function renderWritingStatsChart() {
+  const host = $("writingStatsChart");
+  if (!host) return;
+  const rows = (writingStatsViews[writingStatsUi.period] || []).slice(0, writingStatsUi.period === "daily" ? 14 : 12).reverse();
+  if (!rows.length) { host.innerHTML = ""; return; }
+  const max = Math.max(1, ...rows.map((r) => Number(r.chars) || 0));
+  const top = Math.max(1000, Math.ceil(max / 1000) * 1000);
+  const cols = rows.map((r, i) => {
+    const chars = Number(r.chars) || 0;
+    const tip = `${chars.toLocaleString("ko-KR")}${i18n.t("app.자_접미사")}`;
+    return `<div class="wl-col${i === rows.length - 1 ? " is-last" : ""}" title="${escapeHtml(tip)}"><span class="wl-v">${escapeHtml(tip)}</span><i style="height:${Math.max(2, Math.round((chars / top) * 88))}%"></i></div>`;
+  }).join("");
+  const labels = rows.map((r) => `<span>${escapeHtml(writingStatsBarLabel(writingStatsUi.period, r))}</span>`).join("");
+  host.innerHTML = `<div class="wl-chart-area"><div class="wl-gl" style="bottom:88%"><span>${top / 1000}k</span></div><div class="wl-gl" style="bottom:44%"><span>${top / 2000}k</span></div>${cols}</div><div class="wl-xl">${labels}</div>`;
+}
+function applyWritingStatsUi() {
+  const { period, mode } = writingStatsUi;
+  document.querySelectorAll("#wlPeriodSeg button").forEach((b) => b.classList.toggle("is-on", b.dataset.period === period));
+  document.querySelectorAll("#wlModeSeg button").forEach((b) => b.classList.toggle("is-on", b.dataset.mode === mode));
+  document.querySelectorAll(".writing-log-pane[data-writing-pane='stats'] .writing-stats-section").forEach((sec) => {
+    sec.classList.toggle("hidden", mode !== "table" || sec.dataset.period !== period);
+  });
+  $("writingStatsChart")?.classList.toggle("hidden", mode !== "bars");
+  if (mode === "bars") renderWritingStatsChart();
+}
+function setupWritingStatsUi() {
+  if (setupWritingStatsUi._bound) return;
+  setupWritingStatsUi._bound = true;
+  $("wlPeriodSeg")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-period]");
+    if (!btn) return;
+    writingStatsUi.period = btn.dataset.period;
+    applyWritingStatsUi();
+  });
+  $("wlModeSeg")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-mode]");
+    if (!btn) return;
+    writingStatsUi.mode = btn.dataset.mode;
+    applyWritingStatsUi();
+  });
 }
 
 async function openWritingLogModal(tab = "calendar") {
