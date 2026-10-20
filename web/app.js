@@ -14444,6 +14444,7 @@ function paintRelationLines(options = {}) {
       line.setAttribute("y2", String(placed.b.y));
       const text = document.createElementNS(NS, "text");
       text.setAttribute("class", "rel-label");
+      text.setAttribute("data-rel-id", String(rel.id));
       text.textContent = suggested ? `${rel.label}${i18n.t("app.추정_접미사")}` : rel.label;
       if (interactive) {
         const hit = document.createElementNS(NS, "line");
@@ -14565,6 +14566,240 @@ function paintRelationDecks(parts = partitionRelationCharacters()) {
   paintRelationDeckStack("minor", parts.minor);
 }
 
+/* ── 보기 전환(그래프 / 목록 / 표) + 노드 hover 강조 ───────────────────────────── */
+const RELATION_VIEW_KEY = "supertory.relationView";
+const RELATION_ROLE_ORDER = ["protagonist", "antagonist", "supporting", "minor"];
+let relationViewMode = "graph";
+let relationListSelectedId = 0;
+
+function relationCharactersByRole() {
+  const rows = (relationCanvasData.characters || []).slice();
+  const rank = (ch) => {
+    const i = RELATION_ROLE_ORDER.indexOf(characterStoryRole(ch.role));
+    return i < 0 ? RELATION_ROLE_ORDER.length : i;
+  };
+  return rows.sort((a, b) => rank(a) - rank(b));
+}
+
+function relationsOfCharacter(id) {
+  const cid = Number(id);
+  return (relationCanvasData.relations || []).filter(
+    (rel) => Number(rel.character_a_id) === cid || Number(rel.character_b_id) === cid
+  );
+}
+
+function relationLabelText(rel) {
+  const label = String(rel.label || "");
+  return rel.status === "suggested" ? `${label}${i18n.t("app.추정_접미사")}` : label;
+}
+
+function relationAvatarHtml(ch, cls = "") {
+  const initial = escapeHtml(Array.from(String(ch.name || "").trim())[0] || "?");
+  return `<span class="rv-avatar ${cls}" data-rel-role="${escapeHtml(characterStoryRole(ch.role) || "")}" aria-hidden="true">${initial}</span>`;
+}
+
+function openRelationRow(rel, event) {
+  if (!rel) return;
+  if (rel.status === "suggested") showRelationSuggestPopup(rel, event);
+  else showRelationEditModal(rel, event);
+}
+
+function startRelationBetween(aId, bId) {
+  const a = Number(aId);
+  const b = Number(bId);
+  if (!a || !b || a === b) return;
+  relationSelectedIds = [a, b];
+  showRelationLabelModal();
+}
+
+function paintRelationListView() {
+  const host = $("relationListView");
+  if (!host) return;
+  const chars = relationCharactersByRole();
+  if (chars.length < 2) {
+    host.innerHTML = `<p class="rv-empty">${escapeHtml(i18n.t("app.관계_인물_부족"))}</p>`;
+    return;
+  }
+  if (!chars.some((ch) => Number(ch.id) === Number(relationListSelectedId))) {
+    relationListSelectedId = Number(chars.find((ch) => relationsOfCharacter(ch.id).length)?.id || chars[0].id);
+  }
+  let lastRole = null;
+  let no = 0;
+  const nav = chars.map((ch) => {
+    const role = characterStoryRole(ch.role);
+    const head = role !== lastRole ? `<div class="rv-group">${escapeHtml(characterStoryRoleLabel(ch.role))}</div>` : "";
+    lastRole = role;
+    no += 1;
+    const count = relationsOfCharacter(ch.id).length;
+    const on = Number(ch.id) === Number(relationListSelectedId) ? " is-active" : "";
+    return `${head}<button type="button" class="rv-nav-item${on}" data-rv-char="${ch.id}" data-rel-role="${escapeHtml(role || "")}"><span class="rv-no">${String(no).padStart(2, "0")}</span><span class="rv-dot"></span><span class="rv-name">${escapeHtml(ch.name || i18n.t("app.이름_없음"))}</span><em>${count || ""}</em></button>`;
+  }).join("");
+  const sel = chars.find((ch) => Number(ch.id) === Number(relationListSelectedId));
+  const rels = relationsOfCharacter(sel.id);
+  const rows = rels.map((rel) => {
+    const otherId = Number(rel.character_a_id) === Number(sel.id) ? rel.character_b_id : rel.character_a_id;
+    const other = chars.find((ch) => Number(ch.id) === Number(otherId));
+    if (!other) return "";
+    const sug = rel.status === "suggested" ? " is-suggested" : "";
+    return `<div class="rv-rel"><button type="button" class="rv-rel-main" data-rv-open="${rel.id}">${relationAvatarHtml(other)}<span class="rv-rel-name">${escapeHtml(other.name || "")}</span><span class="rv-pill${sug}">${escapeHtml(relationLabelText(rel))}</span></button><button type="button" class="rv-edit" data-rv-open="${rel.id}">${escapeHtml(i18n.t("app.관계_수정"))}</button></div>`;
+  }).join("");
+  const options = chars
+    .filter((ch) => Number(ch.id) !== Number(sel.id))
+    .map((ch) => `<option value="${ch.id}">${escapeHtml(ch.name || "")}</option>`)
+    .join("");
+  host.innerHTML = `<div class="rv-list-cols"><nav class="rv-nav">${nav}</nav><div class="rv-detail" data-rel-role="${escapeHtml(characterStoryRole(sel.role) || "")}">
+      <h4>${relationAvatarHtml(sel, "is-large")}<span>${escapeHtml(sel.name || i18n.t("app.이름_없음"))}</span></h4>
+      <div class="rv-sub">${escapeHtml(characterStoryRoleLabel(sel.role))} · ${escapeHtml(i18n.t("app.관계_n개", { n: rels.length }))}</div>
+      ${rows || `<p class="rv-empty-inline">${escapeHtml(i18n.t("app.관계_없음_안내"))}</p>`}
+      <label class="rv-add"><select data-rv-add aria-label="${escapeHtml(i18n.t("app.관계_잇기"))}"><option value="">+ ${escapeHtml(i18n.t("app.관계_상대_고르기"))}</option>${options}</select></label>
+    </div></div>`;
+}
+
+function paintRelationTableView() {
+  const host = $("relationTableView");
+  if (!host) return;
+  const chars = relationCharactersByRole();
+  if (chars.length < 2) {
+    host.innerHTML = `<p class="rv-empty">${escapeHtml(i18n.t("app.관계_인물_부족"))}</p>`;
+    return;
+  }
+  const pairMap = new Map();
+  (relationCanvasData.relations || []).forEach((rel) => {
+    const key = relationPairKey(rel);
+    if (!pairMap.has(key)) pairMap.set(key, []);
+    pairMap.get(key).push(rel);
+  });
+  const roleAttr = (ch) => escapeHtml(characterStoryRole(ch.role) || "");
+  const head = chars.map((ch) => `<th class="rv-col" scope="col" data-rel-role="${roleAttr(ch)}"><div><span class="rv-dot"></span>${escapeHtml(ch.name || "")}</div></th>`).join("");
+  const body = chars.map((a) => {
+    const cells = chars.map((b) => {
+      if (Number(a.id) === Number(b.id)) return `<td class="rv-diag"></td>`;
+      const key = Number(a.id) < Number(b.id) ? `${Number(a.id)}:${Number(b.id)}` : `${Number(b.id)}:${Number(a.id)}`;
+      const rels = pairMap.get(key) || [];
+      if (!rels.length) {
+        return `<td class="rv-empty-cell" data-rv-link="${a.id}:${b.id}" title="${escapeHtml(i18n.t("app.관계_표_빈칸"))}"></td>`;
+      }
+      const extra = rels.length > 1 ? `<small>+${rels.length - 1}</small>` : "";
+      const sug = rels[0].status === "suggested" ? " is-suggested" : "";
+      return `<td class="rv-has${sug}" data-rel-role="${roleAttr(a)}" data-rv-open="${rels[0].id}">${escapeHtml(relationLabelText(rels[0]))}${extra}</td>`;
+    }).join("");
+    return `<tr><th class="rv-row" scope="row" data-rel-role="${roleAttr(a)}"><span><span class="rv-dot"></span>${escapeHtml(a.name || "")}</span></th>${cells}</tr>`;
+  }).join("");
+  host.innerHTML = `<table class="rv-table"><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table><p class="rv-legend">${escapeHtml(i18n.t("app.관계_표_안내"))}</p>`;
+}
+
+function paintRelationAltViews() {
+  const list = $("relationListView");
+  const table = $("relationTableView");
+  if (list) list.hidden = relationViewMode !== "list";
+  if (table) table.hidden = relationViewMode !== "table";
+  if (relationViewMode === "list") paintRelationListView();
+  else if (relationViewMode === "table") paintRelationTableView();
+}
+
+function setRelationView(mode, { persist = true } = {}) {
+  relationViewMode = mode === "list" || mode === "table" ? mode : "graph";
+  const root = $("relationCanvas");
+  root?.classList.toggle("is-view-list", relationViewMode === "list");
+  root?.classList.toggle("is-view-table", relationViewMode === "table");
+  document.querySelectorAll("[data-relation-view]").forEach((button) => {
+    button.setAttribute("aria-pressed", button.dataset.relationView === relationViewMode ? "true" : "false");
+  });
+  hideRelationPopups();
+  relationSelectedIds = [];
+  paintRelationAltViews();
+  if (relationViewMode === "graph") requestAnimationFrame(() => syncRelationDeckRailToStage());
+  if (!persist) return;
+  try {
+    localStorage.setItem(RELATION_VIEW_KEY, relationViewMode);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function setRelationHover(characterId) {
+  const world = $("relationCanvasWorld");
+  if (!world) return;
+  const id = Number(characterId) || 0;
+  if (!id) {
+    world.classList.remove("is-rel-hover");
+    world.querySelectorAll(".is-rel-hl").forEach((el) => el.classList.remove("is-rel-hl"));
+    return;
+  }
+  const rels = relationsOfCharacter(id);
+  const relIds = new Set(rels.map((rel) => String(rel.id)));
+  const near = new Set([id]);
+  rels.forEach((rel) => {
+    near.add(Number(rel.character_a_id));
+    near.add(Number(rel.character_b_id));
+  });
+  world.classList.add("is-rel-hover");
+  world.querySelectorAll("[data-rel-card]").forEach((card) => {
+    card.classList.toggle("is-rel-hl", near.has(Number(card.dataset.relCard)));
+  });
+  world.querySelectorAll(".rel-line, .rel-label").forEach((el) => {
+    el.classList.toggle("is-rel-hl", relIds.has(el.getAttribute("data-rel-id")));
+  });
+}
+
+function bindRelationAltUi() {
+  document.querySelectorAll("[data-relation-view]").forEach((button) => {
+    button.addEventListener("click", () => setRelationView(button.dataset.relationView));
+  });
+  const cards = $("relationCanvasCards");
+  cards?.addEventListener("mouseover", (event) => {
+    if (relationDrag) return;
+    const card = event.target.closest?.("[data-rel-card]");
+    if (card) setRelationHover(card.dataset.relCard);
+  });
+  cards?.addEventListener("mouseout", (event) => {
+    const card = event.target.closest?.("[data-rel-card]");
+    if (card && !card.contains(event.relatedTarget)) setRelationHover(0);
+  });
+  const list = $("relationListView");
+  list?.addEventListener("click", (event) => {
+    const nav = event.target.closest("[data-rv-char]");
+    if (nav) {
+      relationListSelectedId = Number(nav.dataset.rvChar) || 0;
+      hideRelationPopups();
+      paintRelationListView();
+      return;
+    }
+    const open = event.target.closest("[data-rv-open]");
+    if (open) {
+      const rel = (relationCanvasData.relations || []).find((row) => String(row.id) === open.dataset.rvOpen);
+      openRelationRow(rel, event);
+    }
+  });
+  list?.addEventListener("change", (event) => {
+    const select = event.target.closest("[data-rv-add]");
+    if (!select || !select.value) return;
+    const other = select.value;
+    select.value = "";
+    startRelationBetween(relationListSelectedId, other);
+  });
+  $("relationTableView")?.addEventListener("click", (event) => {
+    const open = event.target.closest("[data-rv-open]");
+    if (open) {
+      const rel = (relationCanvasData.relations || []).find((row) => String(row.id) === open.dataset.rvOpen);
+      openRelationRow(rel, event);
+      return;
+    }
+    const link = event.target.closest("[data-rv-link]");
+    if (link) {
+      const [a, b] = String(link.dataset.rvLink).split(":");
+      startRelationBetween(a, b);
+    }
+  });
+  let saved = "graph";
+  try {
+    saved = localStorage.getItem(RELATION_VIEW_KEY) || "graph";
+  } catch (_) {
+    /* ignore */
+  }
+  setRelationView(saved, { persist: false });
+}
+
 function paintRelationCanvas() {
   const parts = partitionRelationCharacters();
   paintRelationCards({ parts, characters: parts.board });
@@ -14574,6 +14809,7 @@ function paintRelationCanvas() {
   applyRelationTransform();
   syncRelationSelectionActions();
   requestAnimationFrame(() => syncRelationDeckRailToStage());
+  paintRelationAltViews();
 }
 
 async function persistRelationPositions(positions) {
@@ -15697,6 +15933,7 @@ async function sendRelationCharacterToDeck(characterId) {
 function bindRelationCanvasEvents() {
   if (relationCanvasBound) return;
   relationCanvasBound = true;
+  bindRelationAltUi();
   const stage = $("relationCanvasStage");
   if (stage) {
   stage.addEventListener("pointerdown", (event) => {
@@ -15740,7 +15977,7 @@ function bindRelationCanvasEvents() {
       try { card.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
       return;
     }
-    if (event.target.closest?.(".rel-hit, .relation-suggest-popup, .relation-label-modal, .relation-group-modal, .relation-card-menu, .relation-deck-rail, .relation-canvas-group")) return;
+    if (event.target.closest?.(".rel-hit, .relation-suggest-popup, .relation-label-modal, .relation-group-modal, .relation-card-menu, .relation-deck-rail, .relation-canvas-group, .relation-alt-view")) return;
     hideRelationPopups();
     relationPanDrag = {
       startX: event.clientX,

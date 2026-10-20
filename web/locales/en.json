@@ -5777,5 +5777,16 @@
   "index.세계관_미분류_안내": "Settings that haven't found their place yet. Move them into the right box above, then clear this one.",
   "index.세계관_미분류_내용": "Notes",
   "index.세계관_미분류_예시": "e.g. (to add later) The sun hasn't set for three years — an extreme factor for Part 3, box to be decided",
-  "app.관계_묶음_인원": "${n}"
+  "app.관계_묶음_인원": "${n}",
+  "app.관계_보기_그래프": "Graph",
+  "app.관계_보기_목록": "List",
+  "app.관계_보기_표": "Table",
+  "app.관계_보기_전환": "View mode",
+  "app.관계_n개": "${n} relations",
+  "app.관계_없음_안내": "No relations yet.",
+  "app.관계_표_안내": "Filled cells are linked. Click an empty cell to link two characters.",
+  "app.관계_표_빈칸": "Click to link",
+  "app.관계_인물_부족": "Create at least 2 characters to link relations here.",
+  "app.관계_수정": "Edit",
+  "app.관계_상대_고르기": "Link a relation · pick a character"
 }

@@ -3275,3 +3275,183 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 #relationCanvas .relation-deck-count { margin-right: auto; }
 #relationCanvas .relation-deck-count:empty { display: none; }
 #relationCanvas .relation-canvas-group-count { margin-left: 6px; font-weight: 500; }
+
+/* ── 관계 이어보기 2단계: 보기 전환(그래프/목록/표) · 노드 hover 강조 ───────────────────── */
+#relationCanvas [data-rel-role="protagonist"] { --rc: #e48b96; }
+#relationCanvas [data-rel-role="antagonist"] { --rc: #9d8bd2; }
+#relationCanvas [data-rel-role="supporting"] { --rc: #62b088; }
+#relationCanvas [data-rel-role="minor"] { --rc: #6fa3d6; }
+
+/* 보기 전환 스위치 */
+.relation-view-switch {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--isl-sunk);
+}
+.relation-view-switch button {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--isl-ink2);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.relation-view-switch button:hover { color: var(--text-primary); }
+.relation-view-switch button[aria-pressed="true"] { background: var(--panel, #fff); color: var(--text-primary); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+
+/* 목록/표에서는 그래프 전용 요소를 숨긴다 */
+#relationCanvas.is-view-list #relationCanvasWorld,
+#relationCanvas.is-view-table #relationCanvasWorld,
+#relationCanvas.is-view-list #relationDeckRail,
+#relationCanvas.is-view-table #relationDeckRail,
+#relationCanvas.is-view-list #relationLinkButton,
+#relationCanvas.is-view-table #relationLinkButton,
+#relationCanvas.is-view-list #relationGroupButton,
+#relationCanvas.is-view-table #relationGroupButton,
+#relationCanvas.is-view-list #relationFitButton,
+#relationCanvas.is-view-table #relationFitButton,
+#relationCanvas.is-view-list #relationLayoutButton,
+#relationCanvas.is-view-table #relationLayoutButton,
+#relationCanvas.is-view-list #relationZoomOutButton,
+#relationCanvas.is-view-table #relationZoomOutButton,
+#relationCanvas.is-view-list #relationZoomInButton,
+#relationCanvas.is-view-table #relationZoomInButton { display: none !important; }
+#relationCanvas.is-view-list .relation-canvas-stage,
+#relationCanvas.is-view-table .relation-canvas-stage { cursor: default; background-image: none; }
+
+/* 목록·표 공통 패널 (스테이지 안에 얹어 기존 관계 모달을 그대로 쓴다) */
+.relation-alt-view {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: auto;
+  background: var(--chrome-bg, var(--header-bg, #f4f2ef));
+  padding: 8px 8px 96px;
+  cursor: default;
+}
+.relation-alt-view[hidden] { display: none; }
+#relationCanvas .relation-suggest-popup,
+#relationCanvas .relation-label-modal { z-index: 20; }
+.rv-empty, .rv-empty-inline { color: var(--isl-ink3); font-size: 13px; padding: 24px 12px; }
+.rv-empty-inline { padding: 12px 0; }
+.rv-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--rc, var(--isl-ink3)); flex: none; }
+.rv-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--rc, var(--isl-ink3)) 26%, var(--panel, #fff));
+  color: color-mix(in srgb, var(--rc, var(--isl-ink3)) 58%, var(--text-primary) 42%);
+  font-size: 12px;
+  font-weight: 650;
+}
+.rv-avatar.is-large { width: 48px; height: 48px; font-size: 19px; }
+
+/* 목록 보기 */
+.rv-list-cols { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 36px; max-width: 860px; margin: 0 auto; }
+.rv-nav { padding: 4px 0 20px; }
+.rv-group { padding: 16px 0 4px; font-size: 12px; font-weight: 600; color: var(--isl-ink3); }
+.rv-group:first-child { padding-top: 4px; }
+.rv-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--isl-ink2);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.rv-nav-item:hover { color: var(--text-primary); }
+.rv-nav-item.is-active { color: var(--text-primary); font-weight: 650; }
+.rv-no { width: 18px; font-size: 11.5px; color: var(--isl-ink3); font-variant-numeric: tabular-nums; }
+.rv-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-nav-item em { margin-left: auto; font-style: normal; font-size: 11.5px; font-weight: 400; color: var(--isl-ink3); }
+.rv-detail { padding: 4px 0 24px; min-width: 0; }
+.rv-detail h4 { display: flex; align-items: center; gap: 12px; margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-primary); }
+.rv-sub { margin: 2px 0 18px; font-size: 13px; color: var(--isl-ink3); }
+.rv-rel { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+.rv-rel-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+.rv-rel-name { font-weight: 600; }
+.rv-pill {
+  padding: 2px 11px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.rv-pill.is-suggested { background: transparent; border: 1px dashed var(--isl-ink3); color: var(--isl-ink2); font-weight: 500; }
+.rv-edit { padding: 4px 9px; border: 0; border-radius: 8px; background: transparent; color: var(--isl-ink3); font-size: 12px; cursor: pointer; }
+.rv-edit:hover { background: var(--isl-sunk); color: var(--text-primary); }
+.rv-add { display: block; padding: 12px 0; border-top: 1px solid var(--line); }
+.rv-add select {
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--isl-ink3);
+  font-size: 13px;
+  cursor: pointer;
+}
+.rv-add select:hover { background: var(--isl-sunk); color: var(--text-primary); }
+
+/* 표 보기 */
+.relation-table-view { padding-left: 20px; }
+.rv-table { border-collapse: collapse; margin: 6px 0; }
+.rv-table th { padding: 6px 4px; font-size: 12px; font-weight: 600; color: var(--isl-ink2); }
+.rv-table th.rv-col { height: 96px; vertical-align: bottom; }
+.rv-table th.rv-col div { display: flex; align-items: center; gap: 6px; white-space: nowrap; writing-mode: vertical-rl; transform: rotate(180deg); }
+.rv-table th.rv-row { padding-right: 12px; text-align: right; white-space: nowrap; }
+.rv-table th.rv-row > span { display: inline-flex; align-items: center; gap: 7px; }
+.rv-table td { width: 72px; height: 44px; border: 1px solid var(--line); text-align: center; font-size: 11.5px; color: var(--isl-ink2); position: relative; }
+.rv-table td.rv-diag { background: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--isl-ink3) 14%, transparent) 5px 6px); }
+.rv-table td.rv-has { background: color-mix(in srgb, var(--rc, var(--isl-ink3)) 20%, var(--panel, #fff)); color: var(--text-primary); font-weight: 600; cursor: pointer; }
+.rv-table td.rv-has.is-suggested { background: transparent; border-style: dashed; font-weight: 500; }
+.rv-table td.rv-has small { margin-left: 3px; font-weight: 400; color: var(--isl-ink3); }
+.rv-table td.rv-empty-cell { cursor: pointer; }
+.rv-table td.rv-empty-cell:hover { background: var(--isl-sunk); }
+.rv-table td.rv-empty-cell:hover::after { content: "+"; color: var(--isl-ink3); font-size: 16px; }
+.rv-legend { margin-top: 10px; font-size: 12px; color: var(--isl-ink3); }
+
+@container (max-width: 640px) {
+  .rv-list-cols { grid-template-columns: 1fr; gap: 12px; }
+}
+
+/* 그래프: 노드에 올리면 연결된 것만 남기고 나머지는 흐리게 */
+#relationCanvas .relation-canvas-card,
+#relationCanvas .relation-canvas-svg .rel-line,
+#relationCanvas .relation-canvas-svg .rel-label { transition: opacity 0.15s ease; }
+#relationCanvas .is-rel-hover .relation-canvas-card:not(.is-rel-hl) { opacity: 0.2; }
+#relationCanvas .is-rel-hover .rel-line:not(.is-rel-hl),
+#relationCanvas .is-rel-hover .rel-label:not(.is-rel-hl) { opacity: 0.08; }
+#relationCanvas .is-rel-hover .rel-line.is-rel-hl { opacity: 1; stroke-width: 2; }
+
+/* 표 열 제목: 한글은 뒤집지 않고 세로로 세워 쓴다 */
+.rv-table th.rv-col { height: 118px; }
+.rv-table th.rv-col div { writing-mode: vertical-rl; text-orientation: upright; transform: none; letter-spacing: 0.02em; gap: 6px; }
+.rv-table td { width: 64px; }

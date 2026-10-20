@@ -3590,6 +3590,11 @@
                 <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="relationCanvas" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
               </div>
             </div>
+            <div class="relation-view-switch" role="group" aria-label="보기 방식" data-i18n-aria-label="app.관계_보기_전환">
+              <button type="button" data-relation-view="graph" aria-pressed="true" data-i18n="app.관계_보기_그래프">그래프</button>
+              <button type="button" data-relation-view="list" aria-pressed="false" data-i18n="app.관계_보기_목록">목록</button>
+              <button type="button" data-relation-view="table" aria-pressed="false" data-i18n="app.관계_보기_표">표</button>
+            </div>
             <div class="character-board-actions relation-toolbar-actions">
               <button type="button" class="secondary compact-btn relation-tool-btn" id="relationSuggestButton" title="AI 제안 받기" data-i18n-title="app.AI_제안_받기">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
@@ -3627,6 +3632,8 @@
               <svg id="relationCanvasSvg" class="relation-canvas-svg" aria-hidden="true"></svg>
               <div id="relationCanvasCards" class="relation-canvas-cards"></div>
             </div>
+            <div id="relationListView" class="relation-alt-view relation-list-view" hidden></div>
+            <div id="relationTableView" class="relation-alt-view relation-table-view" hidden></div>
             <div id="relationSuggestPopup" class="relation-suggest-popup hidden" role="dialog">
               <p id="relationSuggestPopupLabel" class="relation-suggest-popup-label"></p>
               <div class="relation-suggest-popup-actions">

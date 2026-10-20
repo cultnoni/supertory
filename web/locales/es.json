@@ -5775,5 +5775,16 @@
   "index.세계관_미분류_안내": "Ajustes que aún no tienen su lugar. Pásalos a la casilla que corresponda y deja esta vacía.",
   "index.세계관_미분류_내용": "Notas",
   "index.세계관_미분류_예시": "p. ej. (por añadir) El sol lleva tres años sin ponerse — factor extremo para la Parte 3, casilla por decidir",
-  "app.관계_묶음_인원": "${n}"
+  "app.관계_묶음_인원": "${n}",
+  "app.관계_보기_그래프": "Gráfico",
+  "app.관계_보기_목록": "Lista",
+  "app.관계_보기_표": "Tabla",
+  "app.관계_보기_전환": "Modo de vista",
+  "app.관계_n개": "${n} relaciones",
+  "app.관계_없음_안내": "Aún no hay relaciones.",
+  "app.관계_표_안내": "Las celdas con color están relacionadas. Pulsa una vacía para relacionar a dos personajes.",
+  "app.관계_표_빈칸": "Pulsa para relacionar",
+  "app.관계_인물_부족": "Crea al menos 2 personajes para relacionarlos aquí.",
+  "app.관계_수정": "Editar",
+  "app.관계_상대_고르기": "Relacionar · elegir personaje"
 }
