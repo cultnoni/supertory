@@ -1,4 +1,5 @@
 .env
+*.env
 bundled_env.py
 __pycache__/
 *.pyc
