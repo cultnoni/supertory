@@ -3412,6 +3412,9 @@
         <!-- Full main-screen settings docs: synopsis / logline / worldbuilding -->
         <div id="synopsisWorkspace" class="synopsis-workspace settings-doc-workspace hidden" aria-label="설정 문서 편집" data-i18n-aria-label="index.설정_문서_편집" data-settings-doc="synopsis">
           <div class="writing-column synopsis-writing-column">
+            <!-- 본문 서식도구(#formatToolbarShell)가 이 자리로 옮겨 와 그대로 쓰인다 -->
+            <div class="settings-doc-toolbar-slot" id="settingsDocToolbarSlot"></div>
+            <div class="settings-doc-sheet">
             <div class="synopsis-main-toolbar">
               <div>
                 <h2 class="synopsis-main-title" id="settingsDocMainTitle" data-i18n="app.시놉시스">시놉시스</h2>
@@ -3431,223 +3434,6 @@
                 <button type="button" id="saveSynopsisMainButton" class="primary compact-btn settings-icon-btn" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
                 </button>
-                <button type="button" id="closeSynopsisMainButton" class="secondary compact-btn settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                </button>
-              </div>
-            </div>
-            <!-- 본문 format-toolbar-row-format 과 동일 구조 (구형 플랫 서식 폐기) -->
-            <div class="format-toolbar synopsis-format-toolbar" id="synopsisFormatToolbar" role="toolbar" aria-label="설정 문서 글자 서식" data-i18n-aria-label="index.설정_문서_글자_서식">
-              <div class="format-toolbar-track">
-              <div class="format-toolbar-row format-toolbar-row-format" role="group" aria-label="서식" data-i18n-aria-label="app.서식">
-              <div class="format-toolbar-row-body format-toolbar-row-body-split">
-              <div class="format-toolbar-cluster format-toolbar-cluster-start">
-              <div class="format-seg format-seg-icon format-seg-history" role="group" aria-label="실행 취소 · 다시 실행" data-i18n-aria-label="index.실행_취소_다시_실행">
-                <button type="button" class="format-btn" data-format="undo" title="실행 취소 (Ctrl+Z)" data-i18n-title="index.실행_취소_Ctrl_Z" aria-label="실행 취소" data-i18n-aria-label="index.실행_취소">
-                  <svg class="format-history-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                    <path d="M3 7v6h6"/>
-                    <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
-                  </svg>
-                </button>
-                <button type="button" class="format-btn" data-format="redo" title="다시 실행 (Ctrl+Y · Ctrl+Shift+Z)" data-i18n-title="index.다시_실행_Ctrl_Y" aria-label="다시 실행" data-i18n-aria-label="index.다시_실행">
-                  <svg class="format-history-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                    <path d="M21 7v6h-6"/>
-                    <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
-                  </svg>
-                </button>
-              </div>
-              <span class="format-row-divider" aria-hidden="true"></span>
-              <div class="format-field-chips" role="group" aria-label="단락 · 글꼴 · 크기 · 줄간격 · 장평" data-i18n-aria-label="index.단락_글꼴_크기_줄간격_장평">
-                <label class="toolbar-field toolbar-field-bare format-field-chip">
-                  <select data-role="format-paragraph" title="단락 스타일" data-i18n-title="index.단락_스타일" aria-label="단락 스타일" data-i18n-aria-label="index.단락_스타일">
-                    <option value="p" data-i18n="app.본문">본문</option>
-                    <option value="h1" data-i18n="app.제목_1">제목 1</option>
-                    <option value="h2" data-i18n="app.제목_2">제목 2</option>
-                    <option value="h3" data-i18n="app.제목_3">제목 3</option>
-                    <option value="blockquote" data-i18n="app.인용">인용</option>
-                    <option value="caption" data-i18n="app.캡션">캡션</option>
-                  </select>
-                </label>
-                <span class="format-row-divider format-field-divider" aria-hidden="true"></span>
-                <label class="toolbar-field toolbar-field-bare format-field-chip">
-                  <select data-role="format-font" class="format-font-select" title="글꼴" data-i18n-title="app.글꼴" aria-label="글꼴" data-i18n-aria-label="app.글꼴">
-                    <!-- options filled by app.js -->
-                  </select>
-                </label>
-                <span class="format-row-divider format-field-divider" aria-hidden="true"></span>
-                <label class="toolbar-field toolbar-field-bare format-field-chip format-field-chip-sm">
-                  <select data-role="format-size" title="글자 크기" data-i18n-title="index.글자_크기" aria-label="글자 크기" data-i18n-aria-label="index.글자_크기">
-                    <option value="12px">12</option>
-                    <option value="14px">14</option>
-                    <option value="16px">16</option>
-                    <option value="17px" selected>17</option>
-                    <option value="18px">18</option>
-                    <option value="20px">20</option>
-                    <option value="22px">22</option>
-                    <option value="24px">24</option>
-                    <option value="28px">28</option>
-                    <option value="32px">32</option>
-                  </select>
-                </label>
-                <span class="format-row-divider format-field-divider" aria-hidden="true"></span>
-                <label class="toolbar-field toolbar-field-bare format-field-chip format-field-chip-sm" title="줄간격" data-i18n-title="app.줄간격">
-                  <select data-role="format-line-height" title="줄간격" data-i18n-title="app.줄간격" aria-label="줄간격" data-i18n-aria-label="app.줄간격">
-                    <option value="1.0">1.0</option>
-                    <option value="1.2">1.2</option>
-                    <option value="1.5">1.5</option>
-                    <option value="1.8" selected>1.8</option>
-                    <option value="2.0">2.0</option>
-                    <option value="2.5">2.5</option>
-                    <option value="3.0">3.0</option>
-                  </select>
-                </label>
-                <span class="format-row-divider format-field-divider" aria-hidden="true"></span>
-                <label class="toolbar-field toolbar-field-bare format-field-chip format-field-chip-sm format-jangpyeong-chip" title="장평 · 우클릭: 전체에 적용" data-i18n-title="index.장평_우클릭_전체에_적용">
-                  <select data-role="format-jangpyeong" title="장평 (글자 가로 비율 %)" data-i18n-title="index.장평_글자_가로_비율" aria-label="장평" data-i18n-aria-label="app.장평">
-                    <option value="80">80</option>
-                    <option value="90">90</option>
-                    <option value="95">95</option>
-                    <option value="100" selected>100</option>
-                    <option value="105">105</option>
-                    <option value="110">110</option>
-                    <option value="120">120</option>
-                    <option value="130">130</option>
-                  </select>
-                </label>
-              </div>
-              </div>
-              <span class="format-row-divider format-toolbar-mid-divider" aria-hidden="true"></span>
-              <div class="format-toolbar-cluster format-toolbar-cluster-end">
-              <div class="format-seg format-seg-icon" role="group" aria-label="글자 서식" data-i18n-aria-label="index.글자_서식">
-                <button type="button" class="format-btn" data-format="bold" title="굵게 (Ctrl+B)" data-i18n-title="index.굵게_Ctrl_B"><strong>B</strong></button>
-                <button type="button" class="format-btn" data-format="italic" title="기울임 (Ctrl+I)" data-i18n-title="index.기울임_Ctrl_I"><em>I</em></button>
-                <button type="button" class="format-btn" data-format="underline" title="밑줄 (Ctrl+U)" data-i18n-title="index.밑줄_Ctrl_U"><span class="u-mark">U</span></button>
-                <button type="button" class="format-btn" data-format="strike" title="취소선 (Ctrl+Shift+X)" data-i18n-title="index.취소선_Ctrl_Shift_X" aria-label="취소선" data-i18n-aria-label="index.취소선"><span class="s-mark">S</span></button>
-              </div>
-              <span class="format-row-divider" aria-hidden="true"></span>
-              <div class="format-seg format-seg-icon format-seg-colors" role="group" aria-label="색 · 음영" data-i18n-aria-label="index.색_음영">
-                <button
-                  type="button"
-                  class="format-btn format-color-btn"
-                  data-format="highlight"
-                  data-color-kind="highlight"
-                  title="형광펜 · 문장 드래그 후 클릭하면 바로 칠해집니다 · 우클릭: 색 고르기" data-i18n-title="index.형광펜_문장_드래그_후_클릭하면_바로_칠해집"
-                  aria-label="형광펜" data-i18n-aria-label="index.형광펜"
-                >
-                  <span class="format-hl-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                      <path d="m9 11-6 6v3h9l3-3"/>
-                      <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>
-                    </svg>
-                  </span>
-                  <span class="format-color-bar" data-color-bar="highlight"></span>
-                </button>
-                <button
-                  type="button"
-                  class="format-btn format-color-btn"
-                  data-format="textColor"
-                  data-color-kind="text"
-                  title="글자색 · 클릭: 적용 · 우클릭: 팔레트" data-i18n-title="index.글자색_클릭_적용_우클릭_팔레트"
-                  aria-label="글자색" data-i18n-aria-label="app.글자색"
-                >
-                  <span class="format-a-icon" aria-hidden="true">A</span>
-                  <span class="format-color-bar" data-color-bar="text"></span>
-                </button>
-                <button
-                  type="button"
-                  class="format-btn format-color-btn format-shade-btn"
-                  data-format="shadeBox"
-                  data-color-kind="shade"
-                  title="텍스트 음영상자 · 클릭: 상자 채우기/없애기 · 우클릭: 색 고르기" data-i18n-title="index.텍스트_음영상자_클릭_상자_채우기_없애기_우"
-                  aria-label="텍스트 음영상자" data-i18n-aria-label="index.텍스트_음영상자"
-                >
-                  <span class="format-shade-icon" aria-hidden="true">
-                    <span class="format-shade-box">
-                      <span class="format-shade-letter">A</span>
-                    </span>
-                  </span>
-                  <span class="format-color-bar" data-color-bar="shade"></span>
-                </button>
-              </div>
-              <span class="format-row-divider" aria-hidden="true"></span>
-              <div class="format-seg format-seg-icon format-seg-align" role="group" aria-label="정렬" data-i18n-aria-label="index.정렬">
-                <button type="button" class="format-btn format-align-btn" data-format="justifyLeft" title="왼쪽 정렬" data-i18n-title="index.왼쪽_정렬" aria-label="왼쪽 정렬" data-i18n-aria-label="index.왼쪽_정렬">
-                  <svg class="format-align-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
-                    <path fill="currentColor" d="M1 3h14v1.4H1zm0 3h9v1.4H1zm0 3h14v1.4H1zm0 3h9v1.4H1z"/>
-                  </svg>
-                </button>
-                <button type="button" class="format-btn format-align-btn" data-format="justifyCenter" title="가운데 정렬" data-i18n-title="index.가운데_정렬" aria-label="가운데 정렬" data-i18n-aria-label="index.가운데_정렬">
-                  <svg class="format-align-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
-                    <path fill="currentColor" d="M1 3h14v1.4H1zm2.5 3h9v1.4h-9zM1 9h14v1.4H1zm2.5 3h9v1.4h-9z"/>
-                  </svg>
-                </button>
-                <button type="button" class="format-btn format-align-btn" data-format="justifyRight" title="오른쪽 정렬" data-i18n-title="index.오른쪽_정렬" aria-label="오른쪽 정렬" data-i18n-aria-label="index.오른쪽_정렬">
-                  <svg class="format-align-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
-                    <path fill="currentColor" d="M1 3h14v1.4H1zm5 3h9v1.4H6zM1 9h14v1.4H1zm5 3h9v1.4H6z"/>
-                  </svg>
-                </button>
-                <button type="button" class="format-btn format-align-btn" data-format="justifyFull" title="양쪽 정렬" data-i18n-title="index.양쪽_정렬" aria-label="양쪽 정렬" data-i18n-aria-label="index.양쪽_정렬">
-                  <svg class="format-align-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
-                    <path fill="currentColor" d="M1 3h14v1.4H1zm0 3h14v1.4H1zm0 3h14v1.4H1zm0 3h14v1.4H1z"/>
-                  </svg>
-                </button>
-                <button type="button" class="format-btn format-dan-btn" data-format="dan" title="단 나누기 (2단) · 다시 누르면 해제" data-i18n-title="index.단_나누기_2단_다시_누르면_해제" aria-label="단 나누기" data-i18n-aria-label="index.단_나누기">
-                  <svg class="format-dan-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
-                    <path fill="currentColor" d="M1 2.5h6v1.25H1zm0 3.25h6v1.25H1zm0 3.25h6v1.25H1zm0 3.25h6V13.5H1zM9 2.5h6v1.25H9zm0 3.25h6v1.25H9zm0 3.25h6v1.25H9zm0 3.25h6V13.5H9z"/>
-                  </svg>
-                </button>
-              </div>
-              <span class="format-row-divider" aria-hidden="true"></span>
-              <div class="format-seg format-seg-icon format-seg-list" role="group" aria-label="글머리 · 특수문자" data-i18n-aria-label="index.글머리_특수문자">
-                <button
-                  type="button"
-                  class="format-btn format-list-btn format-bullet-btn"
-                  data-format="list"
-                  title="글머리 기호 · 클릭: 적용 · 우클릭: 기호 선택" data-i18n-title="index.글머리_기호_클릭_적용_우클릭_기호_선택"
-                  aria-label="글머리 기호" data-i18n-aria-label="index.글머리_기호"
-                  aria-haspopup="true"
-                  aria-expanded="false"
-                  aria-controls="formatListPalette"
-                >
-                  <svg class="format-list-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="4" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.4" fill="currentColor" stroke="none"/><path d="M9 6h12M9 12h12M9 18h12"/></svg>
-                </button>
-                <button
-                  type="button"
-                  class="format-btn format-special-btn"
-                  data-format="specialChar"
-                  title="특수문자 · 클릭: 기호 선택" data-i18n-title="index.특수문자_클릭_기호_선택"
-                  aria-label="특수문자" data-i18n-aria-label="index.특수문자"
-                  aria-haspopup="true"
-                  aria-expanded="false"
-                  aria-controls="formatSpecialPalette"
-                >
-                  <svg class="format-special-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true" focusable="false">
-                    <path d="M7.2 7.2l9.6 9.6M16.8 7.2L7.2 16.8"/>
-                    <circle cx="12" cy="5.2" r="1.45" fill="currentColor" stroke="none"/>
-                    <circle cx="12" cy="18.8" r="1.45" fill="currentColor" stroke="none"/>
-                    <circle cx="5.2" cy="12" r="1.45" fill="currentColor" stroke="none"/>
-                    <circle cx="18.8" cy="12" r="1.45" fill="currentColor" stroke="none"/>
-                  </svg>
-                </button>
-              </div>
-              </div>
-              </div>
-                <div class="format-overflow-slot">
-                <button
-                  type="button"
-                  class="format-overflow-btn"
-                  data-toolbar-overflow
-                  hidden
-                  title="더 보기"
-                  data-i18n-title="app.더_보기"
-                  aria-label="더 보기"
-                  data-i18n-aria-label="app.더_보기"
-                  aria-haspopup="menu"
-                  aria-expanded="false"
-                ><svg class="format-overflow-dots" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg><span class="format-overflow-label" data-i18n="island.더보기">더보기</span></button>
-                <div class="format-overflow-menu hidden" data-toolbar-overflow-menu role="menu" hidden></div>
-                </div>
-              </div>
               </div>
             </div>
             <div class="settings-doc-panes" id="settingsDocPanes">
@@ -3716,6 +3502,7 @@
                   </div>
                 </div>
               </section>
+            </div>
             </div>
           </div>
         </div>

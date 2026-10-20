@@ -116,7 +116,10 @@ class IslandDesignContractTests(unittest.TestCase):
         self.assertIn("let rightVp = wr.right;", self.js)  # 검색바 제거: 고정 메모가 메인 오른쪽 끝까지
         self.assertIn("--isl-main-center", self.js)
         self.assertIn("calc(var(--isl-main-right, 100%) - var(--isl-main-center, 50%))", self.css)
-        self.assertEqual(self.html.count('class="format-overflow-label" data-i18n="island.더보기"'), 3)
+        # 아이콘줄·서식줄 2개 (설정 문서 메인은 별도 서식줄 없이 본문 서식도구를 옮겨 쓴다)
+        self.assertEqual(self.html.count('class="format-overflow-label" data-i18n="island.더보기"'), 2)
+        self.assertNotIn('id="synopsisFormatToolbar"', self.html)
+        self.assertIn('id="settingsDocToolbarSlot"', self.html)
         self.assertNotIn('format-overflow-chevrons', self.html)
         self.assertIn("#manuscriptBinder > #outline {", self.css)
         self.assertIn("#manuscriptBinder > .isl-tiles", self.css)

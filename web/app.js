@@ -6946,12 +6946,10 @@ function updateFormatButtonState(toolbarEl = null) {
   // Reflect active font / size in the selects (no separate "글꼴/크기" labels).
   const toolbars = toolbarEl
     ? [toolbarEl]
-    : [$("formatToolbar"), $("synopsisFormatToolbar")].filter(Boolean);
+    : [$("formatToolbar")].filter(Boolean);
   for (const toolbar of toolbars) {
     if (!toolbar) continue;
-    const editor = (toolbar.id === "synopsisFormatToolbar"
-      ? (getActiveRichEditor() || $("synopsisContent"))
-      : ($("sceneContent") || getActiveRichEditor())) || $("sceneContent");
+    const editor = getActiveRichEditor() || $("sceneContent");
     if (editor) syncFormatFontSizeSelects(toolbar, editor);
   }
 }
@@ -7909,10 +7907,12 @@ function setupRichEditor() {
   setupFormatListPalette();
   setupFormatSpecialPalette();
   setupFormatApplyAllMenu();
+  // 본문 서식도구 하나를 원고·설정 문서(작품소개/기획의도 등)가 함께 쓴다 — 설정 문서가 열려 있으면 그쪽 편집기에 적용.
   setupRichEditorSurface({
     editor: $("sceneContent"),
     toolbar: $("formatToolbar"),
     page: $("manuscriptPage"),
+    resolveEditor: () => getActiveRichEditor(),
     onInput: () => {
       updateSceneStats();
       markSceneDirty();
@@ -7920,9 +7920,8 @@ function setupRichEditor() {
   });
   setupRichEditorSurface({
     editor: $("synopsisContent"),
-    toolbar: $("synopsisFormatToolbar"),
+    toolbar: null,
     page: $("synopsisPage"),
-    resolveEditor: () => getActiveRichEditor(),
     onInput: () => {
       markSettingsDocEditorDirty($("synopsisContent"));
     },
@@ -13086,7 +13085,32 @@ async function flushPendingCodexSaves() {
   await Promise.all(tasks);
 }
 
+/**
+ * 설정 문서 메인(작품소개·기획의도 / 로그라인·시놉시스)은 별도 서식도구 없이
+ * 본문 서식도구(#formatToolbarShell)를 그대로 옮겨 와 쓴다. 닫히면 원래 자리로 돌려놓는다.
+ */
+let formatToolbarHomeMarker = null;
+function placeFormatToolbarInSettingsDoc(inSettingsDoc) {
+  const shell = $("formatToolbarShell");
+  const slot = $("settingsDocToolbarSlot");
+  if (!shell || !slot) return;
+  if (inSettingsDoc) {
+    if (shell.parentElement === slot) return;
+    if (!formatToolbarHomeMarker) {
+      formatToolbarHomeMarker = document.createComment("formatToolbarShell home");
+      shell.parentNode.insertBefore(formatToolbarHomeMarker, shell);
+    }
+    slot.appendChild(shell);
+  } else {
+    if (shell.parentElement !== slot || !formatToolbarHomeMarker?.parentNode) return;
+    formatToolbarHomeMarker.parentNode.insertBefore(shell, formatToolbarHomeMarker);
+  }
+  if (typeof scheduleToolbarOverflowLayout === "function") scheduleToolbarOverflowLayout();
+  updateFormatButtonState();
+}
+
 function hideSynopsisMain() {
+  placeFormatToolbarInSettingsDoc(false);
   $("synopsisWorkspace")?.classList.add("hidden");
   $("worldbuildingWorkspace")?.classList.add("hidden");
   document.querySelector(".synopsis-writing-column")?.classList.remove("is-dual");
@@ -13530,6 +13554,7 @@ async function openSettingsDocMain(kind = "synopsis", options = {}) {
   closeSplitView().catch(() => {});
 
   if (kind === "world") {
+    placeFormatToolbarInSettingsDoc(false);
     $("synopsisWorkspace")?.classList.add("hidden");
     ensureWorldbuildingMainForm();
     bindWorldBuildingMainFormInputs();
@@ -13561,6 +13586,7 @@ async function openSettingsDocMain(kind = "synopsis", options = {}) {
   $("worldbuildingWorkspace")?.classList.add("hidden");
   applySettingsDocChrome(kind);
   $("synopsisWorkspace")?.classList.remove("hidden");
+  placeFormatToolbarInSettingsDoc(true);
 
   if (!samePairOpen) {
     suppressSynopsisDirty = true;
@@ -17614,7 +17640,6 @@ function setupSettingsCodex() {
       : [state.settingsDocKind || "synopsis"];
     persistSettingsDocPair(kinds, { quiet: false }).catch(handleError);
   });
-  $("closeSynopsisMainButton")?.addEventListener("click", () => closeSynopsisMain().catch(handleError));
   $("saveWorldbuildingMainButton")?.addEventListener("click", () => {
     pushWorldBuildingFormToState({ commitDraft: true });
     persistSettingsDoc("world", { quiet: false }).catch(handleError);
@@ -64843,7 +64868,7 @@ function setupToolbarOverflow() {
       if (body) ro.observe(body);
       ro.observe(row);
     });
-    ["formatToolbar", "formatToolbarShell", "synopsisFormatToolbar"]
+    ["formatToolbar", "formatToolbarShell"]
       .map((id) => document.getElementById(id))
       .filter(Boolean)
       .forEach((el) => ro.observe(el));
@@ -76181,6 +76206,7 @@ function setupEpisodeChrome() {
 
 function showSceneEditorPane(options = {}) {
   placeEpisodeChrome(false);
+  placeFormatToolbarInSettingsDoc(false);
   scheduleEpisodeChromeRender();
   state.ideaBoardOpen = false;
   state.characterBoardOpen = false;
