@@ -17205,9 +17205,21 @@ async function createItem(presetName = "") {
   return created;
 }
 
-async function openItem(itemId) {
+async function openItem(itemId, options = {}) {
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
+  }
+  const explicitReturn = options?.returnTo;
+  if (explicitReturn === "itemBoard" || explicitReturn === "settingsSearch") {
+    itemEditorReturnTo = explicitReturn;
+  } else if (!$("itemEditor")?.classList.contains("hidden")) {
+    /* 이미 열린 상세를 다시 불러올 때는 돌아갈 곳을 유지 */
+  } else if (state.itemBoardOpen || !$("itemBoard")?.classList.contains("hidden")) {
+    itemEditorReturnTo = "itemBoard";
+  } else if (!$("settingsSearchBoard")?.classList.contains("hidden")) {
+    itemEditorReturnTo = "settingsSearch";
+  } else {
+    itemEditorReturnTo = null;
   }
   const nextId = Number(itemId);
   if (state.itemId && Number(state.itemId) !== nextId) {
@@ -17657,6 +17669,7 @@ function setupSettingsCodex() {
   $("newCharacterMainButton")?.addEventListener("click", () => createCharacter().catch(handleError));
   $("closeItemBoardButton")?.addEventListener("click", () => closeItemBoard().catch(handleError));
   $("closeItemEditorButton")?.addEventListener("click", () => closeItemEditor().catch(handleError));
+  $("itemEditorBackButton")?.addEventListener("click", () => closeItemEditor().catch(handleError));
   $("newItemMainButton")?.addEventListener("click", () => createItem().catch(handleError));
   $("deleteItemButton")?.addEventListener("click", () => deleteItem().catch(handleError));
   setupDictionaryUi();
