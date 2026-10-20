@@ -5761,8 +5761,5 @@
   "island.vp_직접": "I'll choose",
   "island.vp_칩_설정": "Set person & tense",
   "island.vp_칩_수정": "Edit person & tense",
-  "island.vp_도움말": "Setting this makes the viewpoint check more accurate",
-  "island.정렬_왼쪽": "Align left",
-  "island.정렬_오른쪽": "Align right",
-  "island.정렬_되돌리기": "Undo"
+  "island.vp_도움말": "Setting this makes the viewpoint check more accurate"
 }

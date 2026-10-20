@@ -33355,7 +33355,6 @@ function islWidgetIcon(svg, size) {
  *  양쪽 패널을 모두 접으면 좌·우 두 레일로 나뉘어 위젯이 번갈아 채워진다. */
 const ISL_RAIL_GAP = 8;
 let islRailSide = "";
-let islAlignUndo = null;
 let islRailObserver = null;
 function islRailEl(side) {
   const id = side === "right" ? "islWidgetRailR" : "islWidgetRailL";
@@ -33559,7 +33558,6 @@ function setupIslRailSnap() {
       if (ref) islRailEl(zone.side).insertBefore(win, ref); else islRailEl(zone.side).appendChild(win);
       rememberIdeaFloatLayout(win, [...ideaFloatWindows.entries()].find(([, w]) => w === win)?.[0]);
       islRailLayout();
-      syncIslAlignButtons();
     }, 0);
   };
   document.addEventListener("pointerup", (event) => finish(event, false));
@@ -33577,8 +33575,9 @@ function setupIslRail() {
         if (islRailSide && rec.target === host && node.nodeType === 1 && node.classList?.contains("idea-float") && !node.classList.contains("is-railed")) islRailDock(node);
       });
     });
+    // 레일이 모두 비면 자동 붙이기도 끈다 — 새로 여는 위젯이 다시 떠 있는 창으로 열리게
+    if (islRailSide && !islRailWindows().length) islRailSide = "";
     scheduleIslRailLayout();
-    syncIslAlignButtons();
   });
   islRailObserver.observe(host, { childList: true });
   rails.forEach((rail) => islRailObserver.observe(rail, { childList: true }));
@@ -33600,86 +33599,12 @@ function setupIslRail() {
     if (win) islRailUndock(win);
   }, true));
 }
-function syncIslAlignButtons() {
-  document.querySelectorAll("[data-isl-align]").forEach((btn) => {
-    const act = btn.dataset.islAlign;
-    btn.classList.toggle("is-on", Boolean(islRailSide) && act === islRailSide);
-    if (act === "undo") btn.disabled = !islRailSide && !islAlignUndo;
-  });
-}
-function islAlignWidgets(side) {
-  setupIslRail();
-  if (islRailSide === side) {
-    islAlignRestore();
-    return;
-  }
-  if (!islAlignUndo) {
-    islAlignUndo = new Map();
-    ideaFloatWindows.forEach((win, key) => {
-      if (!win?.isConnected || win.classList.contains("is-railed")) return;
-      const r = win.getBoundingClientRect();
-      islAlignUndo.set(key, { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) });
-    });
-  }
-  const prev = islRailSide;
-  islRailSide = side;
-  if (prev) {
-    // 한쪽에서 반대쪽으로 옮길 때: 모두 새 쪽 레일로
-    islRailWindows().forEach((win) => islRailDock(win, { top: false, side }));
-  }
-  // 이미 열린 위젯: 작은 위젯(타이머·글자수)이 위, 나머지는 현재 위치(위→아래) 순
-  const loose = [...ideaFloatWindows.values()].filter((win) => win?.isConnected && !win.classList.contains("is-railed"));
-  loose.sort((x, y) => (Number(y.classList.contains("dock-float-mini")) - Number(x.classList.contains("dock-float-mini"))) || (x.getBoundingClientRect().top - y.getBoundingClientRect().top));
-  loose.forEach((win) => islRailDock(win, { top: false, side }));
-  islRailLayout();
-  syncIslAlignButtons();
-  window.dispatchEvent(new Event("resize"));
-}
-function islAlignRestore() {
-  const wasOn = Boolean(islRailSide);
-  islRailSide = "";
-  const undo = islAlignUndo;
-  islAlignUndo = null;
-  islRailWindows().forEach((win) => {
-    const key = [...ideaFloatWindows.entries()].find(([, w]) => w === win)?.[0];
-    const saved = key != null ? undo?.get(key) : null;
-    const r = saved || { left: 40 + Math.random() * 60, top: 80 + Math.random() * 60, width: DOCK_WIDGET_STD_W, height: win.getBoundingClientRect().height };
-    islRailUndock(win, r);
-    if (key != null) rememberIdeaFloatLayout(win, key);
-  });
-  islRailLayout();
-  syncIslAlignButtons();
-  if (wasOn) window.dispatchEvent(new Event("resize"));
-}
-const ISL_ALIGN_ICONS = {
-  left: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16"/><rect x="8" y="5" width="11" height="6" rx="1.5"/><rect x="8" y="14" width="11" height="6" rx="1.5"/></svg>',
-  right: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 4v16"/><rect x="5" y="5" width="11" height="6" rx="1.5"/><rect x="5" y="14" width="11" height="6" rx="1.5"/></svg>',
-  undo: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>',
-};
-function islAlignButtons(withLabel) {
-  const defs = [["left", "island.정렬_왼쪽"], ["right", "island.정렬_오른쪽"], ["undo", "island.정렬_되돌리기"]];
-  return defs.map(([act, key]) => {
-    const label = escapeHtml(i18n.t(key));
-    return `<button type="button" class="isl-align-btn${withLabel ? "" : " isl-wd"}" data-isl-align="${act}" title="${label}" data-label="${label}" aria-label="${label}">${ISL_ALIGN_ICONS[act]}${withLabel ? `<span>${label}</span>` : ""}</button>`;
-  }).join("");
-}
-function handleIslAlignClick(event) {
-  const btn = event.target.closest?.("[data-isl-align]");
-  if (!btn) return false;
-  if (btn.dataset.islAlign === "undo") islAlignRestore();
-  else islAlignWidgets(btn.dataset.islAlign);
-  return true;
-}
 
 function renderIslWidgetTiles() {
   const host = $("islWidgetTiles");
   if (!host) return;
   const groups = islWidgetItems();
   host.textContent = "";
-  const alignRow = document.createElement("div");
-  alignRow.className = "isl-align-row";
-  alignRow.innerHTML = islAlignButtons(true);
-  host.appendChild(alignRow);
   groups.forEach((g) => {
     const head = document.createElement("div");
     head.className = "isl-wgroup";
@@ -33702,7 +33627,6 @@ function renderIslWidgetTiles() {
     host.appendChild(grid);
   });
   $("islWidgetEmpty")?.classList.toggle("hidden", groups.length > 0);
-  syncIslAlignButtons();
 }
 
 /** 아이콘 독: 패널을 접었을 때(마스코트)와 확장(집중 모드) 중의 위젯 입구 */
@@ -33716,7 +33640,6 @@ function ensureIslWidgetDock() {
   dock.hidden = true;
   document.body.appendChild(dock);
   dock.addEventListener("click", (event) => {
-    if (handleIslAlignClick(event)) return;
     const btn = event.target.closest?.("[data-isl-widget]");
     if (btn) {
       // 독은 그대로 열어 둔다 — 위젯 하나 골랐다고 사용자가 끄지 않은 독이 같이 닫히면 안 된다.
@@ -33868,8 +33791,7 @@ function setupAiCheckHub() {
     playOnce();
   }
   $("islWidgetTiles")?.addEventListener("click", (event) => {
-    if (handleIslAlignClick(event)) return;
-    const tile = event.target.closest?.("[data-isl-widget]");
+    const tile =event.target.closest?.("[data-isl-widget]");
     if (!tile) return;
     islOpenWidget(tile.dataset.islWidget);
   });
@@ -33909,7 +33831,7 @@ function setupAiCheckHub() {
   $("islWritingLogButton")?.addEventListener("click", () => {
     openWritingLogModal("calendar")?.catch?.(handleError);
   });
-  $("aiCheckView")?.addEventListener("click", (event) => {
+  const onIslDockClick = (event) => {
     const btn = event.target.closest?.("[data-isl-dock]");
     if (!btn) return;
     if (btn.dataset.islDock === "spellcheck") { openToryCheckSpell(); return; }
@@ -33919,7 +33841,10 @@ function setupAiCheckHub() {
       writingTimerSettingsOpen = true;
     }
     document.querySelector(`[data-dock-item="${btn.dataset.islDock}"]`)?.click();
-  });
+  };
+  $("aiCheckView")?.addEventListener("click", onIslDockClick);
+  // 내화면 보호·도토리 줄은 모든 탭 아래에 공통으로 붙어 있다
+  $("islFootChips")?.addEventListener("click", onIslDockClick);
   if (!aiCheckHubTimer) {
     aiCheckHubTimer = window.setInterval(() => {
       if (!$("aiCheckView")?.hidden) refreshAiCheckHub().catch(() => {});

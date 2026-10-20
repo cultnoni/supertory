@@ -144,11 +144,13 @@ class IslandDesignContractTests(unittest.TestCase):
         self.assertIn('#formatToolbar.is-tight .isl-fmt-more', self.css)
 
     def test_widget_rail_pushes_body_and_snaps_dropped_widgets(self) -> None:
-        for token in ("function islAlignWidgets(", "function islRailDock(", "function setupIslRailSnap(", "function islSnapIndex("):
+        for token in ("function islRailDock(", "function setupIslRailSnap(", "function islSnapIndex("):
             self.assertIn(token, self.js)
         self.assertIn("body.isl-rail-left #workArea", self.css)
         self.assertIn("body.isl-rail-right #workArea", self.css)
         self.assertIn(".idea-float.is-railed", self.css)
+        # 오른쪽 패널 위젯 탭의 왼쪽/오른쪽 정렬·되돌리기 버튼은 삭제됨
+        self.assertNotIn("data-isl-align", self.js)
         self.assertIn("isl-rail-drop-line", self.css)
 
     def test_icon_and_format_rows_have_no_collapse_feature(self) -> None:

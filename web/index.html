@@ -4101,10 +4101,6 @@
               <input type="text" id="islAskInput" placeholder="토리에게 물어보기…" data-i18n-placeholder="island.토리에게_물어보기" aria-label="토리에게 물어보기" data-i18n-aria-label="island.토리에게_물어보기">
               <button type="submit" class="isl-ask-send" title="보내기" data-i18n-title="island.보내기" aria-label="보내기" data-i18n-aria-label="island.보내기"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-11 11M22 2l-7 20-4-9-9-4z"/></svg></button>
             </form>
-            <div class="isl-foot-chips">
-              <button type="button" class="isl-chip" data-isl-dock="screenProtect"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg><span data-i18n="island.내화면_보호">내화면 보호</span></button>
-              <button type="button" class="isl-chip" data-isl-dock="credits"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 10h14a7 7 0 0 1-14 0z"/><path d="M12 17v4M12 4c-2 0-4 1-4 3v3h8V7c0-2-2-3-4-3z"/></svg><span data-i18n="island.도토리">도토리</span></button>
-            </div>
           </div>
           <div
             id="aiWritingStatus"
@@ -4672,6 +4668,11 @@
           <div id="toryChatPopupDockHint" class="tory-chat-popup-dock-hint hidden" hidden>
             <p data-i18n="index.1_1_대화는_큰_창에서_이어지고_있어요">1:1 대화는 큰 창에서 이어지고 있어요. 질문칸 글은 그대로 옮겨 가요.</p>
             <button type="button" class="secondary" id="toryChatPopupDockButton" data-i18n="index.큰_창_닫고_여기로">큰 창 닫고 여기로</button>
+          </div>
+          <!-- 체크·대화·도구·위젯 탭 공통 하단: 내화면 보호 · 도토리 -->
+          <div class="isl-foot-chips" id="islFootChips">
+            <button type="button" class="isl-chip" data-isl-dock="screenProtect"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg><span data-i18n="island.내화면_보호">내화면 보호</span></button>
+            <button type="button" class="isl-chip" data-isl-dock="credits"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 10h14a7 7 0 0 1-14 0z"/><path d="M12 17v4M12 4c-2 0-4 1-4 3v3h8V7c0-2-2-3-4-3z"/></svg><span data-i18n="island.도토리">도토리</span></button>
           </div>
         </div>
 
