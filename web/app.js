@@ -13790,7 +13790,7 @@ function characterBoardCardHtml(character) {
     ? i18n.t('app.span_class_character_bo')
     : "";
   return `
-      <button type="button" class="character-board-card ${active}" data-character-board="${character.id}" title="${name}">
+      <button type="button" class="character-board-card ${active}" data-character-board="${character.id}" data-character-role="${escapeHtml(characterStoryRole(character.role) || "")}" title="${name}">
         <span class="character-board-card-name">${name}</span>
         <span class="character-board-card-role">${role}</span>
         <span class="character-board-card-summary">${summary}</span>
@@ -17653,6 +17653,7 @@ function setupSettingsCodex() {
   $("openRelationCanvasButton")?.addEventListener("click", () => openRelationCanvas().catch(handleError));
   $("openRelationCanvasMainButton")?.addEventListener("click", () => openRelationCanvas().catch(handleError));
   $("closeCharacterEditorButton")?.addEventListener("click", () => closeCharacterEditor().catch(handleError));
+  $("characterEditorBackButton")?.addEventListener("click", () => closeCharacterEditor().catch(handleError));
   $("newCharacterMainButton")?.addEventListener("click", () => createCharacter().catch(handleError));
   $("closeItemBoardButton")?.addEventListener("click", () => closeItemBoard().catch(handleError));
   $("closeItemEditorButton")?.addEventListener("click", () => closeItemEditor().catch(handleError));

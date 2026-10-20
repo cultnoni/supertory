@@ -2241,3 +2241,250 @@ html .idea-color-swatch[class*="color-"] { background: color-mix(in srgb, var(--
 
 /* 생각수첩 보드: 기본 크기는 가로 2개 (직접 크기를 조절한 메모는 인라인 width가 우선) */
 html .idea-board-grid > .idea-card { width: calc((100% - 18px) / 2); }
+
+/* ── 캐릭터 페이지 (E 수정안): 카드 없는 구분선 목록 + 문서형 상세 ──────────────
+   시안: web/dev/character-page-e2.html · 닫기 버튼은 숨김(id는 유지) */
+#closeCharacterBoardButton,
+#closeCharacterEditorButton { display: none !important; }
+
+/* 목록 */
+#characterBoard { --rc: var(--isl-ink3); }
+#characterBoard .character-board-toolbar { align-items: center; margin-bottom: 14px; }
+#characterBoard .character-board-view-bar { margin: 0 0 6px; }
+#characterBoard .character-role-filter-row { gap: 16px; }
+#characterBoard .character-role-filter-chip {
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--isl-ink2);
+  font-size: 13px;
+}
+#characterBoard .character-role-filter-chip:hover { color: var(--text-primary); border-color: transparent; }
+#characterBoard .character-role-filter-chip.is-active {
+  background: transparent;
+  color: var(--text-primary);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+#characterBoard .character-board-grid,
+#characterBoard .character-board-group-cards {
+  counter-reset: cbcard;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  column-gap: 36px;
+  row-gap: 0;
+  padding: 8px 0 12px;
+}
+#characterBoard .character-board-grid.is-grouped { display: flex; flex-direction: column; gap: 10px; }
+#characterBoard .character-board-group {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+#characterBoard .character-board-group-body { padding: 0 0 8px; }
+#characterBoard .character-board-card {
+  position: relative;
+  min-height: auto; /* 0이면 칸이 많을 때 그리드 행이 눌려 글자가 잘린다 */
+  gap: 4px;
+  padding: 16px 0 18px 30px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+#characterBoard .character-board-card::before {
+  counter-increment: cbcard;
+  content: counter(cbcard, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 21px;
+  font-size: 11.5px;
+  color: var(--isl-ink3);
+  font-variant-numeric: tabular-nums;
+}
+#characterBoard .character-board-card:hover { background: transparent; border-color: var(--line); }
+#characterBoard .character-board-card.is-active { box-shadow: none; }
+#characterBoard .character-board-card-name {
+  align-self: flex-start;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+}
+#characterBoard .character-board-card:hover .character-board-card-name { text-decoration-color: var(--line); }
+#characterBoard .character-board-card.is-active .character-board-card-name { text-decoration-color: var(--accent); }
+#characterBoard .character-board-card-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--isl-ink3);
+}
+#characterBoard .character-board-card-role::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--rc);
+}
+#characterBoard .character-board-card[data-character-role="protagonist"] { --rc: #e48b96; }
+#characterBoard .character-board-card[data-character-role="antagonist"] { --rc: #9d8bd2; }
+#characterBoard .character-board-card[data-character-role="supporting"] { --rc: #62b088; }
+#characterBoard .character-board-card[data-character-role="minor"] { --rc: #6fa3d6; }
+#characterBoard .character-board-card-summary {
+  -webkit-line-clamp: 2;
+  font-size: 13px;
+  color: var(--isl-ink2);
+}
+
+/* 상세 */
+#workArea > #characterEditor {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 28px 36px !important;
+  background: transparent !important;
+  border: 0;
+  box-shadow: none;
+}
+#characterEditor > * { width: 100%; max-width: 620px; order: 20; }
+#characterEditor > .character-editor-toolbar { max-width: none; order: 0; margin-bottom: 14px; }
+#characterEditor > .trait-chronicle { order: 1; }
+#characterEditor > .character-portrait-row { order: 2; }
+#characterEditor > .editor-topline { order: 3; }
+#characterEditor > label:has(#characterSummary) { order: 4; }
+#characterEditor > label:has(#characterProfile) { order: 5; }
+#characterEditor > .character-traits-grid { order: 6; }
+#characterEditor > label:has(#characterNotes) { order: 7; }
+#characterEditor > .character-role-field { order: 8; }
+#characterEditor > label:has(#characterSortName) { order: 9; }
+#characterEditor > .aliases { order: 10; }
+
+#characterEditor .character-editor-title {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--isl-ink3);
+}
+#characterEditor .character-editor-actions { gap: 4px; }
+#characterEditor .character-editor-actions .save-info { font-size: 12px; color: var(--isl-ink3); margin-right: 4px; }
+
+#characterEditor .character-portrait-row {
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+#characterEditor .character-portrait-preview-wrap {
+  width: 56px;
+  height: 56px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--isl-sunk);
+}
+#characterEditor .character-portrait-empty { font-size: 10px; padding: 2px; color: var(--isl-ink3); }
+#characterEditor .character-portrait-actions { flex-wrap: nowrap; }
+#characterEditor .character-portrait-actions .hint { display: none; }
+
+#characterEditor .editor-topline { margin-bottom: 4px; }
+#characterEditor #characterName {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: var(--font-ui);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+#characterEditor > label,
+#characterEditor .character-trait-field { margin: 0 0 20px; font-size: 12px; font-weight: 600; color: var(--isl-ink3); }
+#characterEditor .character-traits-grid { gap: 24px; }
+#characterEditor .character-traits-grid .character-trait-field { margin: 0 0 20px; }
+#characterEditor label > input,
+#characterEditor label > textarea {
+  margin: 6px 0 0 -10px;
+  width: calc(100% + 20px);
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: none;
+  font-family: var(--font-ui);
+  font-size: 14.5px;
+  font-weight: 400;
+  line-height: 1.8;
+  color: var(--text-primary);
+}
+#characterEditor label > input:hover,
+#characterEditor label > textarea:hover { background: color-mix(in srgb, var(--isl-sunk) 60%, transparent); }
+#characterEditor label > input:focus,
+#characterEditor label > textarea:focus { background: var(--isl-sunk); outline: 0; }
+#characterEditor label > textarea { min-height: 110px; }
+#characterEditor .character-trait-field > textarea { min-height: 80px; }
+/* 한 줄 소개: 이름 아래 한 줄 (라벨은 스크린리더용으로만 남김) */
+#characterEditor > label:has(#characterSummary) { margin: 0 0 18px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+#characterEditor > label:has(#characterSummary) > span:first-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+#characterEditor #characterSummary { margin-top: 0; padding-left: 0; margin-left: 0; width: 100%; font-size: 16px; color: var(--isl-ink2); }
+
+/* 메타 영역: 역할 · 정렬용 이름 · 별칭 */
+#characterEditor .character-role-field { margin: 6px 0 16px; padding-top: 18px; border-top: 1px solid var(--line); }
+#characterEditor .character-role-label { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--isl-ink3); }
+#characterEditor .character-role-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--isl-ink2);
+  font-size: 12.5px;
+}
+#characterEditor .character-role-chip.is-active {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+  font-weight: 600;
+}
+#characterEditor .character-role-chip.is-add { border-style: dashed; color: var(--isl-ink3); font-weight: 400; }
+#characterEditor > label:has(#characterSortName) { margin-bottom: 16px; }
+#characterEditor .aliases h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--isl-ink3); }
+#characterEditor .aliases .chip { padding: 4px 10px; border: 1px solid var(--line); background: transparent; color: var(--isl-ink2); font-size: 12.5px; }
+#characterEditor label > textarea { resize: vertical; overflow: auto; }
+#characterEditor label > textarea { resize: none; field-sizing: content; }
+#characterEditor > .aliases { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+
+/* 상세 → 목록(또는 들어온 곳)으로 되돌아가는 버튼 */
+#characterEditor .character-editor-heading { display: flex; align-items: center; gap: 10px; }
+#characterEditor .character-editor-back {
+  padding: 6px 10px;
+  margin-left: -10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--isl-ink2);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+#characterEditor .character-editor-back:hover { background: var(--isl-sunk); color: var(--text-primary); }

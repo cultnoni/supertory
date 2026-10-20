@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuperTory · 캐릭터 페이지 E 수정안</title>
+<link rel="stylesheet" href="../fonts/pretendard.css">
+<style>
+/* 실제 앱 토큰(island.css 라이트 팔레트) 그대로 */
+:root{
+  --chrome-bg:#eceef1; --isl-desk:#edf0f2; --panel:#fbfbfc; --isl-sunk:#f2f4f6; --line:#e0e4e8;
+  --text-primary:#1f2429; --isl-ink2:#5c656e; --isl-ink3:#8b939b;
+  --accent:#2f7566; --accent-ink:#f2f7f5; --accent-soft:#e3efeb;
+  --isl-shadow:0 1px 2px rgba(31,36,41,.06),0 8px 24px rgba(31,36,41,.06);
+  --danger:#b4584f;
+  --font-ui:"Pretendard",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+}
+:root[data-theme="dark"]{
+  --chrome-bg:#14171a; --isl-desk:#181b1f; --panel:#1f2327; --isl-sunk:#272c31; --line:#2e343a;
+  --text-primary:#e6e9ec; --isl-ink2:#a7afb7; --isl-ink3:#78818a;
+  --accent:#5fb39f; --accent-ink:#10201c; --accent-soft:#233a34;
+  --isl-shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.3); --danger:#e08a80;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:var(--font-ui);background:var(--chrome-bg);color:var(--text-primary);font-size:13.5px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+input,textarea{font:inherit;color:inherit}
+.bar{position:sticky;top:0;z-index:30;display:flex;gap:10px;align-items:center;padding:9px 20px;background:#1f2429;color:#e8eaed;font-size:12.5px}
+.bar b{font-weight:650}.bar .sp{flex:1}.bar button{padding:5px 11px;border-radius:7px;background:#2c3238;color:#cfd5db}
+main{max-width:1240px;margin:0 auto;padding:26px 24px 70px}
+h1{font-size:22px;font-weight:700;margin-bottom:6px}
+.lead{color:var(--isl-ink2);line-height:1.6;max-width:74ch;margin-bottom:8px}
+.chg{color:var(--isl-ink2);line-height:1.7;margin:0 0 26px;padding-left:18px;max-width:80ch}
+.pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:18px;align-items:start}
+.cap{font-size:11.5px;color:var(--isl-ink3);margin:0 0 6px 4px;font-weight:600}
+/* 섬(가운데 책상) 안의 보드 — 투명 바탕, 여백 20×28 */
+.island{background:var(--isl-desk);border-radius:14px;height:680px;overflow:auto;box-shadow:var(--isl-shadow)}
+.board{padding:20px 28px 32px;min-height:100%}
+
+.tb{display:flex;align-items:center;gap:6px;margin-bottom:14px}
+.tb h3{font-size:22px;font-weight:700;flex:1}
+.ibtn{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;color:var(--isl-ink2)}
+.ibtn:hover{background:var(--isl-sunk)}
+.ic{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.gbtn{padding:6px 11px;border-radius:9px;color:var(--isl-ink2);font-size:12.5px}.gbtn:hover{background:var(--isl-sunk)}
+.gbtn.danger{color:var(--danger)}
+.pbtn{padding:6px 13px;border-radius:9px;background:var(--accent);color:var(--accent-ink);font-size:12.5px;font-weight:600}
+.save{font-size:12px;color:var(--isl-ink3);margin-right:4px}
+
+.view{display:flex;align-items:center;gap:14px;margin-bottom:6px;flex-wrap:wrap}
+.flt{display:flex;gap:16px;flex-wrap:wrap;flex:1}
+.flt button{padding:6px 0;color:var(--isl-ink2);font-size:13px;border-bottom:2px solid transparent;white-space:nowrap}
+.flt button i{font-style:normal;color:var(--isl-ink3);margin-left:4px;font-size:11.5px}
+.flt button:hover{color:var(--text-primary)}
+.flt button.on{color:var(--text-primary);font-weight:600;border-bottom-color:var(--accent)}
+.chk{display:flex;align-items:center;gap:7px;color:var(--isl-ink2);font-size:12.5px}
+.chk:before{content:"";width:28px;height:16px;border-radius:99px;background:var(--line)}
+
+.tn-rose{--c:#e48b96}.tn-lilac{--c:#9d8bd2}.tn-mint{--c:#62b088}.tn-sky{--c:#6fa3d6}.tn-gray{--c:#a8a49c}
+.rl{font-size:12px;color:var(--isl-ink3);display:inline-flex;align-items:center;gap:6px}
+.rl:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--c)}
+
+/* 목록 */
+.ix{display:grid;grid-template-columns:1fr 1fr;column-gap:36px;margin-top:8px}
+.it{display:grid;grid-template-columns:26px 1fr;gap:4px;padding:16px 0 18px;border-top:1px solid var(--line);cursor:pointer}
+.it .n{font-size:11.5px;color:var(--isl-ink3);padding-top:5px;font-variant-numeric:tabular-nums}
+.it .nmx{font-size:17px;font-weight:700;line-height:1.3;text-underline-offset:5px;text-decoration-thickness:2px;text-decoration-color:transparent;text-decoration-line:underline}
+.it:hover .nmx{text-decoration-color:var(--line)}
+.it.on .nmx{text-decoration-color:var(--accent)}
+.it .rl{display:flex;margin:4px 0 8px}
+.sum{color:var(--isl-ink2);line-height:1.55;font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sum.empty{color:var(--isl-ink3)}
+
+/* 상세 */
+.dd{max-width:600px;margin:0 auto}
+.dd .rl{margin-bottom:8px}
+.nm{width:100%;border:0;background:none;outline:0;font-size:30px;font-weight:700;padding:0;margin-bottom:6px;letter-spacing:-.01em}
+.q{width:100%;border:0;background:none;outline:0;font-size:16px;color:var(--isl-ink2);padding:0 0 18px;border-bottom:1px solid var(--line);margin-bottom:20px}
+.q::placeholder,.fld::placeholder{color:var(--isl-ink3)}
+.sec{margin-bottom:20px}
+.lbl{display:block;font-size:12px;font-weight:600;color:var(--isl-ink3);margin-bottom:6px}
+.fld{width:100%;border:0;border-radius:9px;background:none;outline:0;resize:none;overflow:hidden;font-size:14.5px;line-height:1.8;color:var(--text-primary);padding:6px 10px;margin-left:-10px;width:calc(100% + 20px);min-height:70px}
+.fld:hover{background:color-mix(in srgb,var(--isl-sunk) 60%,transparent)}
+.fld:focus{background:var(--isl-sunk)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:4px 10px;border-radius:99px;font-size:12.5px;color:var(--isl-ink2);border:1px solid var(--line)}
+.chip.on{background:var(--accent-soft);border-color:transparent;color:var(--accent);font-weight:600}
+.chip.add{color:var(--isl-ink3);border-style:dashed}
+.meta{display:flex;gap:26px;flex-wrap:wrap;padding:14px 0 18px;border-top:1px solid var(--line);margin-top:6px}
+.meta>div{min-width:0}
+.meta .lbl{margin-bottom:4px}
+.meta .v{font-size:13.5px;color:var(--text-primary)}
+.portrait{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+.pt{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:17px;background:color-mix(in srgb,var(--c) 24%,var(--panel));color:color-mix(in srgb,var(--c) 62%,#000 38%)}
+:root[data-theme="dark"] .pt{color:color-mix(in srgb,var(--c) 70%,#fff 30%)}
+@media (max-width:640px){.pair{grid-template-columns:1fr}.ix{grid-template-columns:1fr}.two{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="bar"><b>캐릭터 페이지 — E 수정안</b><span class="sp"></span><button id="theme">라이트 / 다크</button></div>
+<main>
+  <h1>E 수정안 · 앱 토큰으로 다시</h1>
+  <p class="lead">E의 구조(카드 없는 구분선, 번호 인덱스, 큰 이름, 2단 입력)는 그대로 두고, 앱의 실제 디자인 언어로 바꿨습니다. 인물을 눌러 상세가 바뀌는지, 오른쪽 위 버튼으로 다크도 확인해 보세요.</p>
+  <ul class="chg">
+    <li>글꼴: 명조 → <b>Pretendard</b> (이름 700 · 본문 14.5px/1.8). 한 줄 소개의 가짜 이탤릭 제거, 영문 대문자 라벨 제거 → 한글 라벨.</li>
+    <li>색: 시안 전용 따뜻한 회색 → <b>앱 토큰</b>(<code>--text-primary</code> · <code>--isl-ink2/3</code> · <code>--line</code> · <code>--accent</code>). 선택·활성 표시만 <code>--accent</code> 초록, 역할은 작은 파스텔 점.</li>
+    <li>바탕: 설정집 보드 지침대로 <b>책상 위 투명 바탕</b>(여백 20×28, 제목 22px/700). 입력칸은 평소 투명, 호버·포커스에서만 <code>--isl-sunk</code>.</li>
+    <li>상세에 정렬용 이름·이미지를 본문 아래 <b>메타 줄</b>로 정리해서 기능 누락 없음(이미지·정렬용 이름·역할·별칭·연대기·삭제·저장).</li>
+  </ul>
+  <div class="pair">
+    <div><div class="cap">인물 목록 (메인 보드)</div><div class="island" id="list"></div></div>
+    <div><div class="cap">인물 상세 (편집 화면)</div><div class="island" id="detail"></div></div>
+  </div>
+</main>
+<script>
+const CH=[
+ {n:"한서윤",r:"주연",c:"rose",s:"밤에만 일하는 서점 주인",p:"서른하나. 낮에는 잠들어 있고 밤에만 불을 켠다. 말수가 적지만 손님의 책 취향은 한 번에 맞힌다. 편지를 태우지 못하는 버릇이 있다.",st:"관찰력, 기억력, 손님을 편하게 하는 침묵",w:"불리할 때 먼저 선을 긋는다. 도움을 청하지 못함.",m:"11화에서 시계탑 복선 회수. 말버릇은 4화 이전에 한 번 깨지게.",a:["서점지기","서윤 씨"],sort:"한, 서윤"},
+ {n:"도하준",r:"적대자",c:"lilac",s:"서윤의 과거를 아는 출판사 편집자",p:"서윤이 쓴 첫 원고를 쥐고 있는 사람. 친절한 얼굴로 거래를 제안한다. 악의보다 집착에 가깝다.",st:"설득, 인맥, 정확한 기억",w:"서윤의 거절 앞에서 말이 거칠어진다.",m:"7화 이후 서점 방문 횟수를 늘릴 것.",a:["편집자님"],sort:"도, 하준"},
+ {n:"이솔",r:"조력자",c:"mint",s:"옆 가게 꽃집 사장",p:"섬에서 나고 자란 서윤의 유일한 친구. 새벽마다 꽃을 들고 서점 문을 두드린다.",st:"눈치, 요리, 소문의 출처를 아는 것",w:"비밀을 오래 못 품는다.",m:"사투리는 어미만 살짝.",a:["솔이"],sort:"이, 솔"},
+ {n:"마을 이장",r:"단역",c:"sky",s:"섬 마을 이장",p:"행사 때마다 마이크를 잡는다. 서윤을 아직도 ‘서점 집 딸’이라 부른다.",st:"",w:"",m:"",a:[],sort:"이장"},
+ {n:"윤",r:"",c:"gray",s:"",p:"",st:"",w:"",m:"",a:[],sort:"윤"}
+];
+const RL=["전체","주연","적대자","조력자","단역","미지정"],CNT=[5,1,1,1,1,1];
+const IC={
+ rel:'<svg class="ic" viewBox="0 0 24 24"><path d="m11 19-1.106-.552a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0l4.212 2.106a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619V12"/><path d="M15 5.764V12"/><path d="M18 15v6"/><path d="M21 18h-6"/><path d="M9 3.236v15"/></svg>',
+ tori:'<svg class="ic" viewBox="0 0 24 24"><path d="m15 5 4 4"/><path d="M21.17 6.81a2.82 2.82 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></svg>',
+ add:'<svg class="ic" viewBox="0 0 24 24"><path d="M2 21a8 8 0 0 1 13.29-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg>',
+ x:'<svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>'
+};
+const esc=s=>String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+const tn=c=>`tn-${c}`;
+const rl=ch=>`<span class="rl">${ch.r||"역할 미지정"}</span>`;
+const sum=ch=>ch.s?`<span class="sum">${esc(ch.s)}</span>`:`<span class="sum empty">소개를 적어 보세요</span>`;
+const ta=(v,ph,h)=>`<textarea class="fld" placeholder="${ph}" ${h?`style="min-height:${h}px"`:""}>${esc(v)}</textarea>`;
+function list(sel){return `<div class="board"><div class="tb"><h3>캐릭터</h3><button class="ibtn" title="관계 이어보기">${IC.rel}</button><button class="ibtn" title="토리야 작성해줘">${IC.tori}</button><button class="ibtn" title="새 캐릭터">${IC.add}</button><button class="ibtn" title="닫기">${IC.x}</button></div>
+ <div class="view"><div class="flt">${RL.map((r,i)=>`<button class="${i?"":"on"}">${r}<i>${CNT[i]}</i></button>`).join("")}</div><span class="chk">그룹으로 보기</span></div>
+ <div class="ix">${CH.map((ch,i)=>`<div class="it ${tn(ch.c)} ${i===sel?"on":""}" data-i="${i}"><span class="n">0${i+1}</span><div><span class="nmx">${esc(ch.n)}</span>${rl(ch)}${sum(ch)}</div></div>`).join("")}</div></div>`}
+function detail(ch){return `<div class="board ${tn(ch.c)}"><div class="tb"><span style="flex:1"></span><span class="save">자동 저장됨</span><button class="gbtn">연대기</button><button class="gbtn danger">인물 삭제</button><button class="pbtn">저장</button><button class="ibtn" title="닫기">${IC.x}</button></div>
+ <div class="dd"><div class="portrait"><span class="pt">${esc(ch.n[0])}</span><button class="gbtn" style="background:var(--isl-sunk)">이미지 추가</button></div>
+ <div class="rl" style="margin-bottom:6px">${ch.r||"역할 미지정"}</div>
+ <input class="nm" value="${esc(ch.n)}" placeholder="캐릭터 이름"><input class="q" value="${esc(ch.s)}" placeholder="한 줄 소개를 적어 보세요">
+ <div class="sec"><span class="lbl">인물 설정</span>${ta(ch.p,"외모, 성격, 과거, 목표 등 자유롭게 적으세요.",110)}</div>
+ <div class="sec two"><div><span class="lbl">무기 · 강점</span>${ta(ch.st,"예: 빠른 판단력")}</div><div><span class="lbl">약점</span>${ta(ch.w,"예: 고집에 셈")}</div></div>
+ <div class="sec"><span class="lbl">작가 메모</span>${ta(ch.m,"독자에게 보이지 않는 비밀 설정이나 수정 메모")}</div>
+ <div class="meta"><div><span class="lbl">역할</span><div class="chips">${["주연","적대자","조력자","단역"].map(r=>`<span class="chip ${r===ch.r?"on":""}">${r}</span>`).join("")}<span class="chip add">+ 추가</span></div></div>
+ <div><span class="lbl">정렬용 이름</span><div class="v">${esc(ch.sort)}</div></div>
+ <div style="flex-basis:100%"><span class="lbl">다른 이름 / 별칭</span><div class="chips">${ch.a.map(x=>`<span class="chip">${esc(x)}</span>`).join("")}<span class="chip add">+ 별칭 추가</span></div></div></div></div></div>`}
+function grow(r){r.querySelectorAll("textarea.fld").forEach(t=>{t.style.height="auto";t.style.height=Math.max(t.scrollHeight,parseInt(t.style.minHeight)||0)+"px"})}
+const L=document.getElementById("list"),D=document.getElementById("detail");
+function show(i){L.innerHTML=list(i);D.innerHTML=detail(CH[i]);grow(D)}
+L.addEventListener("click",e=>{const t=e.target.closest("[data-i]");if(t)show(+t.dataset.i)});
+show(0);
+document.getElementById("theme").onclick=()=>{const r=document.documentElement;r.dataset.theme=r.dataset.theme==="dark"?"":"dark"};
+</script>
+</body>
+</html>
