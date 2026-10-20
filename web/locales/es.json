@@ -5774,5 +5774,6 @@
   "index.세계관_미분류_제목": "Notas sin clasificar",
   "index.세계관_미분류_안내": "Ajustes que aún no tienen su lugar. Pásalos a la casilla que corresponda y deja esta vacía.",
   "index.세계관_미분류_내용": "Notas",
-  "index.세계관_미분류_예시": "p. ej. (por añadir) El sol lleva tres años sin ponerse — factor extremo para la Parte 3, casilla por decidir"
+  "index.세계관_미분류_예시": "p. ej. (por añadir) El sol lleva tres años sin ponerse — factor extremo para la Parte 3, casilla por decidir",
+  "app.관계_묶음_인원": "${n}"
 }

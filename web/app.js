@@ -14499,12 +14499,16 @@ function paintRelationCards(options = {}) {
       zStyle = `z-index:${10 + idx};`;
     }
     const border = relationCardBorderColor(ch.id);
-    const borderStyle = border ? `border-color:${border};` : "";
+    const borderStyle = border ? `border-color:${border};--rel-ring:${border};` : "";
+    const nodeName = String(ch.name || "").trim();
+    const nodeInitial = escapeHtml(Array.from(nodeName)[0] || "?");
+    const nodeRole = escapeHtml(characterStoryRole(ch.role) || "");
     const profile = showProfile
       ? `<button type="button" class="relation-canvas-card-profile" data-rel-profile="${ch.id}">${escapeHtml(i18n.t("app.프로필_보기"))} →</button>`
       : "";
     return `
-      <article class="relation-canvas-card ${selected} ${ego} ${protagonist} ${groupClass}" data-rel-card="${ch.id}" style="left:${Number(ch.x)}px;top:${Number(ch.y)}px;${borderStyle}${zStyle}">
+      <article class="relation-canvas-card ${selected} ${ego} ${protagonist} ${groupClass}" data-rel-card="${ch.id}" data-rel-role="${nodeRole}" style="left:${Number(ch.x)}px;top:${Number(ch.y)}px;${borderStyle}${zStyle}">
+        <span class="relation-canvas-card-node" aria-hidden="true">${nodeInitial}</span>
         <span class="relation-canvas-card-name">${escapeHtml(ch.name || i18n.t("app.이름_없음"))}</span>
         <span class="relation-canvas-card-role">${escapeHtml(characterStoryRoleLabel(ch.role))}</span>
         <span class="relation-canvas-card-summary">${escapeHtml(relationCardSummary(ch))}</span>
@@ -14534,6 +14538,8 @@ function paintRelationDeckStack(kind, rows) {
     toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
     toggle.textContent = expanded ? i18n.t("app.접기") : i18n.t("app.펼치기");
   }
+  const deckCount = section.querySelector(".relation-deck-count");
+  if (deckCount) deckCount.textContent = rows.length ? i18n.t("app.관계_묶음_인원", { n: rows.length }) : "";
   if (!rows.length) {
     host.innerHTML = `<p class="relation-deck-empty">${escapeHtml(i18n.t("app.비어_있어요"))}</p>`;
     return;
@@ -14542,9 +14548,10 @@ function paintRelationDeckStack(kind, rows) {
   host.innerHTML = visible.map((ch, index) => {
     const selected = relationSelectedIds.includes(Number(ch.id)) ? "is-selected" : "";
     const border = relationCardBorderColor(ch.id);
-    const borderStyle = border ? `border-color:${border};` : "";
+    const borderStyle = border ? `border-color:${border};--rel-ring:${border};` : "";
     const top = expanded ? "" : `top:${6 + index * 12}px;z-index:${index + 1};`;
-    return `<button type="button" class="relation-deck-card ${selected}" data-deck-card="${ch.id}" style="${top}${borderStyle}">
+    const deckRole = escapeHtml(characterStoryRole(ch.role) || "");
+    return `<button type="button" class="relation-deck-card ${selected}" data-deck-card="${ch.id}" data-rel-role="${deckRole}" style="${top}${borderStyle}">
       <span class="relation-deck-card-name">${escapeHtml(ch.name || i18n.t("app.이름_없음"))}</span>
       <span class="relation-deck-card-role">${escapeHtml(characterStoryRoleLabel(ch.role))}</span>
     </button>`;
@@ -14862,7 +14869,7 @@ function paintRelationGroups() {
     const expanded = isRelationGroupExpanded(gid) ? "is-expanded" : "is-stacked";
     const color = String(group.color || "").trim() || "var(--accent, #7aa1b6)";
     return `<div class="relation-canvas-group ${expanded}" data-rel-group="${gid}" style="left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;--rel-group-color:${escapeHtml(color)}">
-      <button type="button" class="relation-canvas-group-label" data-rel-group-edit="${gid}">${escapeHtml(group.name || i18n.t("app.그룹"))}</button>
+      <button type="button" class="relation-canvas-group-label" data-rel-group-edit="${gid}">${escapeHtml(group.name || i18n.t("app.그룹"))}<span class="relation-canvas-group-count">${escapeHtml(i18n.t("app.관계_묶음_인원", { n: (group.character_ids || []).length }))}</span></button>
     </div>`;
   }).join("");
   host.querySelectorAll("[data-rel-group]").forEach((frame) => {
