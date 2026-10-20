@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuperTory · 장르·키워드 페이지 시안 5종</title>
+<link rel="stylesheet" href="../fonts/pretendard.css">
+<style>
+:root{
+  --bg:#f1efee; --panel:#fafafa; --sunk:#f1efec; --desk:#f4f2ef;
+  --ink:#2b2a27; --ink2:#5d5e5b; --ink3:#8e8b84; --line:#e6e3de; --accent:#45463f; --accent-ink:#fafafa;
+  --fill:24%;
+  --sans:"Pretendard","Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+}
+:root[data-theme="dark"]{
+  --bg:#171615; --panel:#1f1e1c; --sunk:#282725; --desk:#1b1a19;
+  --ink:#ece9e4; --ink2:#b3afa7; --ink3:#857f76; --line:#34322f; --accent:#d8d4c8; --accent-ink:#1f1e1c; --fill:20%;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);font-size:13.5px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+input{font:inherit;color:inherit}
+.bar{position:sticky;top:0;z-index:30;display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:9px 20px;background:#1f2429;color:#e8eaed;font-size:12.5px}
+.bar b{font-weight:650;margin-right:8px}.bar a{color:#9fb4c8;text-decoration:none;padding:4px 9px;border-radius:6px}.bar a:hover{background:#2c3238}
+.bar .sp{flex:1}.bar button{padding:5px 11px;border-radius:7px;background:#2c3238;color:#cfd5db}
+main{max-width:1000px;margin:0 auto;padding:26px 24px 80px}
+h1{font-size:22px;font-weight:700;margin-bottom:6px}
+.lead{color:var(--ink2);line-height:1.6;max-width:72ch;margin-bottom:30px}
+section.v{margin-bottom:54px}
+section.v>header{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+section.v>header h2{font-size:16px;font-weight:700}
+section.v>header em{font-style:normal;font-size:11.5px;color:var(--ink3);border:1px solid var(--line);border-radius:6px;padding:1px 7px}
+section.v>p{color:var(--ink2);margin-bottom:14px;line-height:1.55;max-width:80ch}
+.frame{background:var(--desk);border-radius:14px;height:700px;overflow:auto}
+.pg{padding:22px 30px 32px;min-height:100%}
+
+/* 공통 */
+.tn-rose{--c:#e48b96}.tn-lilac{--c:#9d8bd2}.tn-mint{--c:#62b088}.tn-sky{--c:#6fa3d6}.tn-butter{--c:#e3bf55}
+.tb{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.tb h3{font-size:22px;font-weight:700;flex:1}
+.lbl{font-size:12px;font-weight:600;color:var(--ink3)}
+.add{display:flex;gap:8px;align-items:center}
+.add input{flex:1;max-width:280px;padding:7px 10px;border:0;border-radius:9px;background:var(--sunk);outline:0}
+.add button{padding:6px 12px;border-radius:9px;background:var(--accent);color:var(--accent-ink);font-size:12.5px;font-weight:600}
+.r19{display:inline-flex;gap:6px;align-items:center;font-size:12.5px;color:var(--ink2)}
+.r19 i{width:30px;height:17px;border-radius:9px;background:var(--line);position:relative}
+.r19 i::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#fff}
+
+/* A. 문서형 */
+.A .doc{max-width:620px;margin:0 auto}
+.A .genre-line{font-size:30px;font-weight:700;letter-spacing:-.01em;line-height:1.35;margin:4px 0 6px}
+.A .genre-line span{color:var(--ink3);font-weight:500}
+.A .sub{color:var(--ink2);font-size:14.5px;margin-bottom:24px}
+.A .tags{display:flex;gap:6px 14px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:20px;font-size:16px}
+.A .tags b{font-weight:600}.A .tags b::before{content:"#";color:var(--ink3);margin-right:1px}
+.A .cat{padding:14px 0;border-top:1px solid var(--line);display:grid;grid-template-columns:84px 1fr;gap:12px}
+.A .cat .lbl{padding-top:3px}
+.A .opts{display:flex;flex-wrap:wrap;gap:4px 16px}
+.A .opts button{padding:3px 0;color:var(--ink2);font-size:14px;border-bottom:2px solid transparent}
+.A .opts button:hover{color:var(--ink)}
+.A .opts button.on{color:var(--ink);font-weight:650;border-bottom-color:var(--accent)}
+
+/* B. 번호 목록 */
+.B .wrap{max-width:700px;margin:0 auto}
+.B .head{display:flex;gap:22px;flex-wrap:wrap;padding:6px 0 18px}
+.B .head div{min-width:120px}
+.B .head .big{font-size:18px;font-weight:700;margin-top:3px}
+.B .row{position:relative;padding:18px 0 18px 34px;border-top:1px solid var(--line)}
+.B .row .no{position:absolute;left:0;top:23px;font-size:11.5px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.B .row h4{font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.B .row h4 small{font-size:12px;font-weight:400;color:var(--ink3)}
+.B .row h4 .dot{width:7px;height:7px;border-radius:50%;background:var(--c)}
+.B .pills{display:flex;flex-wrap:wrap;gap:6px}
+.B .pills button{padding:4px 11px;border-radius:999px;border:1px solid var(--line);color:var(--ink2);font-size:13px}
+.B .pills button:hover{border-color:var(--ink3)}
+.B .pills button.on{background:color-mix(in srgb,var(--c) var(--fill),var(--panel));border-color:transparent;color:color-mix(in srgb,var(--c) 62%,#000 38%);font-weight:600}
+html[data-theme="dark"] .B .pills button.on{color:color-mix(in srgb,var(--c) 70%,#fff 30%)}
+
+/* C. 2열 */
+.C .cols{display:grid;grid-template-columns:240px 1fr;gap:40px;max-width:860px;margin:0 auto}
+.C aside{position:sticky;top:0;align-self:start}
+.C aside h5{font-size:12px;font-weight:600;color:var(--ink3);margin:0 0 6px}
+.C aside .blk{padding:14px 0;border-top:1px solid var(--line)}
+.C aside .blk:first-of-type{border-top:0;padding-top:0}
+.C aside .g{font-size:17px;font-weight:700;line-height:1.5}
+.C aside .chosen{display:flex;flex-direction:column;gap:2px}
+.C aside .chosen button{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:14px;text-align:left}
+.C aside .chosen button::after{content:"×";color:var(--ink3);opacity:0}
+.C aside .chosen button:hover::after{opacity:1}
+.C aside .chosen i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--c);margin-right:8px}
+.C .search{width:100%;padding:9px 12px;border:0;border-radius:10px;background:var(--sunk);outline:0;margin-bottom:6px}
+.C .grp{padding:16px 0 4px;font-size:12px;font-weight:600;color:var(--ink3)}
+.C .item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 0;border-top:1px solid var(--line);text-align:left;font-size:14.5px}
+.C .item .ck{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line)}
+.C .item.on .ck{background:var(--accent);border-color:var(--accent)}
+.C .item.on{font-weight:650}
+.C .item .n{margin-left:auto;color:var(--ink3);font-size:12px;font-weight:400}
+
+/* D. 파스텔 면 */
+.D .wrap{max-width:760px;margin:0 auto}
+.D .gen{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px}
+.D .gen .g{padding:12px 16px;border-radius:14px;background:color-mix(in srgb,var(--c) var(--fill),var(--panel));min-width:150px}
+.D .gen .g small{display:block;font-size:11.5px;color:var(--ink2);margin-bottom:2px}
+.D .gen .g b{font-size:16px}
+.D .gen .g.plain{background:var(--sunk)}
+.D .groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.D .gp{border-radius:16px;padding:16px 16px 18px;background:color-mix(in srgb,var(--c) 9%,var(--panel));box-shadow:inset 3px 0 0 color-mix(in srgb,var(--c) 70%,transparent)}
+.D .gp h4{font-size:13px;font-weight:700;margin-bottom:10px}
+.D .gp .cl{display:flex;flex-wrap:wrap;gap:6px}
+.D .gp .cl button{padding:4px 11px;border-radius:9px;font-size:13px;color:var(--ink2);background:color-mix(in srgb,var(--panel) 70%,transparent)}
+.D .gp .cl button:hover{background:var(--panel);color:var(--ink)}
+.D .gp .cl button.on{background:color-mix(in srgb,var(--c) 55%,var(--panel));color:#1f1e1c;font-weight:650}
+html[data-theme="dark"] .D .gp .cl button.on{color:#fff}
+
+/* E. 탭 + 검색 */
+.E .wrap{max-width:660px;margin:0 auto}
+.E .top{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;padding-bottom:18px;margin-bottom:6px;border-bottom:1px solid var(--line)}
+.E .top .big{font-size:17px;font-weight:700;margin-top:3px}
+.E .chosen{display:flex;flex-wrap:wrap;gap:6px;min-height:34px;padding:12px 0}
+.E .chosen button{padding:3px 4px 3px 10px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:13px;display:inline-flex;gap:4px;align-items:center}
+.E .chosen button::after{content:"×";padding:0 5px;opacity:.7}
+.E .tabs{display:flex;gap:18px;border-bottom:1px solid var(--line);margin-top:6px}
+.E .tabs button{padding:8px 0;color:var(--ink2);font-size:13.5px;border-bottom:2px solid transparent;margin-bottom:-1px}
+.E .tabs button.on{color:var(--ink);font-weight:650;border-bottom-color:var(--accent)}
+.E .tabs button small{color:var(--ink3);margin-left:3px;font-weight:400}
+.E .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:0 28px;padding-top:6px}
+.E .grid button{display:flex;align-items:center;gap:8px;padding:11px 0;border-bottom:1px solid var(--line);text-align:left;font-size:14.5px;color:var(--ink2)}
+.E .grid button:hover{color:var(--ink)}
+.E .grid button.on{color:var(--ink);font-weight:650}
+.E .grid button.on::after{content:"✓";margin-left:auto;color:var(--accent)}
+.E .search{width:100%;padding:9px 12px;border:0;border-radius:10px;background:var(--sunk);outline:0;margin-top:14px}
+</style>
+</head>
+<body>
+<div class="bar"><b>장르·키워드 시안 5종</b>
+<a href="#A">A 문서형</a><a href="#B">B 번호 목록</a><a href="#C">C 2열</a><a href="#D">D 파스텔 면</a><a href="#E">E 탭+검색</a>
+<span class="sp"></span><button id="theme">다크 / 라이트</button></div>
+<main>
+<h1>장르·키워드 페이지 시안</h1>
+<p class="lead">캐릭터·아이템과 같은 톤(카드 없음 · 구분선 · 호버 때만 배경 · 파스텔 포인트)으로 만든 5가지 방향입니다. 칩과 항목은 눌러서 선택/해제해 볼 수 있어요. 데이터는 모두 예시입니다.</p>
+
+<section class="v" id="A"><header><h2>A · 문서형</h2><em>가장 조용함</em></header>
+<p>장르가 한 줄 제목이 되고, 선택한 키워드는 #해시태그 문장처럼 읽힙니다. 아래는 카테고리 라벨 + 텍스트 선택지. 선택은 굵기와 밑줄로만 표시.</p>
+<div class="frame"><div class="pg A"><div class="doc">
+  <div class="tb"><h3 style="font-size:13px;color:var(--ink3);font-weight:600">장르·키워드</h3></div>
+  <div class="genre-line">로맨스판타지 <span>›</span> 회귀물</div>
+  <div class="sub">웹소설 · 15세 이용가</div>
+  <div class="tags" data-sel="A"></div>
+  <div data-cats="A"></div>
+  <div class="add" style="margin-top:18px"><input placeholder="직접 입력 후 Enter"><button>추가</button></div>
+</div></div></div></section>
+
+<section class="v" id="B"><header><h2>B · 번호 목록</h2><em>캐릭터 목록과 가장 닮음</em></header>
+<p>카테고리가 01, 02… 번호 행이 되고 각 행 안에 알약 태그가 놓입니다. 카테고리마다 파스텔 점 하나. 선택하면 그 색으로 채워집니다.</p>
+<div class="frame"><div class="pg B"><div class="wrap">
+  <div class="tb"><h3>장르·키워드</h3></div>
+  <div class="head">
+    <div><span class="lbl">작품 종류</span><div class="big">웹소설</div></div>
+    <div><span class="lbl">메인 장르</span><div class="big">로맨스판타지</div></div>
+    <div><span class="lbl">세부 장르</span><div class="big">회귀물</div></div>
+    <div><span class="lbl">이용 등급</span><div class="big" style="font-size:14px;margin-top:6px"><span class="r19"><i></i>19금</span></div></div>
+  </div>
+  <div data-cats="B"></div>
+  <div class="add" style="margin-top:8px;padding-top:16px;border-top:1px solid var(--line)"><input placeholder="직접 입력 후 Enter"><button>추가</button></div>
+</div></div></div></section>
+
+<section class="v" id="C"><header><h2>C · 2열 (요약 고정)</h2><em>많이 고르는 사람용</em></header>
+<p>왼쪽에 “지금 내 작품” 요약(장르 + 고른 키워드)이 고정되고, 오른쪽은 검색 + 체크 목록. 고른 걸 한눈에 보면서 계속 고를 수 있습니다.</p>
+<div class="frame"><div class="pg C"><div class="cols">
+  <aside>
+    <div class="tb" style="margin-bottom:10px"><h3 style="font-size:13px;color:var(--ink3);font-weight:600">장르·키워드</h3></div>
+    <div class="blk"><h5>장르</h5><div class="g">웹소설<br>로맨스판타지 › 회귀물</div></div>
+    <div class="blk"><h5>고른 키워드 <span data-count="C"></span></h5><div class="chosen" data-sel="C"></div></div>
+    <div class="blk"><div class="add"><input placeholder="직접 추가" style="max-width:none"><button>+</button></div></div>
+  </aside>
+  <div><input class="search" placeholder="키워드 검색"><div data-cats="C"></div></div>
+</div></div></div></section>
+
+<section class="v" id="D"><header><h2>D · 파스텔 면</h2><em>생각수첩 메모와 같은 결</em></header>
+<p>카테고리를 파스텔 면 한 장씩으로 나눠 색으로 구분합니다. 위에는 장르 타일. 그림 같은 느낌이 필요할 때.</p>
+<div class="frame"><div class="pg D"><div class="wrap">
+  <div class="tb"><h3>장르·키워드</h3></div>
+  <div class="gen">
+    <div class="g tn-rose"><small>작품 종류</small><b>웹소설</b></div>
+    <div class="g tn-lilac"><small>메인 장르</small><b>로맨스판타지</b></div>
+    <div class="g tn-mint"><small>세부 장르</small><b>회귀물</b></div>
+    <div class="g plain"><small>이용 등급</small><b>15세</b></div>
+  </div>
+  <div class="groups" data-cats="D"></div>
+  <div class="add" style="margin-top:18px"><input placeholder="직접 입력 후 Enter"><button>추가</button></div>
+</div></div></div></section>
+
+<section class="v" id="E"><header><h2>E · 탭 + 선택 칩</h2><em>화면이 가장 짧음</em></header>
+<p>위에 장르 3칸 요약, 그 아래 고른 키워드 칩, 카테고리는 밑줄 탭으로 한 번에 하나만 보입니다. 캐릭터 역할 필터와 같은 탭 문법.</p>
+<div class="frame"><div class="pg E"><div class="wrap">
+  <div class="tb"><h3>장르·키워드</h3></div>
+  <div class="top">
+    <div><span class="lbl">작품 종류</span><div class="big">웹소설</div></div>
+    <div><span class="lbl">메인 장르</span><div class="big">로맨스판타지</div></div>
+    <div><span class="lbl">세부 장르</span><div class="big">회귀물</div></div>
+  </div>
+  <span class="lbl" style="display:block;margin-top:14px">고른 키워드</span>
+  <div class="chosen" data-sel="E"></div>
+  <div class="tabs" data-tabs="E"></div>
+  <div class="grid" data-grid="E"></div>
+  <input class="search" placeholder="직접 입력 후 Enter">
+</div></div></div></section>
+</main>
+<script>
+const CATS=[
+ {n:"분위기",c:"rose",o:["힐링","다크","코믹","진지","몽환","서정적","긴장감"]},
+ {n:"관계",c:"lilac",o:["계약연애","적에서 연인","짝사랑","삼각관계","재회","동거","사제"]},
+ {n:"설정",c:"mint",o:["회귀","빙의","환생","아카데미","궁중","마법","이세계"]},
+ {n:"전개",c:"sky",o:["사이다","느린 전개","성장","복수","반전","일상"]},
+ {n:"주인공",c:"butter",o:["능력녀","집착남","무심남","먼치킨","악역","평범한"]}
+];
+const sel=new Set(["회귀","계약연애","사이다","능력녀","집착남"]);
+const cOf=t=>CATS.find(c=>c.o.includes(t));
+const $$=s=>document.querySelectorAll(s);
+function render(){
+  $$("[data-sel]").forEach(el=>{
+    const v=el.dataset.sel,list=[...sel];
+    if(v==="A") el.innerHTML=list.map(t=>`<b>${t}</b>`).join("");
+    if(v==="C") el.innerHTML=list.map(t=>`<button data-t="${t}" class="tn-${cOf(t).c}"><span><i></i>${t}</span></button>`).join("");
+    if(v==="E") el.innerHTML=list.map(t=>`<button data-t="${t}">${t}</button>`).join("");
+  });
+  $$("[data-count]").forEach(e=>e.textContent=sel.size);
+  $$("[data-cats]").forEach(el=>{
+    const v=el.dataset.cats;
+    el.innerHTML=CATS.map((c,i)=>{
+      const btns=c.o.map(t=>{
+        const on=sel.has(t)?" on":"";
+        if(v==="C") return `<button class="item${on}" data-t="${t}"><span class="ck"></span>${t}<span class="n">${(t.length*7)%40+3}</span></button>`;
+        return `<button class="${on.trim()}" data-t="${t}">${t}</button>`;
+      }).join("");
+      if(v==="A") return `<div class="cat"><span class="lbl">${c.n}</span><div class="opts">${btns}</div></div>`;
+      if(v==="B") return `<div class="row tn-${c.c}"><span class="no">0${i+1}</span><h4><span class="dot"></span>${c.n}<small>${c.o.filter(t=>sel.has(t)).length}개 선택</small></h4><div class="pills">${btns}</div></div>`;
+      if(v==="C") return `<div class="grp">${c.n}</div>${btns}`;
+      if(v==="D") return `<div class="gp tn-${c.c}"><h4>${c.n}</h4><div class="cl">${btns}</div></div>`;
+    }).join("");
+  });
+  const tabs=document.querySelector('[data-tabs="E"]');
+  const cur=+(tabs.dataset.cur||0);tabs.dataset.cur=cur;
+  tabs.innerHTML=CATS.map((c,i)=>`<button class="${i===cur?"on":""}" data-tab="${i}">${c.n}<small>${c.o.filter(t=>sel.has(t)).length||""}</small></button>`).join("");
+  document.querySelector('[data-grid="E"]').innerHTML=CATS[cur].o.map(t=>`<button class="${sel.has(t)?"on":""}" data-t="${t}">${t}</button>`).join("");
+}
+document.addEventListener("click",e=>{
+  const tab=e.target.closest("[data-tab]");
+  if(tab){document.querySelector('[data-tabs="E"]').dataset.cur=tab.dataset.tab;render();return}
+  const b=e.target.closest("[data-t]");
+  if(!b)return;
+  const t=b.dataset.t;sel.has(t)?sel.delete(t):sel.add(t);render();
+});
+document.getElementById("theme").onclick=()=>{
+  const r=document.documentElement;r.dataset.theme=r.dataset.theme==="dark"?"light":"dark";
+};
+render();
+</script>
+</body>
+</html>

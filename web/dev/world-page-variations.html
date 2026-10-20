@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuperTory · 세계관 페이지 시안 5종</title>
+<link rel="stylesheet" href="../fonts/pretendard.css">
+<style>
+:root{
+  --bg:#f1efee; --panel:#fafafa; --sunk:#f1efec; --desk:#f4f2ef;
+  --ink:#2b2a27; --ink2:#5d5e5b; --ink3:#8e8b84; --line:#e6e3de; --accent:#45463f; --accent-ink:#fafafa;
+  --fill:24%;
+  --sans:"Pretendard","Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+}
+:root[data-theme="dark"]{
+  --bg:#171615; --panel:#1f1e1c; --sunk:#282725; --desk:#1b1a19;
+  --ink:#ece9e4; --ink2:#b3afa7; --ink3:#857f76; --line:#34322f; --accent:#d8d4c8; --accent-ink:#1f1e1c; --fill:20%;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);font-size:13.5px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+textarea{font:inherit;color:inherit}
+.bar{position:sticky;top:0;z-index:30;display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:9px 20px;background:#1f2429;color:#e8eaed;font-size:12.5px}
+.bar b{font-weight:650;margin-right:8px}.bar a{color:#9fb4c8;text-decoration:none;padding:4px 9px;border-radius:6px}.bar a:hover{background:#2c3238}
+.bar .sp{flex:1}.bar button{padding:5px 11px;border-radius:7px;background:#2c3238;color:#cfd5db}
+main{max-width:1000px;margin:0 auto;padding:26px 24px 80px}
+h1{font-size:22px;font-weight:700;margin-bottom:6px}
+.lead{color:var(--ink2);line-height:1.6;max-width:72ch;margin-bottom:30px}
+section.v{margin-bottom:54px}
+section.v>header{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+section.v>header h2{font-size:16px;font-weight:700}
+section.v>header em{font-style:normal;font-size:11.5px;color:var(--ink3);border:1px solid var(--line);border-radius:6px;padding:1px 7px}
+section.v>p{color:var(--ink2);margin-bottom:14px;line-height:1.55;max-width:80ch}
+.frame{background:var(--desk);border-radius:14px;height:720px;overflow:auto}
+.pg{padding:22px 30px 40px;min-height:100%}
+
+/* 공통 */
+.s1{--c:#e48b96}.s2{--c:#9d8bd2}.s3{--c:#62b088}.s4{--c:#6fa3d6}.s5{--c:#e3bf55}.s6{--c:#e09a63}
+.tb{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.tb h3{font-size:22px;font-weight:700;flex:1}
+.tb .save{font-size:12px;color:var(--ink3)}
+.tb .pbtn{padding:6px 12px;border-radius:9px;background:var(--accent);color:var(--accent-ink);font-size:12.5px;font-weight:600}
+.tb .gbtn{padding:6px 11px;border-radius:9px;color:var(--ink2);font-size:12.5px}.tb .gbtn:hover{background:var(--sunk)}
+.lbl{display:block;font-size:12px;font-weight:600;color:var(--ink3)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--c);flex:none}
+.fld{display:block;margin:0 0 18px}
+.fld textarea{display:block;width:calc(100% + 20px);margin:5px 0 0 -10px;padding:6px 10px;border:0;border-radius:9px;background:transparent;outline:0;resize:none;field-sizing:content;min-height:64px;font-size:14.5px;line-height:1.8;color:var(--ink)}
+.fld textarea:hover{background:color-mix(in srgb,var(--sunk) 60%,transparent)}
+.fld textarea:focus{background:var(--sunk)}
+.fld textarea::placeholder{color:var(--ink3)}
+.blurb{font-size:12.5px;color:var(--ink3);line-height:1.5;margin:0 0 14px}
+
+/* A. 문서형 */
+.A .doc{max-width:620px;margin:0 auto}
+.A .sec{padding:26px 0 8px;border-top:1px solid var(--line)}
+.A .sec:first-of-type{border-top:0;padding-top:8px}
+.A .sec h4{display:flex;align-items:center;gap:9px;font-size:22px;font-weight:700;letter-spacing:-.01em;margin-bottom:4px}
+.A .sec h4 small{font-size:11.5px;font-weight:400;color:var(--ink3);font-variant-numeric:tabular-nums}
+
+/* B. 목차 + 본문 */
+.B .cols{display:grid;grid-template-columns:200px 1fr;gap:44px;max-width:860px;margin:0 auto}
+.B nav{position:sticky;top:0;align-self:start}
+.B nav .tb{margin-bottom:10px}
+.B nav a{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);color:var(--ink2);text-decoration:none;font-size:14px}
+.B nav a:hover{color:var(--ink)}
+.B nav a .no{font-size:11.5px;color:var(--ink3);width:18px;font-variant-numeric:tabular-nums}
+.B nav a em{margin-left:auto;font-style:normal;font-size:11.5px;color:var(--ink3)}
+.B nav a.on{color:var(--ink);font-weight:650}
+.B .body .sec{padding:4px 0 22px;margin-bottom:22px;border-bottom:1px solid var(--line)}
+.B .body .sec:last-child{border-bottom:0}
+.B .body h4{font-size:18px;font-weight:700;margin-bottom:2px}
+
+/* C. 탭 */
+.C .wrap{max-width:660px;margin:0 auto}
+.C .tabs{display:flex;gap:18px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:22px}
+.C .tabs button{padding:8px 0;color:var(--ink2);font-size:13.5px;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:6px}
+.C .tabs button.on{color:var(--ink);font-weight:650;border-bottom-color:var(--accent)}
+.C .tabs button small{color:var(--ink3);font-weight:400;font-size:11.5px}
+.C .pane h4{font-size:26px;font-weight:700;letter-spacing:-.01em;margin-bottom:4px}
+.C .nav2{display:flex;justify-content:space-between;margin-top:26px;padding-top:14px;border-top:1px solid var(--line)}
+.C .nav2 button{padding:6px 10px;margin:0 -10px;border-radius:9px;color:var(--ink2);font-size:13px}.C .nav2 button:hover{background:var(--sunk)}
+
+/* D. 파스텔 면 */
+.D .wrap{max-width:820px;margin:0 auto}
+.D .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+.D .gp{border-radius:16px;padding:18px 18px 8px;background:color-mix(in srgb,var(--c) 9%,var(--panel));box-shadow:inset 3px 0 0 color-mix(in srgb,var(--c) 70%,transparent)}
+.D .gp h4{font-size:15px;font-weight:700;margin-bottom:2px}
+.D .gp .blurb{margin-bottom:12px}
+.D .gp .fld{margin-bottom:12px}
+.D .gp .fld textarea{background:color-mix(in srgb,var(--panel) 62%,transparent);min-height:54px;font-size:14px;line-height:1.7}
+.D .gp .fld textarea:hover{background:color-mix(in srgb,var(--panel) 82%,transparent)}
+.D .gp .fld textarea:focus{background:var(--panel)}
+
+/* E. 번호 행 아코디언 */
+.E .wrap{max-width:700px;margin:0 auto}
+.E .row{position:relative;border-top:1px solid var(--line);padding:0 0 0 34px}
+.E .row .no{position:absolute;left:0;top:21px;font-size:11.5px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.E .row>button.hd{display:block;width:100%;text-align:left;padding:18px 0 16px}
+.E .row h4{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px}
+.E .row h4 .chev{margin-left:auto;color:var(--ink3);font-size:12px;font-weight:400;transition:transform .15s}
+.E .row.open h4 .chev{transform:rotate(180deg)}
+.E .row .sum{font-size:13px;color:var(--ink3);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.55}
+.E .row.open .sum{display:none}
+.E .row .inner{display:none;padding:2px 0 8px}
+.E .row.open .inner{display:block}
+</style>
+</head>
+<body>
+<div class="bar"><b>세계관 시안 5종</b>
+<a href="#A">A 문서형</a><a href="#B">B 목차+본문</a><a href="#C">C 탭</a><a href="#D">D 파스텔 면</a><a href="#E">E 번호 행</a>
+<span class="sp"></span><button id="theme">다크 / 라이트</button></div>
+<main>
+<h1>세계관 페이지 시안</h1>
+<p class="lead">지금은 6개 박스(무대·특이점·극단 요소·사회·세력·지리)가 2열 카드로 놓여 있습니다. 캐릭터·아이템·장르 화면과 같은 톤(카드 없음 · 구분선 · 호버/포커스 때만 배경 · 파스텔 포인트)으로 만든 5가지 방향입니다. 입력칸은 실제로 쓸 수 있고, 내용은 예시입니다.</p>
+
+<section class="v" id="A"><header><h2>A · 문서형</h2><em>설정 문서처럼 위에서 아래로</em></header>
+<p>6개 섹션을 하나의 긴 문서로 이어 놓습니다. 섹션 제목이 큰 소제목, 칸 이름은 작은 회색 라벨. 입력칸은 호버/포커스에서만 배경이 보입니다. 캐릭터 상세와 가장 같은 문법.</p>
+<div class="frame"><div class="pg A"><div class="doc" data-r="A"></div></div></div></section>
+
+<section class="v" id="B"><header><h2>B · 목차 + 본문</h2><em>긴 글을 오가기 편함</em></header>
+<p>왼쪽에 고정 목차(번호 · 점 · 채운 칸 수), 오른쪽에 본문. 목차를 누르면 해당 섹션으로 이동하고, 어디까지 채웠는지 한눈에 보입니다.</p>
+<div class="frame" id="Bframe"><div class="pg B"><div class="cols"><nav data-r="Bnav"></nav><div class="body" data-r="B"></div></div></div></div></section>
+
+<section class="v" id="C"><header><h2>C · 섹션 탭</h2><em>한 번에 하나만</em></header>
+<p>섹션을 밑줄 탭으로 나누고 한 화면에는 한 섹션만 보여 줍니다. 집중해서 쓰기 좋고 화면이 짧습니다. 아래에 이전/다음 이동.</p>
+<div class="frame"><div class="pg C"><div class="wrap"><div class="tb"><h3>세계관</h3><span class="save">자동 저장됨</span></div><div class="tabs" data-r="Ctabs"></div><div class="pane" data-r="C"></div></div></div></div></section>
+
+<section class="v" id="D"><header><h2>D · 파스텔 면</h2><em>생각수첩 메모와 같은 결</em></header>
+<p>섹션마다 파스텔 면 한 장. 지금의 2열 카드 구조는 유지하면서 색으로만 구분합니다. 가장 변화가 작은 안.</p>
+<div class="frame"><div class="pg D"><div class="wrap"><div class="tb"><h3>세계관</h3><span class="save">자동 저장됨</span></div><div class="grid" data-r="D"></div></div></div></div></section>
+
+<section class="v" id="E"><header><h2>E · 번호 행 (접기)</h2><em>키워드·캐릭터 목록과 같은 번호 행</em></header>
+<p>01~06 번호 행. 접힌 행은 적어 둔 내용을 두 줄 요약으로 보여 주고, 눌러서 펼쳐 편집합니다. 한눈에 전체 상태를 보면서 필요한 칸만 엽니다.</p>
+<div class="frame"><div class="pg E"><div class="wrap"><div class="tb"><h3>세계관</h3><span class="save">자동 저장됨</span></div><div data-r="E"></div></div></div></div></section>
+</main>
+<script>
+const S=[
+ {t:"장소와 시대",en:"Where & When",b:"작품의 기본 무대가 되는 공간과 시간대입니다.",f:[
+  ["현실 / 가상 여부","현실과 닮았지만 마법이 존재하는 가상 세계"],["시대 배경","산업혁명 직전, 증기와 마법이 공존하는 19세기 풍"],["주요 배경","항구 도시 하버라인과 그 아래 지하 구역"],["문화 형태",""]]},
+ {t:"세계의 특이점",en:"Unique Concept",b:"이 세계를 다른 세계와 다르게 만드는 핵심 규칙입니다.",f:[
+  ["특수 요소","사람마다 하나씩 ‘그림자’를 부리는 능력"],["작동 원칙","그림자는 빛이 있는 곳에서만 움직인다"],["한계와 대가","오래 쓰면 본인의 기억이 흐려진다"]]},
+ {t:"극단적 요소",en:"Extreme Factor",b:"이 세계의 일상을 위협하거나 체계를 흔드는 거대한 변수입니다.",f:[
+  ["극단적 사건 / 환경","해가 지지 않는 백야가 3년째 이어지는 중"],["세계에 미친 영향",""]]},
+ {t:"체계와 사회",en:"System & Life",b:"사람들이 살아가는 데 필요한 최소한의 사회 구조입니다.",f:[
+  ["권력 구조","상인 조합 의회가 시장을 사실상 통제한다"],["기본 생활","낮에는 지상, 밤에는 지하 시장에서 거래"],["계급 / 신분",""]]},
+ {t:"세력과 집단",en:"Factions",b:"주인공과 부딪히거나 손잡을 조직과 집단입니다.",f:[
+  ["주요 세력","등대지기 길드 · 지하 상인회 · 왕실 감찰국"],["갈등 구도","길드와 상인회가 항구 통제권을 두고 대립"]]},
+ {t:"지리적 특징",en:"Geography",b:"땅의 생김새와 이동 경로가 이야기에 미치는 영향입니다.",f:[
+  ["지형 / 기후","해안 절벽과 안개가 잦은 항구, 내륙은 건조한 고원"],["주요 지역","하버라인 · 지하 구역 · 외곽 방파제"],["경계와 이동","지상은 빗물 차단 터널, 지하 수로로만 이동"]]}
+];
+const fld=(sec,i)=>`<label class="fld"><span class="lbl">${S[sec].f[i][0]}</span><textarea placeholder="예: 직접 적어 보세요" rows="2">${S[sec].f[i][1]}</textarea></label>`;
+const flds=sec=>S[sec].f.map((_,i)=>fld(sec,i)).join("");
+const filled=sec=>S[sec].f.filter(x=>x[1]).length;
+const no=i=>String(i+1).padStart(2,"0");
+let curTab=0;
+const open=new Set([0]);
+function render(){
+  document.querySelector('[data-r="A"]').innerHTML=
+   `<div class="tb"><h3>세계관</h3><span class="save">자동 저장됨</span></div>`+
+   S.map((s,i)=>`<div class="sec s${i+1}"><h4><span class="dot"></span>${s.t}<small>${no(i)}</small></h4><p class="blurb">${s.b}</p>${flds(i)}</div>`).join("");
+  document.querySelector('[data-r="Bnav"]').innerHTML=
+   `<div class="tb"><h3 style="font-size:13px;color:var(--ink3);font-weight:600">세계관</h3></div>`+
+   S.map((s,i)=>`<a href="#B${i}" class="s${i+1}${i===0?" on":""}" data-go="${i}"><span class="no">${no(i)}</span><span class="dot"></span>${s.t}<em>${filled(i)}/${s.f.length}</em></a>`).join("");
+  document.querySelector('[data-r="B"]').innerHTML=
+   S.map((s,i)=>`<div class="sec s${i+1}" id="B${i}"><h4>${s.t}</h4><p class="blurb">${s.b}</p>${flds(i)}</div>`).join("");
+  document.querySelector('[data-r="Ctabs"]').innerHTML=
+   S.map((s,i)=>`<button class="s${i+1}${i===curTab?" on":""}" data-tab="${i}"><span class="dot"></span>${s.t}<small>${filled(i)}/${s.f.length}</small></button>`).join("");
+  const s=S[curTab];
+  document.querySelector('[data-r="C"]').innerHTML=
+   `<div class="s${curTab+1}"><h4>${s.t}</h4><p class="blurb">${s.b}</p>${flds(curTab)}<div class="nav2"><button data-step="-1">${curTab>0?"← "+S[curTab-1].t:""}</button><button data-step="1">${curTab<S.length-1?S[curTab+1].t+" →":""}</button></div></div>`;
+  document.querySelector('[data-r="D"]').innerHTML=
+   S.map((s,i)=>`<div class="gp s${i+1}"><h4>${s.t}</h4><p class="blurb">${s.b}</p>${flds(i)}</div>`).join("");
+  document.querySelector('[data-r="E"]').innerHTML=
+   S.map((s,i)=>`<div class="row s${i+1}${open.has(i)?" open":""}"><span class="no">${no(i)}</span><button class="hd" data-row="${i}"><h4><span class="dot"></span>${s.t}<span class="chev">▾</span></h4><div class="sum">${s.f.filter(x=>x[1]).map(x=>x[1]).join(" · ")||"아직 적은 내용이 없어요"}</div></button><div class="inner"><p class="blurb">${s.b}</p>${flds(i)}</div></div>`).join("");
+}
+render();
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-tab]");if(t){curTab=+t.dataset.tab;render();return}
+  const st=e.target.closest("[data-step]");if(st){curTab=Math.max(0,Math.min(S.length-1,curTab+ +st.dataset.step));render();return}
+  const r=e.target.closest("[data-row]");if(r){const i=+r.dataset.row;open.has(i)?open.delete(i):open.add(i);render();return}
+  const g=e.target.closest("[data-go]");if(g){e.preventDefault();document.getElementById("B"+g.dataset.go).scrollIntoView({block:"start",behavior:"smooth"})}
+});
+/* 입력 내용 유지: 다시 그릴 때 값이 날아가지 않도록 데이터에 반영 */
+document.addEventListener("input",e=>{
+  const ta=e.target.closest("textarea");if(!ta)return;
+  const fl=ta.closest(".fld"),lab=fl.querySelector(".lbl").textContent;
+  const si=[...fl.closest("[class*=' s'],.sec,.gp,.s1,.s2,.s3,.s4,.s5,.s6").className.matchAll(/\bs(\d)\b/g)].map(m=>+m[1]-1)[0];
+  if(si==null)return;
+  const f=S[si].f.find(x=>x[0]===lab);if(f)f[1]=ta.value;
+});
+document.getElementById("theme").onclick=()=>{const r=document.documentElement;r.dataset.theme=r.dataset.theme==="dark"?"light":"dark"};
+</script>
+</body>
+</html>
