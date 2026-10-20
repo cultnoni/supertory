@@ -86,7 +86,9 @@ class FeedbackPanelLogicTests(unittest.TestCase):
         end = html.find('id="analyzeMenuHome"')
         panel_html = html[start:end]
         self.assertNotIn('<input type="radio"', panel_html)
-        self.assertNotIn('<input type="checkbox"', panel_html)
+        # 「처음부터 다시 보기」 is the one deliberate native checkbox; JS reads it.
+        self.assertEqual(panel_html.count('<input type="checkbox"'), 1)
+        self.assertIn('<input type="checkbox" data-role="fb-fresh-cards">', panel_html)
         self.assertIn("class=\"fb-toggle\"", panel_html)
         self.assertIn("class=\"fb-seg\"", panel_html)
         self.assertIn("fb-kind-chips", panel_html)
@@ -245,7 +247,7 @@ class FeedbackPanelLogicTests(unittest.TestCase):
         self.assertIn("is-ignored", js)
         self.assertIn("comment_count", js)
         self.assertIn(".fb-talk-msg.is-user", css)
-        self.assertIn("feedback_panel.js?v=24", html)
+        self.assertRegex(html, r"feedback_panel\.js\?v=\d+")
 
     def test_locale_keys_for_feedback_names_stay_in_sync(self) -> None:
         keys = (

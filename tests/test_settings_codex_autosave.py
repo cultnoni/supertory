@@ -13,6 +13,8 @@ class SettingsCodexAutosaveTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         cls.js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+        # 부팅 연결(safeSetup)은 app-boot.js에 있다.
+        cls.js += "\n" + (ROOT / "web" / "app-boot.js").read_text(encoding="utf-8")
         cls.css = (ROOT / "web" / "styles.css").read_text(encoding="utf-8")
 
     def test_character_editor_status_and_save_hint(self) -> None:
@@ -340,15 +342,15 @@ class SettingsCodexAutosaveTests(unittest.TestCase):
             'data-settings-section="baits"', 1
         )[0]
         self.assertNotIn("단어를 눌러 뜻을 수정하거나", dictionary_body)
-        self.assertIn("index.plus_단어", dictionary_body)
+        # 새 단어 버튼은 아이콘 버튼이다 (title/aria-label은 index.새_단어).
+        self.assertIn('data-i18n-title="index.새_단어"', dictionary_body)
         self.assertIn("settings-panel-card-grid", dictionary_body)
         self.assertIn("dictionary-panel-filters", dictionary_body)
         plus_at = dictionary_body.find("newDictionaryButton")
         search_at = dictionary_body.find('id="dictionarySearch"')
         self.assertGreater(plus_at, -1)
         self.assertGreater(search_at, plus_at)
-        self.assertIn('data-i18n="index.plus_단어"', self.html)
-        self.assertIn('data-i18n="index.새단어"', self.html)
+        self.assertIn('data-i18n-title="index.새_단어"', self.html)
         self.assertIn("openDictionaryModal()", self.js)
         characters_nav = characters_body
         self.assertIn("settings-panel-card-grid", characters_nav)

@@ -136,7 +136,7 @@ class ReaderChatTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         bare = reader_api._reader_dynamic_context(pid)
-        self.assertIn("메인 장르: 로판", bare)
+        self.assertIn("메인 장르: 로맨스 판타지", bare)
         self.assertIn("서브 장르:", bare)
         self.assertIn("[작품 설정 요약", bare)
         self.assertIn("설정집 정보이며 실제 원고 문장이 아님", bare)
@@ -213,7 +213,7 @@ class ReaderChatTests(unittest.TestCase):
     def test_dynamic_context_omits_empty_settings_quietly(self) -> None:
         pid = self._make_project()
         bare = reader_api._reader_dynamic_context(pid)
-        self.assertIn("메인 장르: 로판", bare)
+        self.assertIn("메인 장르: 로맨스 판타지", bare)
         self.assertIn("[원고 미첨부]", bare)
         self.assertNotIn("시놉시스 요약:", bare)
         self.assertNotIn("세계관 설정 요약", bare)

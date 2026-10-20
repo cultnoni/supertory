@@ -14,6 +14,8 @@ class PanelDockContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+        # 부팅 연결(safeSetup)은 app-boot.js에 있다.
+        cls.js += "\n" + (ROOT / "web" / "app-boot.js").read_text(encoding="utf-8")
         cls.css = (ROOT / "web" / "styles.css").read_text(encoding="utf-8")
         cls.html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         cls.locales = {
@@ -1894,7 +1896,8 @@ class PanelDockContractTests(unittest.TestCase):
         viewer_close = self.html.split('id="viewerMaximizeButton"', 1)[1].split("data-close-viewer", 1)[1].split("</button>", 1)[0]
         self.assertIn('data-i18n-title="app.닫기_Esc"', viewer_close)
         self.assertIn('data-i18n-title="index.취소선_Ctrl_Shift_X"', self.html)
-        self.assertEqual(self.html.count('title="다시 실행 (Ctrl+Y · Ctrl+Shift+Z)"'), 2)
+        # 서식 도구 실행 취소·다시 실행 묶음에만 남아 있다 (ea77943 이후 중복 버튼 제거).
+        self.assertEqual(self.html.count('title="다시 실행 (Ctrl+Y · Ctrl+Shift+Z)"'), 1)
         locale_needles = {
             "app.닫기_Esc": ("Esc", "Esc", "Esc"),
             "app.전체화면_닫기_Esc": ("Esc", "Esc", "Esc"),

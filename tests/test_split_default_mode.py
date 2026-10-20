@@ -144,7 +144,7 @@ class SplitDefaultModeUiTests(unittest.TestCase):
             1,
         )[1].split("}", 1)[0]
         self.assertIn("padding: 0 var(--ms-h-gutter", viewer)
-        self.assertIn("padding: 0 var(--ms-h-gutter, calc(8px - 1.5mm)) 10px 0", viewer)
+        self.assertIn("padding: 0 var(--ms-h-gutter, calc(8px - 1.5mm)) var(--split-pane-bottom) 0", viewer)
         self.assertIn("border: 0", viewer)
         self.assertNotIn("padding: 8px 8px 8px 4px", viewer)
         resizer = css.split(".split-pane-resizer {", 1)[1].split(".split-pane-resizer-hit", 1)[0]
@@ -233,14 +233,15 @@ class SplitDefaultModeUiTests(unittest.TestCase):
     def test_focus_write_sheet_looks_like_a4_on_desk(self) -> None:
         css = (ROOT / "web" / "styles.css").read_text(encoding="utf-8")
         self.assertIn('class="focus-write-sheet"', self.html)
-        page = css.split("\n.focus-write-page {", 1)[1].split("}", 1)[0]
+        # A4 spread grid moved from .focus-write-page to .focus-write-spread-fit.
+        page = css.split("\n.focus-write-spread-fit {", 1)[1].split("}", 1)[0]
         self.assertIn("background: var(--page-editor-bg, var(--page-bg, #fffdf8))", page)
         self.assertNotIn("background: #e8e8e8", page)
         self.assertIn("minmax(100%, max-content)", page)
         self.assertIn("2px min(794px, calc(100% - 48px)) 2px", page)
-        self.assertIn(".focus-write-page::before", css)
-        self.assertIn(".focus-write-page::after", css)
-        rules = css.split(".focus-write-page::before,", 1)[1].split(".focus-write-sheet {", 1)[0]
+        self.assertIn(".focus-write-spread-fit::before", css)
+        self.assertIn(".focus-write-spread-fit::after", css)
+        rules = css.split(".focus-write-spread-fit::before,", 1)[1].split(".focus-write-sheet {", 1)[0]
         self.assertIn("background: #d8b996", rules)
         self.assertIn("position: sticky", rules)
         self.assertIn("height: 100%", rules)
@@ -260,8 +261,10 @@ class SplitDefaultModeUiTests(unittest.TestCase):
         self.assertIn("--page-bg: #1f4d2e", classroom)
         open_fn = self.js.split("function openFocusWrite()", 1)[1].split("function closeFocusWrite()", 1)[0]
         self.assertIn("applyReadablePageInk(pageTheme, pagePref.customColor)", open_fn)
+        # 시트를 가운데 열(3)에 올리는 규칙은 .focus-write-spread-stage로 옮겨졌다.
+        stage = css.split("\n.focus-write-spread-stage {", 1)[1].split("}", 1)[0]
+        self.assertIn("grid-column: 3", stage)
         sheet = css.split("\n.focus-write-sheet {", 1)[1].split("}", 1)[0]
-        self.assertIn("grid-column: 3", sheet)
         self.assertNotIn("border-left: 2px solid #d8b996", sheet)
         self.assertNotIn("background: #ffffff", sheet)
         self.assertNotIn("1400px", sheet)

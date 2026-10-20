@@ -475,6 +475,7 @@ class GenreClusterApiTests(unittest.TestCase):
                 "cluster_id": "general_literature",
                 "main_genre": "general_lit",
                 "sub_genre": "",
+                "literary_form": "short",
             },
         )
         self.assertEqual(status, 200, literature)

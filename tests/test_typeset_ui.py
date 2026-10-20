@@ -132,7 +132,8 @@ class TypesetToolbarUiTests(unittest.TestCase):
         css = (ROOT / "web" / "styles.css").read_text(encoding="utf-8")
         page_css = css.split(".page-write-page {", 1)[1].split(".page-write-page:focus", 1)[0]
         self.assertNotIn("repeating-linear-gradient", page_css)
-        self.assertIn("background: #fbf7ef", page_css)
+        # 페이지 색은 테마 변수로 바뀌었다 (--page-editor-bg).
+        self.assertIn("background: var(--page-editor-bg, var(--page-bg, var(--paper)))", page_css)
         self.assertIn("width: var(--page-write-viewport, 360px)", page_css)
         self.assertIn("box-sizing: border-box", page_css)
         self.assertNotIn("width: calc(var(--page-write-cols", page_css)
@@ -348,7 +349,7 @@ class TypesetToolbarUiTests(unittest.TestCase):
             any("font-weight: 700" in block.split("}", 1)[0] for block in readonly_blocks)
         )
         self.assertTrue(
-            any("Malgun Gothic" in block.split("}", 1)[0] for block in readonly_blocks)
+            any("var(--font-ui)" in block.split("}", 1)[0] for block in readonly_blocks)
         )
         self.assertTrue(
             any("바탕체" not in block.split("}", 1)[0] and "font-weight: 700" in block.split("}", 1)[0]
@@ -364,7 +365,7 @@ class TypesetToolbarUiTests(unittest.TestCase):
         self.assertIn("flex: 0 1 auto", hint_text)
         self.assertNotIn("바탕체", hint_text)
         chip = css.split(".viewer-typeset-chip {", 1)[1].split("}", 1)[0]
-        self.assertIn("Malgun Gothic", chip)
+        self.assertIn("var(--font-ui)", chip)
         self.assertNotIn("font: inherit", css.split(".viewer-typeset-chip {", 1)[1].split(".viewer-typeset-chip.is-active", 1)[0])
         for name in ("ko", "en", "es"):
             data = json.loads((ROOT / "web" / "locales" / f"{name}.json").read_text(encoding="utf-8"))

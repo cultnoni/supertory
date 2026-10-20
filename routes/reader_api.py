@@ -89,6 +89,11 @@ READER_COMMENTS_MAX_REFRESHES = 3
 
 READER_COMMENT_JOKER_CHANCE = 0.25
 
+_GENRE_NEEDLE_ALIASES: dict[str, tuple[str, ...]] = {
+    "romfant": ("로판", "로맨스·로판"),
+    "high": ("하이루판",),
+}
+
 READER_COMMENT_WILDCARD_CATEGORIES = (
     "narrative_critic",
     "taste_preference",
@@ -197,7 +202,7 @@ READER_PERSONA_SPECIALTY: dict[str, tuple[str, frozenset[str]]] = {
         "무협",
         frozenset({
             "martial", "classic", "new", "modern_wu", "murim",
-            "무협", "정통무협", "신무협", "현대한무", "강호",
+            "무협", "정통무협", "신무협", "강호",
         }),
     ),
     "sf_hardcore_critic": (
@@ -683,6 +688,10 @@ def _genre_search_needles(raw_key: object) -> list[str]:
         label = _handler_cls()._genre_display_label(None, key)
         if label and label not in {"미정", "기타"} and label not in needles:
             needles.append(label)
+        # Persona names use short forms (로판, 하이루판) that the full label misses.
+        for alias in _GENRE_NEEDLE_ALIASES.get(key, ()):
+            if alias not in needles:
+                needles.append(alias)
     return [item for item in needles if item]
 
 
@@ -1703,7 +1712,7 @@ def reader_chat_history(handler, work_id: object, persona_id: object) -> dict:
             session_id = session["id"]
             message_rows = connection.execute(
                 "SELECT id, role, content, created_at FROM reader_chat_messages "
-                "WHERE session_id = ? ORDER BY created_at ASC, id ASC",
+                "WHERE session_id = ? ORDER BY created_at ASC, rowid ASC",
                 (session_id,),
             ).fetchall()
             messages = [_as_dict(row) for row in message_rows]

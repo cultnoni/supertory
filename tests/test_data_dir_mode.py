@@ -75,4 +75,5 @@ class SharedAppDataDbPresenceTests(unittest.TestCase):
             count = connection.execute("SELECT COUNT(*) FROM project").fetchone()[0]
         finally:
             connection.close()
-        self.assertEqual(count, 44)
+        # 작품 수는 PC마다 다르므로 값을 고정하지 않고, 읽기 가능한 DB인지만 본다.
+        self.assertGreaterEqual(count, 0)

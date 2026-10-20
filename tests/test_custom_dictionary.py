@@ -157,8 +157,9 @@ class CustomDictionaryTests(unittest.TestCase):
         similar = html.find('data-context-action="similar-words"')
         add_dict = html.find('data-context-action="add-tory-dict"')
         cross = html.find('data-context-action="cross-ref-search"')
-        self.assertLess(lookup, similar)
-        self.assertLess(similar, add_dict)
+        # 「단어 찾기」는 선택 플로팅 바에 있어 우클릭 메뉴 순서와 따로 본다.
+        self.assertGreater(similar, 0)
+        self.assertLess(lookup, add_dict)
         self.assertLess(add_dict, cross)
         self.assertNotIn('data-context-action="toggle-smart-punctuation"', html)
         highlight = html.find('data-context-action="toggle-dict-highlight"')
