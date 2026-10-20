@@ -3254,6 +3254,8 @@
   "index.목록": "List",
   "index.회차_이동": "Move episode",
   "index.열린_회차_탭": "Open episode tabs",
+  "index.왼쪽_패널_열고_닫기": "Toggle left panel",
+  "index.오른쪽_패널_열고_닫기": "Toggle right panel",
   "index.이전_다음_회차": "Previous/next episode",
   "index.토리의_소제목_추천": "Tory's Subtitle Suggestions",
   "index.현재_회차_제목": "Current episode title",

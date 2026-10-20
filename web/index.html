@@ -2173,7 +2173,10 @@
             <!-- 열린문서 탭: 제목 카드 위(밖) · 좌우는 카드와 동일 거터 -->
             <div class="episode-chrome" id="episodeChrome" aria-label="회차 이동" data-i18n-aria-label="index.회차_이동">
               <div class="episode-tab-row">
+                <button type="button" class="episode-tab-row-toggle episode-tab-row-toggle-left" id="episodeTabLeftPanelToggle" title="왼쪽 패널 열고 닫기" data-i18n-title="index.왼쪽_패널_열고_닫기" aria-label="왼쪽 패널 열고 닫기" data-i18n-aria-label="index.왼쪽_패널_열고_닫기"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"/></svg></button>
                 <div class="episode-tab-bar" id="episodeTabBar" role="tablist" aria-label="열린 회차 탭" data-i18n-aria-label="index.열린_회차_탭"></div>
+                <div class="episode-tab-row-spacer"></div>
+                <button type="button" class="episode-tab-row-toggle episode-tab-row-toggle-right" id="episodeTabRightPanelToggle" title="오른쪽 패널 열고 닫기" data-i18n-title="index.오른쪽_패널_열고_닫기" aria-label="오른쪽 패널 열고 닫기" data-i18n-aria-label="index.오른쪽_패널_열고_닫기"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 18 6-6-6-6"/></svg></button>
               </div>
             </div>
             <form id="sceneEditor" class="editor">
@@ -4244,15 +4247,14 @@
                 <label class="ai-prompt-field" id="aiPromptField" for="aiPrompt">
                   <span class="sr-only" id="aiPromptSrLabel" data-i18n="app.요청_내용">요청 내용</span>
                   <textarea id="aiPrompt" rows="5" placeholder="예: 주인공의 불안을 더 드러내 줘. / 대화 위주로 이어 써 줘." data-i18n-placeholder="app.예_주인공의_불안을_더_드러내_줘_대화_위주" aria-labelledby="aiPromptLabel"></textarea>
+                  <!-- 보내기: 아래 긴 줄로 따로 빼지 않고 요청 칸 안쪽 오른쪽 아래에 배치 -->
+                  <button type="submit" class="ai-submit-btn" id="aiSubmitButton" data-i18n="app.보내기">보내기</button>
                 </label>
               </div>
               <label id="successProfileRefWrap" class="success-profile-ref-wrap hidden" for="successProfileRefCheck">
                 <input type="checkbox" id="successProfileRefCheck" autocomplete="off">
                 <span data-i18n="index.흥행_공식_참고_선택">흥행 공식 참고 (선택)</span>
               </label>
-              <div class="ai-submit-row">
-                <button type="submit" class="ai-submit-btn" id="aiSubmitButton" data-i18n="app.보내기">보내기</button>
-              </div>
             </form>
 
             <div id="aiResultWrap" class="ai-result-wrap is-empty tory-helper-results">

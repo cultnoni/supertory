@@ -5819,8 +5819,6 @@ html[data-ui-scheme="dark"] .ai-writing-status {
 #aiToolsView[data-helper-pane="select"]:has(.ai-mode-picker[data-select-view="form"]) .ai-prompt-head {
   margin-bottom: 0;
 }
-#aiToolsView[data-helper-pane="direct"] .ai-submit-row,
-#aiToolsView[data-helper-pane="select"] .ai-submit-row,
 #aiToolsView[data-helper-pane="result"] .ai-result-actions {
   flex: 0 0 auto;
 }
@@ -8479,6 +8477,7 @@ html[data-ui-scheme="dark"] #toryPriorityInput {
 }
 .ai-prompt-field {
   display: block !important;
+  position: relative;
   margin: 0 !important;
   font-weight: 400 !important;
   min-width: 0;
@@ -8487,6 +8486,10 @@ html[data-ui-scheme="dark"] #toryPriorityInput {
 .ai-prompt-wrap #aiPrompt {
   width: 100%;
   margin-top: 0 !important;
+  /* 오른쪽 아래 보내기 버튼과 글이 겹치지 않도록 */
+  padding-right: 54px !important;
+  padding-bottom: 40px !important;
+  box-sizing: border-box;
 }
 .ai-prompt-modal-body {
   display: block;
@@ -8660,7 +8663,6 @@ html[data-ui-scheme="dark"] #toryPriorityInput {
   display: none !important;
 }
 #aiToolsView[data-helper-pane="select"]:has(.ai-mode-picker[data-select-view="list"]) #aiPromptWrap,
-#aiToolsView[data-helper-pane="select"]:has(.ai-mode-picker[data-select-view="list"]) .ai-submit-row,
 #aiToolsView[data-helper-pane="select"]:has(.ai-mode-picker[data-select-view="list"]) #successProfileRefWrap,
 #aiToolsView[data-helper-pane="select"]:has(.ai-mode-picker[data-select-view="list"]) #aiToolInlineHint,
 #aiToolsView[data-helper-pane="select"]:has(.ai-mode-picker[data-select-view="list"]) #successPatternInlineHint {
@@ -8841,31 +8843,38 @@ html[data-ui-scheme="dark"] .ai-panel-form select.is-coming-mode {
   box-sizing: border-box;
   resize: vertical;
 }
-.ai-submit-row {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  margin-top: 0;
-  margin-bottom: 0;
+/* 요청 칸은 오른쪽 아래에 보내기 버튼을 겹쳐 띄우므로, 같은 자리를 다투는
+   브라우저 기본 리사이즈 손잡이는 끈다 (크게 보기 버튼으로 대신 넓혀 본다) */
+.ai-prompt-wrap #aiPrompt {
+  resize: none !important;
 }
+/* 보내기: 요청 칸 아래 긴 줄로 빼지 않고, 칸 안쪽 오른쪽 아래에 겹쳐 띄운다 */
 .ai-submit-btn {
-  flex: 1 1 auto;
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2;
+  flex: none;
   width: auto;
+  max-width: calc(100% - 16px);
   margin-top: 0;
-  min-height: 32px !important;
-  padding: 6px 14px !important;
+  min-height: 30px !important;
+  padding: 6px 13px !important;
   font-size: 12.5px !important;
   font-weight: 750 !important;
   line-height: 1.2 !important;
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  border-radius: 8px;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 999px;
   border: 1px solid var(--border-color, var(--line, #E2E8F0)) !important;
   background: var(--accent-sand, #F5F5F4) !important;
   color: var(--text-primary, var(--ink)) !important;
-  box-shadow: none;
+  box-shadow: var(--depth-shadow, 0 2px 8px rgba(28, 25, 23, 0.14));
   cursor: pointer;
   transition: background 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease, border-color 0.12s ease;
 }
@@ -20000,6 +20009,56 @@ button.alias-chip.is-tori-draft,
 .episode-tab-bar:empty { display: none; }
 .episode-tab-row:not(:has(.episode-tab)) {
   display: none;
+}
+/* 열린 회차 탭 줄 양 끝: 왼쪽 패널·오른쪽 패널 여닫기 — 첫 탭 시작선을 살짝
+   오른쪽으로 밀어 자리를 만들고, 스크롤 영역 뒤에는 spacer로 오른쪽 끝에 고정 */
+.episode-tab-row-toggle {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  margin-bottom: calc(max(1px, calc(10px - 2mm) - 9px) + 1mm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel, #fff);
+  color: var(--ink);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 8%, transparent);
+  cursor: pointer;
+  position: relative;
+  z-index: 2;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.episode-tab-row-toggle svg {
+  width: 16px;
+  height: 16px;
+  /* flex-shrink:0 없이는 inline-flex 안 SVG의 너비가 거의 0으로 찌그러짐(브라우저 버그) */
+  flex-shrink: 0;
+  stroke-width: 2.3;
+}
+.episode-tab-row-toggle:hover {
+  background: var(--accent-sand, var(--selection));
+  color: var(--accent, var(--ink));
+  border-color: var(--hover-border, var(--line));
+}
+.episode-tab-row-toggle-left {
+  /* 왼쪽 끝: 띠의 둥근 모서리 밖으로 삐져나오지 않도록 안쪽 여백을 직접 둔다
+     (.episode-tab-row 자체는 다른 규칙에서 padding:0 !important 로 고정되어 있음)
+     — 요청대로 거기서 2mm 더 왼쪽으로, 다시 0.8mm 오른쪽(안쪽)으로 */
+  margin-left: calc(10px - 2mm + 0.8mm);
+  margin-right: 8px;
+}
+.episode-tab-row-toggle-right {
+  margin-left: 8px;
+  /* 요청대로 거기서 2mm 더 오른쪽으로, 다시 0.8mm 왼쪽(안쪽)으로 */
+  margin-right: calc(10px - 2mm + 0.8mm);
+}
+.episode-tab-row-spacer {
+  flex: 1 1 auto;
+  min-width: 4px;
 }
 .episode-tab {
   flex: 0 1 auto;

@@ -1610,6 +1610,8 @@ main { padding-left: 0 !important; padding-right: 0 !important; }
 
 /* 열린 회차 탭 정교화: 탭마다 따로 박스를 두지 않고 하나의 탭 줄 안에서 세로 선으로 나눈다. 현재 탭만 위쪽이 둥근 흰 면으로 아래와 이어진다 */
 .episode-tab-bar { padding: 6px 0 0 !important; gap: 0 !important; align-items: flex-end; }
+/* 첫 번째(맨 왼쪽) 탭 시작선을 요청대로 0.5mm 더 왼쪽으로 */
+.episode-tab-bar { margin-left: -0.5mm; }
 .episode-tab:not(.is-active) {
   border: 0 !important; border-radius: 0 !important; background: transparent !important;
   position: relative; margin-bottom: 1px !important;

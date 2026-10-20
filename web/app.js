@@ -75944,6 +75944,9 @@ function renderEpisodeChrome() {
 
 function setupEpisodeChrome() {
   loadEpisodeTabsFromStorage();
+  // 탭 줄 양 끝의 손잡이: 왼쪽은 바인더(좌) 패널, 오른쪽은 SuperTORY(우) 패널을 토글
+  $("episodeTabLeftPanelToggle")?.addEventListener("click", () => setBinderPanelOpen(!isBinderPanelOpen()));
+  $("episodeTabRightPanelToggle")?.addEventListener("click", () => setAiPanelOpen(!isAiPanelOpen()));
   $("episodePrevButton")?.addEventListener("click", () => {
     const sequence = getEpisodeSequence();
     const idx = findEpisodeIndex(state.sceneId, sequence);
