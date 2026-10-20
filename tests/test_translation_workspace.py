@@ -454,6 +454,12 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 201)
         project_id = int(project["id"])
+        status, _ = self.request(
+            "POST",
+            f"/api/projects/{project_id}/settings",
+            {"synopsis_md": "비의 도시에서 한 사내가 잃어버린 이름을 찾는 이야기."},
+        )
+        self.assertEqual(status, 200)
         status, chapter = self.request(
             "POST", f"/api/projects/{project_id}/chapters", {"title": "첫 장"}
         )

@@ -100,6 +100,35 @@ class TranslationJobRepositoryTests(unittest.TestCase):
             2,
         )
 
+    def test_get_job_reports_submission_package_like_list_jobs(self) -> None:
+        created = self.repository.create_job(
+            self.project_id, "en", "moderate", 1, 2, False
+        )
+        job_id = int(created["id"])
+        self.assertFalse(bool(self.repository.get_job(job_id)["has_submission_package"]))
+        self.connection.execute(
+            """
+            INSERT INTO translation_submission_package(
+                translation_job_id, synopsis_translated, logline_translated,
+                sample_chapters_range, generated_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (job_id, "Synopsis", "Logline", "1-2", "2026-10-20T00:00:00Z"),
+        )
+        self.connection.commit()
+        detail = self.repository.get_job(job_id)
+        listed = next(
+            item
+            for item in self.repository.list_jobs(self.project_id)
+            if int(item["id"]) == job_id
+        )
+        self.assertTrue(bool(detail["has_submission_package"]))
+        self.assertEqual(detail["submission_generated_at"], "2026-10-20T00:00:00Z")
+        self.assertEqual(
+            bool(detail["has_submission_package"]),
+            bool(listed["has_submission_package"]),
+        )
+
     def test_get_missing_job_returns_none(self) -> None:
         self.assertIsNone(self.repository.get_job(999999))
         self.assertIsNone(self.repository.get_job_for_project(self.project_id))

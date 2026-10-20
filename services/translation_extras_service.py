@@ -532,6 +532,10 @@ class TranslationExtrasService:
         korean_synopsis = self.repository.get_project_synopsis(
             int(job["local_project_id"])
         )
+        if not str(korean_synopsis or "").strip():
+            raise ValueError(
+                "투고 패키지를 만들려면 설정집에 시놉시스를 먼저 입력해 주세요."
+            )
         source = korean_synopsis
         if translated_sample:
             source = (

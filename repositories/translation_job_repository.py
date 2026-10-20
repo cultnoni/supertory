@@ -69,7 +69,19 @@ class TranslationJobRepository:
 
     def get_job(self, job_id: int) -> dict | None:
         row = self.connection.execute(
-            "SELECT * FROM translation_jobs WHERE id = ?",
+            """
+            SELECT j.*,
+                   CASE
+                     WHEN TRIM(COALESCE(sp.logline_translated, '')) != ''
+                       OR TRIM(COALESCE(sp.synopsis_translated, '')) != ''
+                     THEN 1 ELSE 0
+                   END AS has_submission_package,
+                   sp.generated_at AS submission_generated_at
+            FROM translation_jobs j
+            LEFT JOIN translation_submission_package sp
+              ON sp.translation_job_id = j.id
+            WHERE j.id = ?
+            """,
             (int(job_id),),
         ).fetchone()
         return dict(row) if row is not None else None
