@@ -57106,7 +57106,6 @@ function setupBinderCollapseUi() {
   if (setupBinderCollapseUi._bound) return;
   setupBinderCollapseUi._bound = true;
   const toggle = () => setBinderPanelOpen(!isBinderPanelOpen());
-  $("islBinderHandle")?.addEventListener("click", () => setBinderPanelOpen(true));
   $("islMiniNew")?.addEventListener("click", () => $("islNewEpisode")?.click());
   $("islMiniList")?.addEventListener("click", (event) => {
     const btn = event.target.closest?.("[data-scene-id]");

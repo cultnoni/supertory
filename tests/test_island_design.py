@@ -216,8 +216,10 @@ class IslandDesignContractTests(unittest.TestCase):
         self.assertIn("body.binder-panel-collapsed .binder-dock-rail .panel-dock-rail-items { display: none", self.css)
 
     def test_left_panel_collapse_default_zero_width_and_optional_mini_nav(self) -> None:
-        # 왼쪽 패널 접힘: 기본은 너비 0(레일 없음) + 가장자리 손잡이, 설정을 켜면 회차 번호 줄
-        self.assertIn('id="islBinderHandle"', self.html)
+        # 왼쪽 패널 접힘: 기본은 너비 0(레일 없음), 설정을 켜면 회차 번호 줄.
+        # 가장자리 손잡이(islBinderHandle)는 열린 회차 탭 줄의 패널 토글 버튼으로 대체되어 삭제됨
+        self.assertNotIn('id="islBinderHandle"', self.html)
+        self.assertNotIn('isl-binder-handle', self.css)
         self.assertIn('id="islMiniNav"', self.html)
         self.assertIn('id="adminBinderMiniNav"', self.html)
         self.assertIn("function syncBinderCollapseUi(", self.js)

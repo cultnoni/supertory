@@ -1936,6 +1936,9 @@ body.binder-panel-collapsed.ai-panel-collapsed main { grid-template-columns: var
 body.binder-panel-collapsed:not(.binder-mini) #outlinePanel { overflow: hidden; padding: 0 !important; min-width: 0; }
 body.binder-panel-collapsed:not(.binder-mini) .binder-dock-rail { display: none !important; }
 body.binder-panel-collapsed:not(.binder-mini) #workArea { margin-left: calc(-1 * var(--isl-gap)); border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+/* workArea 왼쪽 위 모서리가 각지면, 그 안의 열린 회차 탭 줄(자기 둥근 모서리를 따로 가짐)만
+   둥글게 남아 왼쪽 위에 따로 떨어진 둥근 네모 자국처럼 보인다 — 같이 각지게 맞춘다 */
+body.binder-panel-collapsed:not(.binder-mini) .episode-tab-row { border-top-left-radius: 0; }
 .isl-mini-nav { display: none; }
 body.binder-mini .binder-dock-rail { display: flex !important; flex-direction: column; align-items: center; gap: 6px; padding: 8px 4px !important; width: 100% !important; }
 body.binder-mini .isl-mini-nav { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1 1 auto; min-height: 0; width: 100%; order: 1; }
@@ -1952,13 +1955,6 @@ body.binder-mini #expandBinderPanelButton { order: 2; margin-top: 0; }
 .isl-mn[data-status="complete"]::after { background: var(--isl-st-complete); }
 .isl-mn:hover { background: var(--isl-sunk) !important; }
 .isl-mn.is-current { background: var(--accent-soft, var(--isl-sunk)) !important; color: var(--accent) !important; }
-.isl-binder-handle { display: none; }
-body.binder-panel-collapsed:not(.binder-mini):not(.focus-write-open) .isl-binder-handle {
-  display: grid; place-items: center; position: fixed; left: 0; top: 50%; transform: translateY(-50%); z-index: 45;
-  width: 14px; height: 48px; padding: 0 !important; border: 1px solid var(--line) !important; border-left: 0 !important;
-  border-radius: 0 10px 10px 0 !important; background: var(--panel) !important; color: var(--isl-ink3) !important; box-shadow: 0 1px 6px rgba(31, 36, 41, 0.12); cursor: pointer;
-}
-.isl-binder-handle:hover { color: var(--accent) !important; }
 
 /* 토리 체크 위젯: 실시간 체크 | 맞춤법 전환 */
 .isl-tc-seg { display: inline-flex; gap: 2px; padding: 3px; margin: 0 0 8px; background: var(--isl-sunk); border-radius: 10px; }
