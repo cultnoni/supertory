@@ -14552,9 +14552,13 @@ function paintRelationDeckStack(kind, rows) {
     const borderStyle = border ? `border-color:${border};--rel-ring:${border};` : "";
     const top = expanded ? "" : `top:${6 + index * 12}px;z-index:${index + 1};`;
     const deckRole = escapeHtml(characterStoryRole(ch.role) || "");
-    return `<button type="button" class="relation-deck-card ${selected}" data-deck-card="${ch.id}" data-rel-role="${deckRole}" style="${top}${borderStyle}">
-      <span class="relation-deck-card-name">${escapeHtml(ch.name || i18n.t("app.이름_없음"))}</span>
-      <span class="relation-deck-card-role">${escapeHtml(characterStoryRoleLabel(ch.role))}</span>
+    const deckName = ch.name || i18n.t("app.이름_없음");
+    const deckInitial = escapeHtml(Array.from(String(deckName).trim())[0] || "?");
+    const deckRoleLabel = characterStoryRoleLabel(ch.role);
+    return `<button type="button" class="relation-deck-card ${selected}" data-deck-card="${ch.id}" data-rel-role="${deckRole}" title="${escapeHtml(`${deckName} · ${deckRoleLabel}`)}" style="${top}${borderStyle}">
+      <span class="relation-deck-card-av" aria-hidden="true">${deckInitial}</span>
+      <span class="relation-deck-card-name">${escapeHtml(deckName)}</span>
+      <span class="relation-deck-card-role">${escapeHtml(deckRoleLabel)}</span>
     </button>`;
   }).join("") + ((!expanded && rows.length > REL_DECK_PEEK)
     ? `<p class="relation-deck-empty">+${rows.length - REL_DECK_PEEK}</p>`
@@ -15879,6 +15883,8 @@ function ensureRelationDeckGhost(clientX, clientY) {
     ghost.type = "button";
     ghost.className = "relation-deck-card relation-deck-ghost";
     ghost.innerHTML = relationDeckDrag.ghostHtml;
+    if (relationDeckDrag.ghostRole) ghost.setAttribute("data-rel-role", relationDeckDrag.ghostRole);
+    if (relationDeckDrag.ghostRing) ghost.style.setProperty("--rel-ring", relationDeckDrag.ghostRing);
     document.body.appendChild(ghost);
   }
   if (!ghost) return null;
@@ -16211,6 +16217,8 @@ function bindRelationCanvasEvents() {
       startY: event.clientY,
       moved: false,
       ghostHtml: deckCard.innerHTML,
+      ghostRole: deckCard.getAttribute("data-rel-role") || "",
+      ghostRing: deckCard.style.getPropertyValue("--rel-ring") || "",
     };
     deckCard.classList.add("is-deck-source");
     ensureRelationDeckGhost(event.clientX, event.clientY);

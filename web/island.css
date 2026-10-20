@@ -3455,3 +3455,90 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 .rv-table th.rv-col { height: 118px; }
 .rv-table th.rv-col div { writing-mode: vertical-rl; text-orientation: upright; transform: none; letter-spacing: 0.02em; gap: 6px; }
 .rv-table td { width: 64px; }
+
+/* ── 대기인물·단역 서랍: 카드 더미 대신 칩 (시안 A) ─────────────────────────────── */
+/* 끌 때 나오는 고스트는 body 아래에 붙으므로 #relationCanvas 밖에서도 같은 규칙을 적용한다 */
+.relation-deck-ghost[data-rel-role="protagonist"], #relationCanvas .relation-deck-card[data-rel-role="protagonist"] { --rc: #e48b96; }
+.relation-deck-ghost[data-rel-role="antagonist"], #relationCanvas .relation-deck-card[data-rel-role="antagonist"] { --rc: #9d8bd2; }
+.relation-deck-ghost[data-rel-role="supporting"], #relationCanvas .relation-deck-card[data-rel-role="supporting"] { --rc: #62b088; }
+.relation-deck-ghost[data-rel-role="minor"], #relationCanvas .relation-deck-card[data-rel-role="minor"] { --rc: #6fa3d6; }
+
+#relationCanvas .relation-deck-stack,
+#relationCanvas .relation-deck.is-expanded .relation-deck-stack {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px;
+  padding: 2px 2px 2px 0;
+}
+#relationCanvas .relation-deck:not(.is-expanded) .relation-deck-stack { overflow: hidden; }
+
+#relationCanvas .relation-deck-card,
+.relation-deck-ghost {
+  --dc: var(--rel-ring, var(--rc, var(--isl-ink3)));
+  position: relative !important;
+  left: auto !important;
+  right: auto !important;
+  top: auto !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  max-width: 100%;
+  min-height: 0;
+  padding: 3px 11px 3px 4px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--panel, #fff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dc) 45%, var(--line));
+  transform: none;
+  text-align: left;
+}
+#relationCanvas .relation-deck-card:hover:not(.is-deck-source) {
+  transform: none;
+  background: color-mix(in srgb, var(--dc) 14%, var(--panel, #fff));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dc) 70%, var(--line));
+}
+#relationCanvas .relation-deck-card.is-selected { outline: 0; box-shadow: 0 0 0 2px var(--accent); }
+.relation-deck-card-av {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--dc) 30%, var(--panel, #fff));
+  color: color-mix(in srgb, var(--dc) 60%, var(--text-primary) 40%);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+#relationCanvas .relation-deck-card .relation-deck-card-name,
+.relation-deck-ghost .relation-deck-card-name {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.relation-deck-card .relation-deck-card-role { display: none; }
+.relation-deck-ghost {
+  position: fixed !important;
+  z-index: 10000;
+  transform: translate(-50%, -50%) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dc) 70%, var(--line)), var(--isl-pop-shadow);
+}
+/* "+N" 표시도 칩 크기로 */
+#relationCanvas .relation-deck-empty {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--isl-sunk);
+  color: var(--isl-ink3);
+  font-size: 12px;
+}
