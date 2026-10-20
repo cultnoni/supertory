@@ -5676,6 +5676,8 @@
   "island.fp_말줄임표": "Puntos suspensivos …",
   "island.fp_더많은기호": "Más símbolos",
   "island.fp_문서": "Documento",
+  "island.fp_좌우여백": "Márgenes laterales",
+  "island.fp_좌우여백_도움": "Predeterminado de Hangul 30 mm · Word 25,4 mm",
   "island.fp_서식지우기": "Borrar formato",
   "island.fp_지우기": "Borrar",
   "island.줄": "Interl.",

@@ -519,6 +519,32 @@ function setAiPanelWriting(on) {
   $("aiPanel")?.classList.toggle("is-writing", show);
 }
 
+/** 원고 본문 좌우 여백(mm). 기본값은 한글 기본 여백 30mm (워드 기본 25.4mm). */
+const PAGE_MARGIN_X_STORAGE_KEY = "supertory.pageMarginX";
+const PAGE_MARGIN_X_DEFAULT_MM = 30;
+const PAGE_MARGIN_X_MIN_MM = 10;
+const PAGE_MARGIN_X_MAX_MM = 45;
+
+function clampPageMarginXMm(value) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return PAGE_MARGIN_X_DEFAULT_MM;
+  return Math.min(PAGE_MARGIN_X_MAX_MM, Math.max(PAGE_MARGIN_X_MIN_MM, n));
+}
+
+function readPageMarginXMm() {
+  let raw = null;
+  try { raw = localStorage.getItem(PAGE_MARGIN_X_STORAGE_KEY); } catch (_) { /* ignore */ }
+  return raw == null || raw === "" ? PAGE_MARGIN_X_DEFAULT_MM : clampPageMarginXMm(raw);
+}
+
+function applyPageMarginX(value) {
+  const mm = clampPageMarginXMm(value);
+  document.documentElement.style.setProperty("--ms-page-margin-x", `${mm}mm`);
+  return mm;
+}
+
+applyPageMarginX(readPageMarginXMm());
+
 const AI_ASSIST_ERR_CONNECTION =
   i18n.t('app.인터넷_연결이_필요해요');
 const AI_ASSIST_ERR_GENERIC =
@@ -32958,6 +32984,21 @@ function setupFormatMorePopover() {
   $("islFpTracking")?.addEventListener("input", (e) => { const n = Number(e.target.value); $("islFpTrackingVal").textContent = n ? (n / 100).toFixed(2) : "0"; });
   $("islFpTracking")?.addEventListener("change", (e) => withSelection((ed) => applyLetterSpacing(e.target.value, ed)));
   $("islTrackingSelect")?.addEventListener("change", (e) => withSelection((ed) => applyLetterSpacing(e.target.value, ed)));
+  // 원고 좌우 여백(mm) — 기기별 화면 설정이라 localStorage에 둔다
+  const syncMarginX = () => {
+    const mm = readPageMarginXMm();
+    if ($("islFpMarginX")) $("islFpMarginX").value = String(mm);
+    if ($("islFpMarginXVal")) $("islFpMarginXVal").textContent = `${mm}mm`;
+  };
+  syncMarginX();
+  $("islFpMarginX")?.addEventListener("input", (e) => {
+    const mm = applyPageMarginX(e.target.value);
+    $("islFpMarginXVal").textContent = `${mm}mm`;
+  });
+  $("islFpMarginX")?.addEventListener("change", (e) => {
+    const mm = applyPageMarginX(e.target.value);
+    try { localStorage.setItem(PAGE_MARGIN_X_STORAGE_KEY, String(mm)); } catch (_) { /* ignore */ }
+  });
   // 정렬·단 나누기·글머리·기호 → 기존 서식 버튼 그대로 클릭, 번호 목록·삽입·서식 지우기는 기존 함수
   pop.addEventListener("click", (event) => {
     const fmt = event.target.closest("[data-isl-fmt]");
@@ -75881,7 +75922,7 @@ async function runTorySceneSummary() {
     if (btn) {
       btn.disabled = false;
       btn.textContent = prevLabel || i18n.t('app.요약');
-      btn.title = prevTitle || i18n.t('app.좌클릭_요약_목록_우클릭_토리야_요약해_줘');
+      btn.title = prevTitle || i18n.t('app.본문을_요약해_요약_칸에_넣기');
     }
   }
 }
@@ -75978,10 +76019,10 @@ function positionSynopsisPop() {
 function setupSynopsisList() {
   const synopsisBtn = $("synopsisListButton");
   if (synopsisBtn) {
-    synopsisBtn.title = i18n.t('app.좌클릭_요약_목록_우클릭_토리야_요약해_줘');
+    synopsisBtn.title = i18n.t('app.본문을_요약해_요약_칸에_넣기');
   }
   synopsisBtn?.addEventListener("click", () => {
-    openSynopsisList().catch(handleError);
+    runTorySceneSummary().catch(handleError);
   });
   $("synopsisToggleButton")?.addEventListener("click", () => {
     if (isSynopsisListOpen()) closeSynopsisList();

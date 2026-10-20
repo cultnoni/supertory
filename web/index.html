@@ -2771,7 +2771,7 @@
                         type="button"
                         class="scene-synopsis-label-btn"
                         id="synopsisListButton"
-                        title="좌클릭: 요약 목록 · 우클릭: 토리야 요약해 줘" data-i18n-title="app.좌클릭_요약_목록_우클릭_토리야_요약해_줘"
+                        title="본문을 요약해 요약 칸에 넣기" data-i18n-title="app.본문을_요약해_요약_칸에_넣기"
                        data-i18n="app.요약">요약</button>
                       <div class="scene-synopsis-input-wrap">
                         <input id="sceneSynopsis" placeholder="예: 주인공이 낯선 편지를 발견한다." data-i18n-placeholder="index.예_주인공이_낯선_편지를_발견한다" form="sceneEditor" aria-label="이 씬 요약" data-i18n-aria-label="index.이_씬_요약">
@@ -6943,6 +6943,7 @@
       </section>
       <section>
         <h5 data-i18n="island.fp_문서">문서</h5>
+        <div class="isl-fp-row" title="한글 기본 30mm · 워드 기본 25.4mm" data-i18n-title="island.fp_좌우여백_도움"><span class="isl-fp-lab" data-i18n="island.fp_좌우여백">좌우 여백</span><input type="range" id="islFpMarginX" min="10" max="45" step="1" value="30" aria-label="좌우 여백" data-i18n-aria-label="island.fp_좌우여백"><output id="islFpMarginXVal">30mm</output></div>
         <div class="isl-fp-chips">
           <button type="button" class="isl-fp-chip" data-isl-doc="applyAll"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg><span data-i18n="island.fp_전체문서적용">전체 문서에 적용</span></button>
           <button type="button" class="isl-fp-chip" data-isl-cmd="removeFormat"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4-4 11-11a2 2 0 0 1 3 0l3 3a2 2 0 0 1 0 3L11 21zM12 21h9"/></svg><span data-i18n="island.fp_서식지우기">서식 지우기</span></button>

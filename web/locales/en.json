@@ -5678,6 +5678,8 @@
   "island.fp_말줄임표": "Ellipsis …",
   "island.fp_더많은기호": "More symbols",
   "island.fp_문서": "Document",
+  "island.fp_좌우여백": "Side margins",
+  "island.fp_좌우여백_도움": "Hangul default 30mm · Word default 25.4mm",
   "island.fp_서식지우기": "Clear formatting",
   "island.fp_지우기": "Clear",
   "island.줄": "Line",

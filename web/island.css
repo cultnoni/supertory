@@ -803,6 +803,12 @@ body { --isl-paper-ink: var(--page-ink); }
 .scene-workspace:not(.split-active) #sceneStatusBar { flex-wrap: wrap; row-gap: 6px; }
 .scene-workspace:not(.split-active) #sceneStatusBar > .isl-stepper { flex: 1 0 100%; }
 .scene-workspace:not(.split-active) #sceneStatusBar > .scene-synopsis-field { flex: 1 1 100%; }
+/* 원고 본문 좌우 여백 — 한글 기본(30mm) 기준, 서식 더보기에서 조절(--ms-page-margin-x).
+   종이(최대 820px)가 A4 폭과 비슷해 mm를 그대로 쓰고, 창이 좁으면 종이 폭의 22%까지만 */
+.scene-workspace:not(.split-active) .manuscript-page > #sceneContent {
+  padding-left: min(var(--ms-page-margin-x, 30mm), 22%) !important;
+  padding-right: min(var(--ms-page-margin-x, 30mm), 22%) !important;
+}
 /* 서식줄은 이제 패널색 띠 위 → 글자색은 테마 본문색 */
 .scene-workspace:not(.split-active) #formatToolbarShell,
 .scene-workspace:not(.split-active) #formatIconsShell {
@@ -1751,14 +1757,16 @@ main { padding-left: 0 !important; padding-right: 0 !important; }
 .syn-pop-hint { font-size: 11.5px; color: var(--isl-ink3); }
 #synopsisListBody { display: flex; flex-direction: column; gap: 2px; }
 #synopsisListBody .synopsis-list-item {
-  display: flex; align-items: center; gap: 14px; width: 100%; padding: 9px 10px; border: 0 !important; border-radius: 9px !important;
+  display: flex; align-items: flex-start; gap: 14px; width: 100%; padding: 9px 10px; border: 0 !important; border-radius: 9px !important;
   background: transparent !important; box-shadow: none !important; text-align: left; color: var(--text-primary); font-size: 13.5px; cursor: pointer;
 }
 #synopsisListBody .synopsis-list-item:hover { background: var(--isl-sunk) !important; }
 #synopsisListBody .synopsis-list-item.is-current { background: var(--accent-soft, var(--isl-sunk)) !important; }
 #synopsisListBody .synopsis-list-index { flex: none; min-width: 36px; color: var(--isl-ink3); font-weight: 600; font-size: 13px; }
 #synopsisListBody .synopsis-list-title { display: none; }
-#synopsisListBody .synopsis-list-text { flex: 1 1 auto; min-width: 0; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#synopsisListBody .synopsis-list-index { line-height: 1.55; }
+/* 긴 요약도 끝까지 보이게 — 자르지 않고 여러 줄로 감는다 */
+#synopsisListBody .synopsis-list-text { flex: 1 1 auto; min-width: 0; color: var(--text-primary); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 #synopsisListBody .synopsis-list-text.is-empty { color: var(--isl-ink3); }
 
 /* ═════ 집필 기록 달력 모달 (시안) ═════ */
