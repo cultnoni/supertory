@@ -64,10 +64,11 @@ body[data-ui-theme="sand"] {
   --page-bg: #ffffff;
   --page-editor-bg: #ffffff;
   --page-ink: #262b31;
-  --isl-st-outline: hsl(345 70% 85%);
+  /* 요청대로 개요=블루, 수정=핑크 (서로 맞바꿈) */
+  --isl-st-outline: #6f92c6;
   --isl-st-idea: #a99ac8;
   --isl-st-draft: #d2a456;
-  --isl-st-revision: #6f92c6;
+  --isl-st-revision: hsl(345 70% 85%);
   --isl-st-complete: #4f9b7d;
 }
 html[data-ui-scheme="dark"] {
