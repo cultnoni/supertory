@@ -2050,3 +2050,12 @@ body.focus-write-open .isl-ai-badge { z-index: 230 !important; }
 
 /* 아래 글자수 표시칸(글자수 트래커 위젯) 폭을 살짝 좁게 */
 .idea-float.dock-float-mini[data-dock-float="statsTracker"] { width: 168px !important; }
+
+/* ═════ 설정집 탭: ↗ 로 연 설정집 화면도 열린 회차 탭 줄에 붙는다 ═════
+   설정집 탭을 보는 동안 탭 줄(#episodeChrome)은 가운데 칸 맨 위 줄로 올라오고, 설정집 화면은 그 아래 줄을 채운다 */
+#workArea.has-hoisted-tabs { grid-template-rows: auto minmax(0, 1fr) !important; }
+#workArea.has-hoisted-tabs > * { grid-row: 2 !important; }
+#workArea.has-hoisted-tabs > #episodeChrome { grid-row: 1 !important; grid-column: 1; width: 100%; min-width: 0; }
+.episode-tab-icon { display: inline-flex; flex: none; width: 14px; height: 14px; color: var(--isl-ink3); }
+.episode-tab-icon svg { width: 14px; height: 14px; }
+.episode-tab.is-active .episode-tab-icon { color: var(--isl-ink2); }

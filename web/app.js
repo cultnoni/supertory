@@ -334,6 +334,8 @@ const state = {
   readerSessions: {},
   /** Browser-like open episode tabs: [{ sceneId, title }] */
   episodeTabs: [],
+  /** 설정집 ↗ 로 연 탭 (열린 회차 탭 줄 뒤쪽): [{ key }] — key = data-settings-main */
+  settingsTabs: [],
   /** Project-wide manuscript goal (goal_word_count on project). */
   projectGoalCount: 0,
   /**
@@ -11233,6 +11235,7 @@ function showMainPane(key) {
     }
   }
   const target = MAIN_PANES[key];
+  scheduleEpisodeChromeRender();
   if (!target) return;
   if (target.flag) state[target.flag] = true;
   if (target.el) $(target.el)?.classList.remove("hidden");
@@ -17569,7 +17572,10 @@ function setupSettingsCodex() {
       const meta = SETTINGS_BOOKMARK_META[key];
       if (!meta?.open) return;
       Promise.resolve(meta.open()).then(() => {
+        // ↗ 로 연 설정집 화면은 열린 회차 탭 줄에 탭으로 붙는다.
+        if (activeSettingsMainTabKey() === key) addSettingsTab(key);
         if (isAnySettingsMainViewOpen()) collapseSettingsSectionAfterMainOpen();
+        renderEpisodeChrome();
       }).catch(handleError);
     });
   });
@@ -67630,6 +67636,7 @@ function showWelcome() {
   hideSettingsSearchBoard();
   $("welcome").classList.remove("hidden");
   $("sceneWorkspace").classList.add("hidden");
+  scheduleEpisodeChromeRender();
   $("characterEditor").classList.add("hidden");
   hideSynopsisMain();
   $("newChapterButton").disabled = !state.projectId;
@@ -71013,10 +71020,10 @@ function pruneStaleEpisodeTabStorage(projects = state.projects) {
     const keys = [];
     for (let i = 0; i < localStorage.length; i += 1) {
       const key = localStorage.key(i);
-      if (key && key.startsWith(EPISODE_TABS_PREFIX)) keys.push(key);
+      if (key && (key.startsWith(EPISODE_TABS_PREFIX) || key.startsWith(SETTINGS_TABS_PREFIX))) keys.push(key);
     }
     keys.forEach((key) => {
-      const pid = Number(key.slice(EPISODE_TABS_PREFIX.length));
+      const pid = Number(key.slice(key.lastIndexOf(".") + 1));
       if (!Number.isFinite(pid) || pid <= 0 || !live.has(pid)) {
         localStorage.removeItem(key);
       }
@@ -71083,8 +71090,10 @@ function requestOpenScene(sceneId, options = {}) {
 function loadEpisodeTabsFromStorage() {
   if (!state.projectId) {
     state.episodeTabs = [];
+    state.settingsTabs = [];
     return;
   }
+  loadSettingsTabsFromStorage();
   try {
     const raw = localStorage.getItem(episodeTabsKey());
     const arr = raw ? JSON.parse(raw) : [];
@@ -71109,6 +71118,136 @@ function saveEpisodeTabsToStorage() {
   } catch (_) {
     /* ignore */
   }
+}
+
+/* —— 설정집 탭: ↗ 로 연 설정집 화면을 열린 회차 탭 줄에 함께 둔다 —— */
+const SETTINGS_TABS_PREFIX = "supertory.settingsTabs.";
+
+function settingsTabsKey(projectId = state.projectId) {
+  return `${SETTINGS_TABS_PREFIX}${projectId || "0"}`;
+}
+
+/** 탭으로 띄울 수 있는 설정집 키 (문체는 메인 화면이 없어 제외). */
+function isSettingsTabKey(key) {
+  return Boolean(key) && key !== "style" && Boolean(SETTINGS_BOOKMARK_META[key]?.open);
+}
+
+function loadSettingsTabsFromStorage() {
+  state.settingsTabs = [];
+  if (!state.projectId) return;
+  try {
+    const arr = JSON.parse(localStorage.getItem(settingsTabsKey()) || "[]");
+    const seen = new Set();
+    state.settingsTabs = (Array.isArray(arr) ? arr : [])
+      .map((t) => String(t?.key || ""))
+      .filter((key) => {
+        if (!isSettingsTabKey(key) || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((key) => ({ key }));
+  } catch (_) {
+    state.settingsTabs = [];
+  }
+}
+
+function saveSettingsTabsToStorage() {
+  if (!state.projectId) return;
+  try {
+    localStorage.setItem(settingsTabsKey(), JSON.stringify(state.settingsTabs || []));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function hasSettingsTab(key) {
+  return (state.settingsTabs || []).some((t) => t.key === key);
+}
+
+function addSettingsTab(key) {
+  if (!isSettingsTabKey(key) || hasSettingsTab(key)) return;
+  state.settingsTabs = [...(state.settingsTabs || []), { key }];
+  saveSettingsTabsToStorage();
+}
+
+function isElementShown(id) {
+  const el = $(id);
+  return Boolean(el) && !el.classList.contains("hidden");
+}
+
+/** 지금 가운데에 떠 있는 설정집 화면의 탭 키 (원고 화면이면 ""). */
+function activeSettingsMainTabKey() {
+  if (isElementShown("sceneWorkspace")) return "";
+  if (state.characterBoardOpen || isElementShown("characterEditor") || isElementShown("relationCanvas")) return "characters";
+  if (state.itemBoardOpen || isElementShown("itemEditor")) return "items";
+  if (state.dictionaryBoardOpen) return "dictionary";
+  if (state.ideaBoardOpen) return "ideas";
+  if (state.keywordBoardOpen) return "keywords";
+  if (isSettingsCollectionMainOpen()) return String(state.settingsCollectionKind || "");
+  if (isSettingsDocMainOpen()) {
+    const kind = String(state.settingsDocKind || "");
+    if (kind === "intro" || kind === "intent") return "intro";
+    if (kind === "synopsis" || kind === "logline") return "logsyn";
+    if (kind === "world") return "world";
+  }
+  return "";
+}
+
+/** 탭 아이콘 = 왼쪽 설정집 상자 머리의 아이콘 그대로. */
+function settingsTabIconHtml(key) {
+  const svg = document
+    .querySelector(`[data-settings-main="${key}"]`)
+    ?.closest(".settings-box-header")
+    ?.querySelector(".settings-box-icon svg");
+  return svg ? `<span class="episode-tab-icon" aria-hidden="true">${svg.outerHTML}</span>` : "";
+}
+
+function openSettingsTab(key) {
+  const meta = SETTINGS_BOOKMARK_META[key];
+  if (!meta?.open) return Promise.resolve();
+  return Promise.resolve(meta.open()).then(() => {
+    if (isAnySettingsMainViewOpen()) collapseSettingsSectionAfterMainOpen();
+    renderEpisodeChrome();
+  });
+}
+
+function closeSettingsTab(key) {
+  const wasActive = activeSettingsMainTabKey() === key;
+  state.settingsTabs = (state.settingsTabs || []).filter((t) => t.key !== key);
+  saveSettingsTabsToStorage();
+  if (!wasActive) {
+    renderEpisodeChrome();
+    return;
+  }
+  returnToManuscriptFromSettingsMain()
+    .then(() => renderEpisodeChrome())
+    .catch(handleError);
+}
+
+/**
+ * 탭 줄은 평소 원고 칸(.writing-column) 맨 위에 있다.
+ * 설정집 탭 화면을 보는 동안에는 가운데 칸(#workArea) 맨 위로 옮겨 그 화면 위에 보이게 한다.
+ */
+function placeEpisodeChrome(hoist) {
+  const chrome = $("episodeChrome");
+  const workArea = $("workArea");
+  const column = $("sceneWorkspace")?.querySelector(".writing-column");
+  if (!chrome || !workArea || !column) return;
+  if (hoist) {
+    if (chrome.parentElement !== workArea) workArea.insertBefore(chrome, workArea.firstChild);
+  } else if (chrome.parentElement !== column) {
+    column.insertBefore(chrome, column.firstChild);
+  }
+  workArea.classList.toggle("has-hoisted-tabs", Boolean(hoist));
+}
+
+let episodeChromeRenderTimer = null;
+function scheduleEpisodeChromeRender() {
+  if (episodeChromeRenderTimer) window.clearTimeout(episodeChromeRenderTimer);
+  episodeChromeRenderTimer = window.setTimeout(() => {
+    episodeChromeRenderTimer = null;
+    renderEpisodeChrome();
+  }, 0);
 }
 
 /** Chapters in binder folder DFS order (same source as the sidebar tree). */
@@ -75858,7 +75997,8 @@ function upsertEpisodeTab(sceneId, title = "") {
 function closeEpisodeTab(sceneId) {
   const id = Number(sceneId);
   const tabs = (state.episodeTabs || []).filter((t) => Number(t.sceneId) !== id);
-  const wasActive = Number(state.sceneId) === id;
+  // 설정집 탭을 보는 중이면 원고 탭을 닫아도 화면은 그대로 둔다.
+  const wasActive = Number(state.sceneId) === id && isElementShown("sceneWorkspace");
   state.episodeTabs = tabs;
   saveEpisodeTabsToStorage();
   renderEpisodeChrome();
@@ -75893,8 +76033,11 @@ function renderEpisodeChrome() {
   if (!chrome) return;
 
   const inScene = Boolean(state.sceneId) && !$("sceneWorkspace")?.classList.contains("hidden");
-  chrome.classList.toggle("hidden", !inScene);
-  if (!inScene) return;
+  const settingsKey = inScene ? "" : activeSettingsMainTabKey();
+  const hoist = Boolean(settingsKey) && hasSettingsTab(settingsKey);
+  placeEpisodeChrome(hoist);
+  chrome.classList.toggle("hidden", !inScene && !hoist);
+  if (!inScene && !hoist) return;
 
   const sequence = getEpisodeSequence();
   const idx = findEpisodeIndex(state.sceneId, sequence);
@@ -75925,16 +76068,29 @@ function renderEpisodeChrome() {
     }
     // Refresh titles from sequence when possible
     const titleById = new Map(sequence.map((ep) => [ep.sceneId, ep.shortLabel || ep.label]));
-    tabBar.innerHTML = tabs.map((tab) => {
+    const sceneTabsHtml = tabs.map((tab) => {
       const id = Number(tab.sceneId);
       const title = titleById.get(id) || tab.title || `${i18n.t('app.씬_id', {id: id})}`;
-      const active = id === Number(state.sceneId);
+      const active = inScene && id === Number(state.sceneId);
       return `
         <div class="episode-tab${active ? " is-active" : ""}" role="tab" aria-selected="${active ? "true" : "false"}" data-episode-tab="${id}" title="${escapeHtml(title)}">
           <span class="episode-tab-title">${escapeHtml(title)}</span>
           <button type="button" class="episode-tab-close" data-episode-close="${id}" title="${i18n.t('app.탭_닫기')}" aria-label="${i18n.t('app.탭_닫기')}"><span aria-hidden="true">×</span></button>
         </div>`;
     }).join("");
+    const settingsTabsHtml = (state.settingsTabs || [])
+      .filter((tab) => isSettingsTabKey(tab.key))
+      .map((tab) => {
+        const key = tab.key;
+        const title = String(SETTINGS_BOOKMARK_META[key]?.title || key);
+        const active = key === settingsKey;
+        return `
+        <div class="episode-tab episode-tab-settings${active ? " is-active" : ""}" role="tab" aria-selected="${active ? "true" : "false"}" data-settings-tab="${escapeHtml(key)}" title="${escapeHtml(title)}">
+          ${settingsTabIconHtml(key)}<span class="episode-tab-title">${escapeHtml(title)}</span>
+          <button type="button" class="episode-tab-close" data-settings-tab-close="${escapeHtml(key)}" title="${i18n.t('app.탭_닫기')}" aria-label="${i18n.t('app.탭_닫기')}"><span aria-hidden="true">×</span></button>
+        </div>`;
+      }).join("");
+    tabBar.innerHTML = sceneTabsHtml + settingsTabsHtml;
   }
   if (state.splitEnabled && state.splitMode === "split" && typeof syncSplitPaneTopAlign === "function") {
     requestAnimationFrame(() => syncSplitPaneTopAlign());
@@ -75977,15 +76133,45 @@ function setupEpisodeChrome() {
       closeEpisodeTab(Number(closeId));
       return;
     }
+    const settingsCloseKey = el?.closest?.("[data-settings-tab-close]")?.dataset?.settingsTabClose;
+    if (settingsCloseKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeSettingsTab(settingsCloseKey);
+      return;
+    }
+    const settingsTab = el?.closest?.("[data-settings-tab]");
+    if (settingsTab) {
+      const key = settingsTab.dataset.settingsTab;
+      if (key && key !== activeSettingsMainTabKey()) openSettingsTab(key).catch(handleError);
+      return;
+    }
     const tab = el?.closest?.("[data-episode-tab]");
     if (!tab) return;
     const id = Number(tab.dataset.episodeTab);
-    if (id) requestOpenScene(id);
+    if (!id) return;
+    if (!isElementShown("sceneWorkspace")) {
+      // 설정집 탭에서 원고 탭으로: 같은 회차면 설정집 화면만 닫고, 다른 회차면 바로 연다.
+      if (id === Number(state.sceneId) && state.scene) {
+        returnToManuscriptFromSettingsMain().then(() => renderEpisodeChrome()).catch(handleError);
+      } else {
+        requestOpenScene(id, { force: true });
+      }
+      return;
+    }
+    requestOpenScene(id);
   });
   // Middle-click closes tab (browser-like).
   $("episodeTabBar")?.addEventListener("auxclick", (event) => {
     if (event.button !== 1) return;
-    const tab = episodeTabEventEl(event)?.closest?.("[data-episode-tab]");
+    const el = episodeTabEventEl(event);
+    const settingsTab = el?.closest?.("[data-settings-tab]");
+    if (settingsTab) {
+      event.preventDefault();
+      closeSettingsTab(settingsTab.dataset.settingsTab);
+      return;
+    }
+    const tab = el?.closest?.("[data-episode-tab]");
     if (!tab) return;
     event.preventDefault();
     closeEpisodeTab(Number(tab.dataset.episodeTab));
@@ -75994,6 +76180,8 @@ function setupEpisodeChrome() {
 }
 
 function showSceneEditorPane(options = {}) {
+  placeEpisodeChrome(false);
+  scheduleEpisodeChromeRender();
   state.ideaBoardOpen = false;
   state.characterBoardOpen = false;
   state.keywordBoardOpen = false;
