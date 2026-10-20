@@ -5768,5 +5768,11 @@
   "island.vp_직접": "Elegir yo",
   "island.vp_칩_설정": "Persona y tiempo",
   "island.vp_칩_수정": "Editar persona y tiempo",
-  "island.vp_도움말": "Con esto la revisión de punto de vista es más precisa"
+  "island.vp_도움말": "Con esto la revisión de punto de vista es más precisa",
+  "index.세계관_펼쳐보기": "Ver todo de un vistazo",
+  "index.세계관_목차": "Índice de la ambientación",
+  "index.세계관_미분류_제목": "Notas sin clasificar",
+  "index.세계관_미분류_안내": "Ajustes que aún no tienen su lugar. Pásalos a la casilla que corresponda y deja esta vacía.",
+  "index.세계관_미분류_내용": "Notas",
+  "index.세계관_미분류_예시": "p. ej. (por añadir) El sol lleva tres años sin ponerse — factor extremo para la Parte 3, casilla por decidir"
 }

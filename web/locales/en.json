@@ -5770,5 +5770,11 @@
   "island.vp_직접": "I'll choose",
   "island.vp_칩_설정": "Set person & tense",
   "island.vp_칩_수정": "Edit person & tense",
-  "island.vp_도움말": "Setting this makes the viewpoint check more accurate"
+  "island.vp_도움말": "Setting this makes the viewpoint check more accurate",
+  "index.세계관_펼쳐보기": "Show all at a glance",
+  "index.세계관_목차": "Worldbuilding contents",
+  "index.세계관_미분류_제목": "Unsorted notes",
+  "index.세계관_미분류_안내": "Settings that haven't found their place yet. Move them into the right box above, then clear this one.",
+  "index.세계관_미분류_내용": "Notes",
+  "index.세계관_미분류_예시": "e.g. (to add later) The sun hasn't set for three years — an extreme factor for Part 3, box to be decided"
 }

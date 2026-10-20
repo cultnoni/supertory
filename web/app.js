@@ -1672,7 +1672,7 @@ function ensureWorldbuildingMainForm() {
   host.dataset.built = "1";
   const cards = WORLD_BUILDING_SCHEMA.map((sec) => {
     const enMatch = String(sec.title || "").match(/\(([^)]+)\)\s*$/);
-    const titlePlain = String(sec.title || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+    const titlePlain = String(sec.title || "").replace(/\s*\([^)]*\)\s*$/, "").replace(/^\s*\d+\.\s*/, "").trim();
     const fields = sec.fields.map((field) => `
       <label class="world-main-field">${worldToriBadgeHtml(field.id, field.label, field.labelKey)}
         <textarea data-world-field="${escapeWorldHtml(field.id)}" rows="3" placeholder="예: ${escapeWorldHtml(field.example || "")}"></textarea>
@@ -1688,11 +1688,11 @@ function ensureWorldbuildingMainForm() {
     <div class="worldbuilding-extras" id="worldbuildingExtrasMain" data-world-extras></div>
     <button type="button" class="secondary compact-btn world-add-extra-btn" data-world-add-extra>${escapeWorldHtml(i18n.t("index.요소_추가"))}</button>
     <article class="world-main-card world-main-card-legacy world-cat-legacy hidden" id="worldCatLegacyMain" data-world-section="legacy" hidden>
-      <h3 class="world-main-card-title">기타 · 기존 메모</h3>
-      <p class="world-main-card-blurb">구조에 맞지 않던 이전 세계관 텍스트입니다. 위 칸으로 옮겨 정리해도 됩니다.</p>
+      <h3 class="world-main-card-title" data-i18n="index.세계관_미분류_제목">미분류 설정</h3>
+      <p class="world-main-card-blurb" data-i18n="index.세계관_미분류_안내">아직 자리를 못 찾은 설정이에요. 알맞은 칸으로 옮겨 적고, 다 옮겼다면 이 칸은 비워 두세요.</p>
       <div class="world-main-card-fields">
-        <label class="world-main-field">기존 내용
-          <textarea data-world-field="legacy" rows="4" placeholder=""></textarea>
+        <label class="world-main-field"><span data-i18n="index.세계관_미분류_내용">설정 내용</span>
+          <textarea data-world-field="legacy" rows="4" placeholder="예: (추가 예정) 해가 지지 않는 백야가 3년째 이어진다 — 3부에서 쓸 극단적 요소, 어느 칸에 넣을지는 나중에" data-i18n-placeholder="index.세계관_미분류_예시"></textarea>
         </label>
       </div>
     </article>`;
@@ -1702,8 +1702,130 @@ function ensureWorldbuildingMainForm() {
   host.querySelectorAll("[data-i18n-title]").forEach((el) => {
     el.setAttribute("title", i18n.t(el.getAttribute("data-i18n-title")));
   });
+  host.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+    el.setAttribute("placeholder", i18n.t(el.getAttribute("data-i18n-placeholder")));
+  });
   if (typeof syncWorldToriBadges === "function") syncWorldToriBadges();
+  setupWorldbuildingToc(host);
   return host;
+}
+
+const WORLD_OVERVIEW_KEY = "supertory.worldOverview";
+
+function worldSectionFilledCount(card) {
+  return [...card.querySelectorAll("[data-world-field]")].filter((el) => String(el.value || "").trim()).length;
+}
+
+/** 목차 키(섹션 id / extra:<id> / legacy) → 본문 블록 */
+function worldTocTarget(key) {
+  const form = $("worldbuildingMainForm");
+  if (!form || !key) return null;
+  if (key.startsWith("extra:")) {
+    const id = key.slice(6);
+    return [...form.querySelectorAll("[data-world-extra-id]")].find((el) => el.dataset.worldExtraId === id) || null;
+  }
+  return form.querySelector(`.world-main-card[data-world-section="${key}"]`);
+}
+
+/** 목차(번호 · 점 · 채운 칸 수 / 추가 요소 / 기타 메모 / 요소 추가)를 현재 본문으로 다시 그린다. */
+function updateWorldToc() {
+  const toc = $("worldbuildingToc");
+  const form = $("worldbuildingMainForm");
+  if (!toc || !form) return;
+  const active = toc.querySelector(".world-toc-link.is-active")?.dataset.worldToc || "";
+  const link = (key, no, name, count, extra = "") =>
+    `<a href="#" class="world-toc-link ${extra}" data-world-toc="${escapeWorldHtml(key)}"><span class="world-toc-no">${no}</span><span class="world-toc-dot"></span><span class="world-toc-name">${escapeWorldHtml(name)}</span><em class="world-toc-count">${count}</em></a>`;
+  const rows = WORLD_BUILDING_SCHEMA.map((sec, i) => {
+    const card = worldTocTarget(sec.id);
+    const title = String(sec.title || "").replace(/^\s*\d+\.\s*/, "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+    const count = card ? `${worldSectionFilledCount(card)}/${card.querySelectorAll("[data-world-field]").length}` : "";
+    return link(sec.id, String(i + 1).padStart(2, "0"), title, count);
+  });
+  let n = WORLD_BUILDING_SCHEMA.length;
+  form.querySelectorAll("[data-world-extra-id]").forEach((el) => {
+    n += 1;
+    const name = String(el.querySelector("[data-world-extra-title]")?.value || "").trim() || i18n.t("index.새_요소");
+    rows.push(link(`extra:${el.dataset.worldExtraId}`, String(n).padStart(2, "0"), name, "", "is-extra"));
+  });
+  const legacy = form.querySelector('.world-main-card[data-world-section="legacy"]');
+  if (legacy && !legacy.hidden && !legacy.classList.contains("hidden")) {
+    const name = String(legacy.querySelector(".world-main-card-title")?.textContent || "").trim();
+    rows.push(link("legacy", "·", name, "", "is-extra"));
+  }
+  rows.push(`<button type="button" class="world-toc-add" data-world-toc-add>+ ${escapeWorldHtml(i18n.t("index.요소_추가"))}</button>`);
+  toc.innerHTML = rows.join("");
+  if (active) toc.querySelector(`[data-world-toc="${CSS.escape(active)}"]`)?.classList.add("is-active");
+  syncWorldTocActive();
+}
+
+/** 스크롤 위치에 맞춰 목차의 현재 항목을 강조한다. */
+function syncWorldTocActive() {
+  const toc = $("worldbuildingToc");
+  const scroller = $("worldbuildingWorkspace");
+  if (!toc || !scroller || scroller.classList.contains("is-overview")) return;
+  if (scroller.classList.contains("hidden") || !scroller.offsetParent) return; // 숨겨진 동안은 위치를 알 수 없다
+  const top = scroller.getBoundingClientRect().top + 80;
+  let current = WORLD_BUILDING_SCHEMA[0].id;
+  toc.querySelectorAll("[data-world-toc]").forEach((link) => {
+    const card = worldTocTarget(link.dataset.worldToc);
+    if (card && card.getBoundingClientRect().top <= top) current = link.dataset.worldToc;
+  });
+  toc.querySelectorAll("[data-world-toc]").forEach((link) => {
+    link.classList.toggle("is-active", link.dataset.worldToc === current);
+  });
+}
+
+function setWorldOverview(on, { persist = true } = {}) {
+  $("worldbuildingWorkspace")?.classList.toggle("is-overview", on);
+  $("worldbuildingOverviewButton")?.setAttribute("aria-pressed", on ? "true" : "false");
+  if (!persist) return;
+  try {
+    localStorage.setItem(WORLD_OVERVIEW_KEY, on ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function setupWorldbuildingToc(host) {
+  const toc = $("worldbuildingToc");
+  toc?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-world-toc-add]")) {
+      addWorldExtraSection();
+      updateWorldToc();
+      requestAnimationFrame(() => {
+        host.querySelector("[data-world-extra-id]:last-of-type")?.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+      return;
+    }
+    const link = event.target.closest("[data-world-toc]");
+    if (!link) return;
+    event.preventDefault();
+    worldTocTarget(link.dataset.worldToc)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  });
+  host.addEventListener("input", updateWorldToc);
+  $("worldbuildingWorkspace")?.addEventListener("scroll", syncWorldTocActive, { passive: true });
+  // 세계관 화면이 열릴 때(hidden 해제) 현재 위치를 다시 맞춘다
+  const workspace = $("worldbuildingWorkspace");
+  if (workspace) {
+    new MutationObserver(() => requestAnimationFrame(() => {
+      if (!workspace.classList.contains("hidden")) {
+        $("worldbuildingToc")?.querySelectorAll(".is-active").forEach((el) => el.classList.remove("is-active"));
+        syncWorldTocActive();
+      }
+    })).observe(workspace, { attributes: true, attributeFilter: ["class"] });
+  }
+  $("worldbuildingOverviewButton")?.addEventListener("click", () => {
+    setWorldOverview(!$("worldbuildingWorkspace")?.classList.contains("is-overview"));
+  });
+  let saved = false;
+  try {
+    saved = localStorage.getItem(WORLD_OVERVIEW_KEY) === "1";
+  } catch (_) {
+    /* ignore */
+  }
+  setWorldOverview(saved, { persist: false });
+  updateWorldToc();
+  syncWorldTocActive();
 }
 
 function worldBuildingFormRoots() {
@@ -2027,6 +2149,7 @@ function applyWorldBuildingValuesToFormRoot(form, values, { force = false } = {}
     legacyWrap.classList.toggle("hidden", !hasLegacy);
     legacyWrap.hidden = !hasLegacy;
   }
+  if (form.id === "worldbuildingMainForm") updateWorldToc();
 }
 
 function applyWorldBuildingValuesToForm(values, { force = false } = {}) {

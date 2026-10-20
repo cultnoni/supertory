@@ -1317,10 +1317,10 @@
                     <div class="worldbuilding-extras" id="worldbuildingExtras" data-world-extras></div>
                     <button type="button" class="secondary compact-btn world-add-extra-btn" data-world-add-extra data-i18n="index.요소_추가">요소 추가</button>
                     <article class="world-cat world-cat-legacy hidden" id="worldCatLegacy" data-world-section="legacy" hidden>
-                      <h3 class="world-cat-title" data-i18n="app.기타_기존_메모_2">기타 · 기존 메모</h3>
-                      <p class="world-cat-blurb" data-i18n="index.구조에_맞지_않던_이전_세계관_텍스트입니다">구조에 맞지 않던 이전 세계관 텍스트입니다. 위 칸으로 옮겨 정리해도 됩니다.</p>
-                      <label class="world-cat-field">기존 내용
-                        <textarea data-world-field="legacy" rows="3" placeholder=""></textarea>
+                      <h3 class="world-cat-title" data-i18n="index.세계관_미분류_제목">미분류 설정</h3>
+                      <p class="world-cat-blurb" data-i18n="index.세계관_미분류_안내">아직 자리를 못 찾은 설정이에요. 알맞은 칸으로 옮겨 적고, 다 옮겼다면 이 칸은 비워 두세요.</p>
+                      <label class="world-cat-field"><span data-i18n="index.세계관_미분류_내용">설정 내용</span>
+                        <textarea data-world-field="legacy" rows="3" placeholder="예: (추가 예정) 해가 지지 않는 백야가 3년째 이어진다 — 3부에서 쓸 극단적 요소, 어느 칸에 넣을지는 나중에" data-i18n-placeholder="index.세계관_미분류_예시"></textarea>
                       </label>
                     </article>
                   </div>
@@ -3522,6 +3522,9 @@
             </div>
             <div class="worldbuilding-main-actions">
               <span id="worldbuildingSaveInfo" class="save-info"></span>
+              <button type="button" id="worldbuildingOverviewButton" class="secondary compact-btn settings-icon-btn" aria-pressed="false" title="한눈에 펼쳐보기" data-i18n-title="index.세계관_펼쳐보기" aria-label="한눈에 펼쳐보기" data-i18n-aria-label="index.세계관_펼쳐보기">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+              </button>
               <button type="button" class="secondary compact-btn settings-icon-btn" id="toriFillWorldMainButton" data-tori-fill="world" title="토리야 작성해줘" data-i18n-title="app.토리야_작성해줘" aria-label="토리야 작성해줘" data-i18n-aria-label="app.토리야_작성해줘">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 3H8"/><path d="m15.007 5.008 3.987 3.986"/><path d="M20 15v4"/><path d="M21.174 6.813a2.82 2.82 0 0 0-3.986-3.987L3.842 16.175a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="M22 17h-4"/><path d="M4 5v4"/><path d="M6 7H2"/><path d="M9 2v2"/></svg>
               </button>
@@ -3538,6 +3541,7 @@
             <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="worldHint" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
           </div>
           <div class="worldbuilding-main-scroll">
+            <nav id="worldbuildingToc" class="worldbuilding-toc" aria-label="세계관 목차" data-i18n-aria-label="index.세계관_목차"></nav>
             <div class="worldbuilding-main-form" id="worldbuildingMainForm" aria-label="세계관 구조" data-i18n-aria-label="index.세계관_구조"></div>
           </div>
         </div>

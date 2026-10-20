@@ -2738,3 +2738,307 @@ html .idea-board-grid > .idea-card { width: calc((100% - 18px) / 2); }
 }
 #dictionaryForm #dictionaryTerm { margin-top: 0; font-size: 30px; font-weight: 700; letter-spacing: -0.01em; }
 #dictionaryForm .dictionary-editor-actions { gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
+
+/* ── 장르·키워드 (B안): 번호 행 + 카테고리 파스텔 점 + 알약 태그 ───────────────────
+   시안: web/dev/keyword-page-variations.html · 닫기 버튼은 숨김(id는 유지) */
+#keywordBoardCloseButton { display: none !important; }
+#keywordBoard { max-width: 700px; }
+#keywordBoard .keyword-board-toolbar { align-items: center; margin-bottom: 14px; }
+#keywordBoard .keyword-board-title { font-family: var(--font-ui); }
+#keywordBoard .keyword-board-guide { margin-bottom: 8px; }
+
+/* 장르 영역: 상자 없이 글자처럼 */
+#keywordBoard .keyword-board-genre-mount {
+  margin: 0 0 6px;
+  padding: 6px 0 18px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+#keywordBoard .keyword-board-genre-mount .settings-field-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--isl-ink3);
+}
+#keywordBoard .keyword-board-genre-mount .settings-genre-controls { gap: 6px 22px; }
+#keywordBoard .keyword-board-genre-mount .settings-genre-controls .genre-display,
+#keywordBoard .keyword-board-genre-mount .settings-genre-controls .purpose-display {
+  min-height: 0;
+  min-width: 0;
+  padding: 4px 24px 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: var(--font-ui);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+#keywordBoard .keyword-board-genre-mount .settings-genre-controls .genre-display:not(:disabled):hover { color: var(--accent); }
+
+/* 선택한 키워드 / 태그 고르기 / 직접 입력: 상자 제거 */
+#keywordBoard .keyword-board-selected,
+#keywordBoard .keyword-board-catalog-wrap,
+#keywordBoard .keyword-board-custom {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+#keywordBoard .keyword-board-section-label { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--isl-ink3); }
+#keywordBoard .keyword-board-selected { padding: 16px 0 18px; border-top: 1px solid var(--line); }
+#keywordBoard .keyword-board-chip-list .keyword-chip {
+  min-height: 0;
+  padding: 3px 4px 3px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+#keywordBoard .keyword-chip-remove { color: inherit; opacity: .6; }
+#keywordBoard .keyword-chip-remove:hover { opacity: 1; }
+#keywordBoard .keyword-board-chip-list:empty::before { font-size: 13px; color: var(--isl-ink3); }
+
+/* 카테고리 = 번호 행 */
+#keywordBoard .keyword-board-catalog-wrap > .keyword-board-section-label { display: none; }
+#keywordBoard .keyword-board-catalog {
+  counter-reset: kwcat;
+  display: block;
+  max-height: none;
+  overflow: visible;
+}
+#keywordBoard .keyword-category {
+  --c: var(--isl-ink3);
+  position: relative;
+  padding: 18px 0 18px 34px;
+  border-top: 1px solid var(--line);
+}
+#keywordBoard .keyword-category::before {
+  counter-increment: kwcat;
+  content: counter(kwcat, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 23px;
+  font-size: 11.5px;
+  color: var(--isl-ink3);
+  font-variant-numeric: tabular-nums;
+}
+#keywordBoard .keyword-category:nth-child(5n+1) { --c: #e48b96; }
+#keywordBoard .keyword-category:nth-child(5n+2) { --c: #9d8bd2; }
+#keywordBoard .keyword-category:nth-child(5n+3) { --c: #62b088; }
+#keywordBoard .keyword-category:nth-child(5n+4) { --c: #6fa3d6; }
+#keywordBoard .keyword-category:nth-child(5n+5) { --c: #e3bf55; }
+#keywordBoard .keyword-category-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+#keywordBoard .keyword-category-title::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c);
+}
+#keywordBoard .keyword-tag-list { gap: 6px; }
+#keywordBoard .keyword-board-catalog .keyword-tag {
+  min-height: 0;
+  padding: 4px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--isl-ink2);
+  font-size: 13px;
+  font-weight: 400;
+}
+#keywordBoard .keyword-board-catalog .keyword-tag:hover { border-color: var(--isl-ink3); background: transparent; }
+#keywordBoard .keyword-board-catalog .keyword-tag.is-selected {
+  background: color-mix(in srgb, var(--c) 24%, var(--panel));
+  border-color: transparent;
+  color: color-mix(in srgb, var(--c) 62%, var(--text-primary) 38%);
+  font-weight: 600;
+}
+#keywordBoard .keyword-board-catalog .keyword-tag.is-selected::before { content: none; }
+
+/* 직접 입력 */
+#keywordBoard .keyword-board-custom-heading { margin: 0 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+#keywordBoard .keyword-board-custom { display: flex; gap: 8px; }
+#keywordBoard .keyword-board-custom .keyword-custom-input {
+  max-width: 280px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--isl-sunk);
+  box-shadow: none;
+  font-size: 13px;
+}
+
+/* ── 세계관 (B안): 고정 목차 + 문서형 본문, 「한눈에 펼쳐보기」 ───────────────────────
+   시안: web/dev/world-page-variations.html */
+#closeWorldbuildingMainButton { display: none !important; }
+#worldbuildingWorkspace .worldbuilding-main-title { font-family: var(--font-ui); }
+#worldbuildingOverviewButton[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+
+#worldbuildingWorkspace .worldbuilding-main-scroll {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 44px;
+  align-items: start;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+#worldbuildingWorkspace .worldbuilding-main-form {
+  display: block;
+  max-width: 640px;
+  padding-bottom: 40px;
+}
+
+/* 목차 */
+.worldbuilding-toc { position: sticky; top: 0; align-self: start; }
+.world-toc-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+  color: var(--isl-ink2);
+  font-size: 14px;
+  text-decoration: none;
+}
+.world-toc-link:hover { color: var(--text-primary); }
+.world-toc-link.is-active { color: var(--text-primary); font-weight: 650; }
+.world-toc-no { width: 18px; font-size: 11.5px; color: var(--isl-ink3); font-variant-numeric: tabular-nums; }
+.world-toc-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--isl-ink3)); flex: none; }
+.world-toc-count { margin-left: auto; font-style: normal; font-size: 11.5px; font-weight: 400; color: var(--isl-ink3); }
+.world-toc-link:nth-child(6n+1), #worldbuildingMainForm > .world-main-card:nth-child(6n+1) { --c: #e48b96; }
+.world-toc-link:nth-child(6n+2), #worldbuildingMainForm > .world-main-card:nth-child(6n+2) { --c: #9d8bd2; }
+.world-toc-link:nth-child(6n+3), #worldbuildingMainForm > .world-main-card:nth-child(6n+3) { --c: #62b088; }
+.world-toc-link:nth-child(6n+4), #worldbuildingMainForm > .world-main-card:nth-child(6n+4) { --c: #6fa3d6; }
+.world-toc-link:nth-child(6n+5), #worldbuildingMainForm > .world-main-card:nth-child(6n+5) { --c: #e3bf55; }
+.world-toc-link:nth-child(6n+6), #worldbuildingMainForm > .world-main-card:nth-child(6n+6) { --c: #e09a63; }
+
+/* 섹션 = 카드 없는 문서 블록 */
+#worldbuildingMainForm .world-main-card {
+  --c: var(--isl-ink3);
+  gap: 0;
+  padding: 4px 0 22px;
+  margin: 0 0 22px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  scroll-margin-top: 12px;
+}
+#worldbuildingMainForm .world-main-card-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+#worldbuildingMainForm > .world-main-card[data-world-section]:not([data-world-section="legacy"]) .world-main-card-title::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c);
+  flex: none;
+}
+#worldbuildingMainForm .world-cat-en { font-size: 12px; font-weight: 400; color: var(--isl-ink3); }
+#worldbuildingMainForm .world-main-card-blurb { margin: 2px 0 14px; font-size: 12.5px; color: var(--isl-ink3); }
+#worldbuildingMainForm .world-main-card-fields { gap: 0; }
+#worldbuildingMainForm .world-main-field { gap: 0; margin: 0 0 18px; font-size: 12px; font-weight: 600; color: var(--isl-ink3); }
+#worldbuildingMainForm .world-main-field textarea,
+#worldbuildingMainForm .world-extra-body textarea,
+#worldbuildingMainForm [data-world-extra-body] {
+  width: calc(100% + 20px);
+  margin: 5px 0 0 -10px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: none;
+  font-family: var(--font-ui);
+  font-size: 14.5px;
+  font-weight: 400;
+  line-height: 1.8;
+  color: var(--text-primary);
+  min-height: 64px;
+  resize: none;
+  field-sizing: content;
+}
+#worldbuildingMainForm .world-main-field textarea:hover,
+#worldbuildingMainForm [data-world-extra-body]:hover { background: color-mix(in srgb, var(--isl-sunk) 60%, transparent); }
+#worldbuildingMainForm .world-main-field textarea:focus,
+#worldbuildingMainForm [data-world-extra-body]:focus { background: var(--isl-sunk); outline: 0; }
+#worldbuildingMainForm .world-extra-title {
+  padding: 4px 10px;
+  margin-left: -10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: none;
+  font-family: var(--font-ui);
+  font-size: 18px;
+  font-weight: 700;
+}
+#worldbuildingMainForm .world-extra-title:hover { background: color-mix(in srgb, var(--isl-sunk) 60%, transparent); }
+#worldbuildingMainForm .world-extra-title:focus { background: var(--isl-sunk); outline: 0; }
+#worldbuildingMainForm > .worldbuilding-extras { display: block; }
+
+/* ── 한눈에 펼쳐보기: 목차를 접고 섹션을 가로로 펼친다 ── */
+#worldbuildingWorkspace.is-overview .worldbuilding-main-scroll { display: block; max-width: none; }
+#worldbuildingWorkspace.is-overview .worldbuilding-toc { display: none; }
+#worldbuildingWorkspace.is-overview .worldbuilding-main-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  column-gap: 40px;
+  align-items: start;
+  max-width: none;
+}
+#worldbuildingWorkspace.is-overview .worldbuilding-main-form > .worldbuilding-extras,
+#worldbuildingWorkspace.is-overview .worldbuilding-main-form > .world-add-extra-btn,
+#worldbuildingWorkspace.is-overview .worldbuilding-main-form > .world-main-card-legacy { grid-column: 1 / -1; }
+#worldbuildingWorkspace.is-overview .worldbuilding-main-form > .worldbuilding-extras { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); column-gap: 40px; }
+#worldbuildingWorkspace.is-overview #worldbuildingMainForm .world-main-field textarea { font-size: 14px; line-height: 1.7; min-height: 52px; }
+
+/* 목차 고정: 스크롤 박스를 화면 높이에 가두지 않고 내용 높이로 둔다(sticky는 부모 박스 안에서만 붙는다) */
+#worldbuildingWorkspace .worldbuilding-main-scroll { flex: 0 0 auto; min-height: auto; }
+.worldbuilding-toc { max-height: calc(100vh - 48px); overflow-y: auto; scrollbar-width: none; }
+.world-toc-link.is-extra { --c: var(--isl-ink3); }
+.world-toc-link.is-extra .world-toc-dot { background: transparent; border: 1.5px solid var(--isl-ink3); width: 6px; height: 6px; }
+.world-toc-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.world-toc-add {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 9px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--isl-ink3);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.world-toc-add:hover { color: var(--text-primary); }
+/* 본문의 「요소 추가」 버튼은 목차로 옮겼으므로 숨긴다(펼쳐보기에서는 목차가 없어 유지) */
+#worldbuildingWorkspace:not(.is-overview) .worldbuilding-main-form > .world-add-extra-btn { display: none; }
+
+/* 목차 폭 고정: nav가 grid로 잡혀 항목이 내용 폭(>200px)으로 늘어나 오른쪽 숫자가 잘리던 문제 */
+.worldbuilding-toc { display: block; min-width: 0; overflow-x: hidden; }
+.world-toc-link { min-width: 0; box-sizing: border-box; }
+.world-toc-no, .world-toc-count { flex: none; }
