@@ -96,6 +96,12 @@ main {
   gap: var(--isl-gap);
   padding: 0 var(--isl-gap) var(--isl-gap);
   grid-template-columns: var(--outline-width) minmax(0, 1fr) var(--ai-panel-width);
+  /* 좌·우 패널을 열고 닫을 때 패널이 사라지는 느낌이 아니라, 본문이 좌우로
+     밀려 확장되는 느낌이 들도록 칸 너비를 부드럽게 민다 */
+  transition: grid-template-columns 0.22s cubic-bezier(.4, 0, .2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  main { transition: none; }
 }
 body .work-area,
 body:not(.binder-panel-collapsed):not(.ai-panel-collapsed) .work-area {
