@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuperTory · 관계 이어보기 시안 5종</title>
+<link rel="stylesheet" href="../fonts/pretendard.css">
+<style>
+:root{
+  --bg:#f1efee; --panel:#fafafa; --sunk:#f1efec; --desk:#f4f2ef;
+  --ink:#2b2a27; --ink2:#5d5e5b; --ink3:#8e8b84; --line:#e6e3de; --accent:#45463f; --accent-ink:#fafafa;
+  --fill:26%;
+  --sans:"Pretendard","Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+}
+:root[data-theme="dark"]{
+  --bg:#171615; --panel:#1f1e1c; --sunk:#282725; --desk:#1b1a19;
+  --ink:#ece9e4; --ink2:#b3afa7; --ink3:#857f76; --line:#34322f; --accent:#d8d4c8; --accent-ink:#1f1e1c; --fill:22%;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);font-size:13.5px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+.bar{position:sticky;top:0;z-index:30;display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:9px 20px;background:#1f2429;color:#e8eaed;font-size:12.5px}
+.bar b{font-weight:650;margin-right:8px}.bar a{color:#9fb4c8;text-decoration:none;padding:4px 9px;border-radius:6px}.bar a:hover{background:#2c3238}
+.bar .sp{flex:1}.bar button{padding:5px 11px;border-radius:7px;background:#2c3238;color:#cfd5db}
+main{max-width:1080px;margin:0 auto;padding:26px 24px 80px}
+h1{font-size:22px;font-weight:700;margin-bottom:6px}
+.lead{color:var(--ink2);line-height:1.6;max-width:74ch;margin-bottom:30px}
+section.v{margin-bottom:54px}
+section.v>header{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+section.v>header h2{font-size:16px;font-weight:700}
+section.v>header em{font-style:normal;font-size:11.5px;color:var(--ink3);border:1px solid var(--line);border-radius:6px;padding:1px 7px}
+section.v>p{color:var(--ink2);margin-bottom:14px;line-height:1.55;max-width:84ch}
+.frame{position:relative;background:var(--desk);border-radius:14px;height:640px;overflow:hidden}
+.pg{position:absolute;inset:0;display:flex;flex-direction:column}
+
+/* 공통 */
+.r-rose{--c:#e48b96}.r-lilac{--c:#9d8bd2}.r-mint{--c:#62b088}.r-sky{--c:#6fa3d6}
+.tb{display:flex;align-items:center;gap:10px;padding:18px 26px 6px}
+.tb h3{font-size:22px;font-weight:700}
+.tb .hint{font-size:12px;color:var(--ink3);flex:1}
+.ic{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ibtn{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:9px;color:var(--ink2);font-size:12.5px}
+.ibtn:hover{background:var(--sunk);color:var(--ink)}
+.ibtn.on{background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--ink)}
+.av{display:grid;place-items:center;flex:none;border-radius:50%;font-weight:650;background:color-mix(in srgb,var(--c) var(--fill),var(--panel));color:color-mix(in srgb,var(--c) 60%,#000 40%)}
+html[data-theme="dark"] .av{color:color-mix(in srgb,var(--c) 70%,#fff 30%)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--c);flex:none}
+.lbl{font-size:12px;font-weight:600;color:var(--ink3)}
+svg text{font-family:var(--sans)}
+.edge{stroke:var(--ink3);fill:none;stroke-width:1.5;opacity:.55;transition:opacity .15s}
+.pill rect{fill:var(--panel);stroke:var(--line)}
+.pill text{font-size:11px;fill:var(--ink2);text-anchor:middle;dominant-baseline:central}
+.nd{cursor:pointer;transition:opacity .15s}
+.nd circle.bg{fill:color-mix(in srgb,var(--c) var(--fill),var(--panel))}
+.nd circle.ring{fill:none;stroke:color-mix(in srgb,var(--c) 70%,transparent);stroke-width:0}
+.nd:hover circle.ring,.nd.sel circle.ring{stroke-width:2}
+.nd text.i{font-size:15px;font-weight:650;text-anchor:middle;dominant-baseline:central;fill:color-mix(in srgb,var(--c) 58%,#000 42%)}
+html[data-theme="dark"] .nd text.i{fill:color-mix(in srgb,var(--c) 70%,#fff 30%)}
+.nd text.n{font-size:12.5px;font-weight:600;text-anchor:middle;fill:var(--ink)}
+.nd text.r{font-size:10.5px;text-anchor:middle;fill:var(--ink3)}
+svg.dimmed .nd:not(.hl),svg.dimmed .eg:not(.hl){opacity:.18}
+.gridbg{background-image:radial-gradient(color-mix(in srgb,var(--ink3) 30%,transparent) 1px,transparent 1.2px);background-size:22px 22px}
+
+/* A. 플로팅 도구 */
+.A .stage{flex:1;position:relative}
+.A .stage>svg{position:absolute;inset:0;width:100%;height:100%}
+.A .float{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:2px;padding:5px;background:var(--panel);border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.08)}
+.A .float .sep{width:1px;background:var(--line);margin:5px 4px}
+.A .wait{position:absolute;left:22px;bottom:18px;display:flex;flex-direction:column;gap:6px;max-width:190px}
+.A .wait .chips{display:flex;flex-wrap:wrap;gap:5px}
+.A .wait .chips span{display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 4px;border-radius:999px;background:var(--panel);font-size:12px;box-shadow:0 0 0 1px var(--line);cursor:grab}
+.A .wait .chips .av{width:20px;height:20px;font-size:10px}
+
+/* B. 문장형 목록 */
+.B .cols{flex:1;display:grid;grid-template-columns:230px 1fr;min-height:0}
+.B .list{padding:6px 14px 20px 26px;overflow:auto}
+.B .list button{display:flex;align-items:center;gap:10px;width:100%;padding:10px 0;border-top:1px solid var(--line);text-align:left;font-size:14px;color:var(--ink2)}
+.B .list button .no{font-size:11.5px;color:var(--ink3);width:18px;font-variant-numeric:tabular-nums}
+.B .list button em{margin-left:auto;font-style:normal;font-size:11.5px;color:var(--ink3)}
+.B .list button.on{color:var(--ink);font-weight:650}
+.B .list .grp{padding:16px 0 4px;font-size:12px;font-weight:600;color:var(--ink3)}
+.B .detail{padding:6px 34px 24px 20px;overflow:auto}
+.B .detail h4{display:flex;align-items:center;gap:12px;font-size:30px;font-weight:700;letter-spacing:-.01em}
+.B .detail .sub{color:var(--ink3);margin:2px 0 20px}
+.B .rel{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:13px 0;border-top:1px solid var(--line);align-items:center}
+.B .rel .s{font-size:16px;line-height:1.7}
+.B .rel .s b{font-weight:700}
+.B .rel .s i{font-style:normal;display:inline-block;margin:0 4px;padding:1px 10px;border-radius:999px;background:color-mix(in srgb,var(--accent) 9%,transparent);font-size:13px;color:var(--ink2)}
+.B .rel .m{color:var(--ink3);font-size:12px;grid-column:1}
+.B .rel button{color:var(--ink3);font-size:12px;padding:4px 8px;border-radius:8px}.B .rel button:hover{background:var(--sunk);color:var(--ink)}
+.B .add{margin-top:6px;padding:12px 0;border-top:1px solid var(--line);color:var(--ink3);font-size:13px}
+
+/* C. 포커스 + 시트 */
+.C .cols{flex:1;display:grid;grid-template-columns:1fr 300px;min-height:0}
+.C .stage{position:relative}
+.C .stage>svg{position:absolute;inset:0;width:100%;height:100%}
+.C .sheet{padding:14px 24px 20px 6px;overflow:auto}
+.C .sheet h4{font-size:24px;font-weight:700;margin:4px 0 2px}
+.C .sheet .sub{color:var(--ink3);margin-bottom:14px}
+.C .sheet .row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.C .sheet .row .av{width:28px;height:28px;font-size:12px}
+.C .sheet .row span.t{flex:1;font-size:14px}
+.C .sheet .row em{font-style:normal;color:var(--ink3);font-size:12px}
+.C .sheet .hint2{margin-top:12px;font-size:12px;color:var(--ink3);line-height:1.6}
+
+/* D. 관계표 */
+.D .wrap{flex:1;overflow:auto;padding:6px 26px 24px}
+.D table{border-collapse:collapse;margin:8px 0}
+.D th{font-weight:600;font-size:12px;color:var(--ink2);padding:6px 4px}
+.D th.col{height:84px;vertical-align:bottom}
+.D th.col div{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.D th.row{text-align:right;padding-right:12px;white-space:nowrap}
+.D th.row span{display:inline-flex;align-items:center;gap:7px}
+.D td{width:72px;height:44px;border:1px solid var(--line);text-align:center;font-size:11.5px;color:var(--ink2);position:relative}
+.D td.diag{background:repeating-linear-gradient(135deg,transparent 0 5px,color-mix(in srgb,var(--ink3) 14%,transparent) 5px 6px)}
+.D td.has{background:color-mix(in srgb,var(--c) 18%,var(--panel));color:var(--ink);font-weight:600;cursor:pointer}
+.D td:not(.diag):not(.has):hover{background:var(--sunk);cursor:pointer}
+.D td:not(.diag):not(.has):hover::after{content:"+";color:var(--ink3);font-size:16px}
+.D .legend{display:flex;gap:16px;margin-top:10px;font-size:12px;color:var(--ink3)}
+.D .legend span{display:inline-flex;gap:6px;align-items:center}
+
+/* E. 그룹 영역 */
+.E .cols{flex:1;display:grid;grid-template-columns:200px 1fr;min-height:0}
+.E .rail{padding:8px 10px 18px 26px;overflow:auto}
+.E .rail .lbl{padding:8px 0 4px;display:block}
+.E .rail .it{display:flex;align-items:center;gap:9px;padding:8px 0;border-top:1px solid var(--line);font-size:13.5px;color:var(--ink2);cursor:grab}
+.E .rail .it .av{width:24px;height:24px;font-size:11px}
+.E .rail .it em{margin-left:auto;font-style:normal;font-size:11px;color:var(--ink3)}
+.E .stage{position:relative}
+.E .stage>svg{position:absolute;inset:0;width:100%;height:100%}
+.E .gr rect{fill:color-mix(in srgb,var(--c) 10%,transparent);stroke:color-mix(in srgb,var(--c) 40%,transparent);stroke-dasharray:4 5}
+.E .gr text{font-size:12px;font-weight:700;fill:color-mix(in srgb,var(--c) 60%,var(--ink) 40%)}
+</style>
+</head>
+<body>
+<div class="bar"><b>관계 이어보기 시안 5종</b>
+<a href="#A">A 미니멀 그래프</a><a href="#B">B 문장형 목록</a><a href="#C">C 포커스+시트</a><a href="#D">D 관계표</a><a href="#E">E 그룹 영역</a>
+<span class="sp"></span><button id="theme">다크 / 라이트</button></div>
+<main>
+<h1>관계 이어보기 페이지 시안</h1>
+<p class="lead">지금 화면은 양피지 질감 배경, 테두리 있는 카드, 오른쪽에 쌓이는 카드 서랍, 글자뿐인 큰 도구 버튼으로 되어 있습니다. 캐릭터·세계관 화면과 같은 톤(카드 없음 · 구분선 · 파스텔 포인트)으로 만든 5가지 방향입니다. 노드에 마우스를 올리거나 눌러 보세요. 인물과 관계는 모두 예시입니다.</p>
+
+<section class="v" id="A"><header><h2>A · 미니멀 그래프</h2><em>지금 구조를 가장 가볍게</em></header>
+<p>카드 대신 이니셜 원형 노드와 가는 곡선. 관계 이름은 선 위 알약. 노드에 올리면 연결된 것만 남고 나머지는 흐려집니다. 도구는 아래 중앙의 떠 있는 아이콘 바 하나로 모으고, 미연결 인물은 왼쪽 아래 작은 칩으로 줄였습니다.</p>
+<div class="frame"><div class="pg A">
+  <div class="tb"><h3>관계 이어보기</h3><span class="hint">노드를 끌어 배치하고, 점을 이어 관계를 만드세요.</span></div>
+  <div class="stage gridbg" id="aStage"><svg id="aSvg" viewBox="0 0 900 480" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="wait"><span class="lbl">대기 인물</span><div class="chips" id="aWait"></div></div>
+    <div class="float" id="aFloat"></div></div>
+</div></div></section>
+
+<section class="v" id="B"><header><h2>B · 문장형 목록</h2><em>그래프 없이 읽는 관계</em></header>
+<p>인물을 왼쪽 번호 목록에서 고르면, 오른쪽에 그 인물의 관계가 “서하는 도윤의 연인” 같은 문장으로 나옵니다. 캐릭터 목록·상세와 같은 문법이라 가장 일관적이고, 관계가 많아도 읽기 쉽습니다.</p>
+<div class="frame"><div class="pg B">
+  <div class="tb"><h3>관계 이어보기</h3><span class="hint"></span><button class="ibtn"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg>AI 제안</button><button class="ibtn on">목록</button><button class="ibtn">그래프</button></div>
+  <div class="cols"><div class="list" id="bList"></div><div class="detail" id="bDetail"></div></div>
+</div></div></section>
+
+<section class="v" id="C"><header><h2>C · 포커스 + 시트</h2><em>한 사람 중심으로 보기</em></header>
+<p>선택한 인물을 가운데 두고 관계 있는 사람만 둥글게 둘러 보여 줍니다. 오른쪽 시트에서 그 인물의 관계를 추가·수정. 인물이 많은 작품에서도 화면이 엉키지 않습니다.</p>
+<div class="frame"><div class="pg C">
+  <div class="tb"><h3>관계 이어보기</h3><span class="hint">인물을 누르면 그 사람이 가운데로 옵니다.</span><button class="ibtn"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg>AI 제안</button></div>
+  <div class="cols"><div class="stage gridbg"><svg id="cSvg" viewBox="0 0 640 520" preserveAspectRatio="xMidYMid meet"></svg></div><div class="sheet" id="cSheet"></div></div>
+</div></div></section>
+
+<section class="v" id="D"><header><h2>D · 관계표</h2><em>빠진 관계를 찾기 좋음</em></header>
+<p>인물 × 인물 표. 관계가 있는 칸은 파스텔로 채워지고, 빈 칸에 올리면 + 가 나타나 바로 잇습니다. 아직 서로 이어지지 않은 쌍이 한눈에 보여서 설정 누락을 점검하기 좋습니다.</p>
+<div class="frame"><div class="pg D">
+  <div class="tb"><h3>관계 이어보기</h3><span class="hint">빈 칸을 눌러 두 사람을 잇습니다.</span><button class="ibtn">목록</button><button class="ibtn">그래프</button><button class="ibtn on">표</button></div>
+  <div class="wrap" id="dWrap"></div>
+</div></div></section>
+
+<section class="v" id="E"><header><h2>E · 그룹 영역</h2><em>황실·학원 같은 집단 중심</em></header>
+<p>그룹을 파스텔 점선 영역으로 묶고 그 안에 인물을 둡니다. 그룹 사이의 선만 크게 보이므로 세력 구도를 읽기 좋습니다. 왼쪽은 아직 배치하지 않은 인물 목록(끌어다 놓기).</p>
+<div class="frame"><div class="pg E">
+  <div class="tb"><h3>관계 이어보기</h3><span class="hint">인물을 영역 안으로 끌어 그룹에 넣으세요.</span><button class="ibtn"><svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M17 11a3 3 0 1 0 0-6M21 20c0-2.6-1.6-4.8-4-5.6"/></svg>그룹 만들기</button><button class="ibtn"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg>AI 제안</button></div>
+  <div class="cols"><div class="rail" id="eRail"></div><div class="stage gridbg"><svg id="eSvg" viewBox="0 0 700 500" preserveAspectRatio="xMidYMid meet"></svg></div></div>
+</div></div></section>
+</main>
+<script>
+const P={
+ seoha:{n:"이서하",r:"주인공",c:"rose",i:"서"},
+ doyun:{n:"강도윤",r:"주인공",c:"rose",i:"도"},
+ jian:{n:"윤지안",r:"조력자",c:"mint",i:"지"},
+ raon:{n:"한라온",r:"적대자",c:"lilac",i:"라"},
+ eden:{n:"백이든",r:"적대자",c:"lilac",i:"이"},
+ moa:{n:"모아",r:"조력자",c:"mint",i:"모"},
+ serin:{n:"오세린",r:"단역",c:"sky",i:"세"},
+ min:{n:"차민",r:"단역",c:"sky",i:"민"}
+};
+const E=[["seoha","doyun","연인"],["seoha","jian","친구"],["doyun","raon","라이벌"],["raon","eden","이복형제"],["eden","seoha","계약"],["jian","moa","남매"],["doyun","moa","스승"]];
+const WAIT=["serin","min"];
+const ids=Object.keys(P);
+const ic=d=>`<svg class="ic" viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+const rels=id=>E.filter(e=>e[0]===id||e[1]===id).map(e=>({o:e[0]===id?e[1]:e[0],l:e[2],e}));
+function pill(x,y,t){const w=t.length*12+18;return `<g class="pill"><rect x="${x-w/2}" y="${y-11}" width="${w}" height="22" rx="11"/><text x="${x}" y="${y}">${t}</text></g>`}
+function node(id,x,y,R,extra=""){const p=P[id];return `<g class="nd r-${p.c} ${extra}" data-id="${id}" transform="translate(${x},${y})"><circle class="bg" r="${R}"/><circle class="ring" r="${R+4}"/><text class="i">${p.i}</text><text class="n" y="${R+17}">${p.n}</text><text class="r" y="${R+31}">${p.r}</text></g>`}
+function graph(svg,pos,R,opts={}){
+  let h="";
+  const edges=opts.edges||E;
+  edges.forEach(e=>{const a=pos[e[0]],b=pos[e[1]];if(!a||!b)return;
+    const mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy)||1,k=opts.curve??0.12;
+    const cx=mx-dy/len*len*k,cy=my+dx/len*len*k;
+    const lx=0.25*a[0]+0.5*cx+0.25*b[0],ly=0.25*a[1]+0.5*cy+0.25*b[1];
+    h+=`<g class="eg" data-a="${e[0]}" data-b="${e[1]}"><path class="edge" d="M${a[0]},${a[1]} Q${cx},${cy} ${b[0]},${b[1]}"/>${pill(lx,ly,e[2])}</g>`});
+  Object.keys(pos).forEach(id=>h+=node(id,pos[id][0],pos[id][1],R,opts.sel===id?"sel":""));
+  svg.innerHTML=(opts.pre||"")+h;
+  svg.querySelectorAll(".nd").forEach(n=>{
+    n.addEventListener("mouseenter",()=>{const id=n.dataset.id;svg.classList.add("dimmed");
+      svg.querySelectorAll(".nd").forEach(m=>m.classList.toggle("hl",m===n||rels(id).some(r=>r.o===m.dataset.id)));
+      svg.querySelectorAll(".eg").forEach(g=>g.classList.toggle("hl",g.dataset.a===id||g.dataset.b===id))});
+    n.addEventListener("mouseleave",()=>{svg.classList.remove("dimmed")});
+    if(opts.onClick)n.addEventListener("click",()=>opts.onClick(n.dataset.id));
+  });
+}
+/* A */
+const aPos={seoha:[300,230],doyun:[520,160],jian:[190,360],raon:[700,250],eden:[510,380],moa:[400,70]};
+graph(document.getElementById("aSvg"),aPos,30,{curve:.1});
+document.getElementById("aWait").innerHTML=WAIT.map(id=>`<span class="r-${P[id].c}"><i class="av">${P[id].i}</i>${P[id].n}</span>`).join("");
+document.getElementById("aFloat").innerHTML=[
+ [ "AI 제안","M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"],
+ [ "관계 잇기","M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"],
+ [ "그룹","M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M17 11a3 3 0 1 0 0-6M21 20c0-2.6-1.6-4.8-4-5.6"],
+ "|",
+ [ "전체 보기","M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"],
+ [ "정렬","M3 6h18M3 12h12M3 18h6"],
+ "|",
+ [ "−","M5 12h14"],[ "＋","M12 5v14M5 12h14"]
+].map(b=>b==="|"?'<span class="sep"></span>':`<button class="ibtn" title="${b[0]}">${ic(b[2]||b[1])}${["−","＋"].includes(b[0])?"":b[0]}</button>`).join("");
+/* B */
+let bSel="seoha";
+function renderB(){
+  const groups=["주인공","조력자","적대자","단역"];let n=0;
+  document.getElementById("bList").innerHTML=groups.map(g=>`<div class="grp">${g}</div>`+ids.filter(i=>P[i].r===g).map(i=>{n++;return `<button class="r-${P[i].c} ${i===bSel?"on":""}" data-id="${i}"><span class="no">${String(n).padStart(2,"0")}</span><span class="dot"></span>${P[i].n}<em>${rels(i).length||""}</em></button>`}).join("")).join("");
+  const p=P[bSel],rs=rels(bSel);
+  document.getElementById("bDetail").innerHTML=`<h4 class="r-${p.c}"><i class="av" style="width:48px;height:48px;font-size:19px">${p.i}</i>${p.n}</h4><div class="sub">${p.r} · 관계 ${rs.length}개</div>`+
+   (rs.map(r=>`<div class="rel"><div class="s"><b>${p.n}</b>은(는) <b>${P[r.o].n}</b>의 <i>${r.l}</i></div><button>수정</button></div>`).join("")||'<div class="rel"><div class="s" style="color:var(--ink3)">아직 이어진 관계가 없어요.</div></div>')+`<div class="add">+ 관계 잇기</div>`;
+  document.querySelectorAll("#bList button").forEach(b=>b.onclick=()=>{bSel=b.dataset.id;renderB()});
+}
+renderB();
+/* C */
+let cSel="seoha";
+function renderC(){
+  const rs=rels(cSel),pos={};pos[cSel]=[320,260];
+  rs.forEach((r,i)=>{const a=-Math.PI/2+i*2*Math.PI/rs.length;pos[r.o]=[320+Math.cos(a)*190,260+Math.sin(a)*165]});
+  graph(document.getElementById("cSvg"),pos,rs.length?28:32,{edges:rs.map(r=>r.e),sel:cSel,curve:.08,onClick:id=>{cSel=id;renderC()}});
+  const p=P[cSel];
+  document.getElementById("cSheet").innerHTML=`<div class="lbl">선택한 인물</div><h4>${p.n}</h4><div class="sub">${p.r}</div>`+
+   rs.map(r=>`<div class="row r-${P[r.o].c}"><i class="av">${P[r.o].i}</i><span class="t">${P[r.o].n}</span><em>${r.l}</em></div>`).join("")+
+   `<div class="row" style="color:var(--ink3)">+ 관계 잇기</div><div class="hint2">가운데에 오는 인물을 바꾸면 그 사람의 관계만 다시 그려집니다.</div>`;
+}
+renderC();
+/* D */
+(function(){
+  const rel=(a,b)=>E.find(e=>(e[0]===a&&e[1]===b)||(e[0]===b&&e[1]===a));
+  let h=`<table><tr><th></th>`+ids.map(i=>`<th class="col r-${P[i].c}"><div><span class="dot"></span>${P[i].n}</div></th>`).join("")+`</tr>`;
+  ids.forEach(a=>{h+=`<tr><th class="row r-${P[a].c}"><span><span class="dot"></span>${P[a].n}</span></th>`;
+    ids.forEach(b=>{const r=rel(a,b);h+=a===b?`<td class="diag"></td>`:r?`<td class="has r-${P[a].c}">${r[2]}</td>`:`<td></td>`});h+=`</tr>`});
+  h+=`</table><div class="legend"><span>색 칸 = 이어진 관계</span><span>빈 칸 = 아직 이어지지 않음 (눌러서 잇기)</span></div>`;
+  document.getElementById("dWrap").innerHTML=h;
+})();
+/* E */
+document.getElementById("eRail").innerHTML=`<span class="lbl">대기 인물</span>`+WAIT.map(i=>`<div class="it r-${P[i].c}"><i class="av">${P[i].i}</i>${P[i].n}<em>${P[i].r}</em></div>`).join("")+`<span class="lbl" style="margin-top:14px">단역·기타</span><div class="it" style="color:var(--ink3)">+ 인물 추가</div>`;
+(function(){
+  const pos={doyun:[150,130],raon:[290,95],eden:[260,215],seoha:[470,340],jian:[600,400],moa:[560,265]};
+  const gr=(x,y,w,h,t,c)=>`<g class="gr r-${c}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="22"/><text x="${x+16}" y="${y+22}">${t}</text></g>`;
+  graph(document.getElementById("eSvg"),pos,26,{pre:gr(60,40,300,230,"황실","lilac")+gr(380,215,290,240,"학원","mint"),curve:.1});
+})();
+document.getElementById("theme").onclick=()=>{const r=document.documentElement;r.dataset.theme=r.dataset.theme==="dark"?"light":"dark"};
+</script>
+</body>
+</html>
