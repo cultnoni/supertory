@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuperTory · 생각수첩 메모 시안 5종</title>
+<link rel="stylesheet" href="../fonts/pretendard.css">
+<style>
+:root{
+  --bg:#f1efee; --panel:#fafafa; --sunk:#f1efec; --desk:#f4f2ef;
+  --ink:#2b2a27; --ink2:#5d5e5b; --ink3:#8e8b84; --line:#e6e3de; --accent:#45463f;
+  --shadow:0 1px 2px rgba(43,42,39,.05),0 8px 24px rgba(43,42,39,.05);
+  --pop:0 2px 6px rgba(43,42,39,.08),0 16px 40px rgba(43,42,39,.14);
+  --fill:26%; --soft:9%; --edge:30%;
+  --sans:"Pretendard","Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+}
+:root[data-theme="dark"]{
+  --bg:#171615; --panel:#1f1e1c; --sunk:#282725; --desk:#1b1a19;
+  --ink:#ece9e4; --ink2:#b3afa7; --ink3:#857f76; --line:#34322f; --accent:#d8d4c8;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.3);
+  --pop:0 2px 6px rgba(0,0,0,.4),0 16px 40px rgba(0,0,0,.5);
+  --fill:20%; --soft:9%; --edge:34%;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);font-size:13.5px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+
+.bar{position:sticky;top:0;z-index:20;display:flex;gap:14px;align-items:center;padding:9px 20px;background:#1f2429;color:#e8eaed;font-size:12.5px}
+.bar b{font-weight:650}
+.bar .sp{flex:1}
+.bar button{padding:5px 11px;border-radius:7px;background:#2c3238;color:#cfd5db}
+.bar button:hover{color:#fff}
+.bar a{color:#9fb4c8;text-decoration:none;padding:4px 7px;border-radius:6px}
+.bar a:hover{background:#2c3238}
+
+main{max-width:1180px;margin:0 auto;padding:26px 24px 80px}
+h1{font-size:22px;font-weight:700;margin-bottom:6px}
+.lead{color:var(--ink2);line-height:1.6;max-width:70ch;margin-bottom:26px}
+.pal{display:flex;gap:10px;align-items:center;margin:0 0 30px;padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-radius:14px;width:max-content;max-width:100%;flex-wrap:wrap}
+.pal span{color:var(--ink3);font-size:12px;margin-right:4px}
+.pal i{display:inline-flex;align-items:center;gap:6px;font-style:normal;font-size:12px;color:var(--ink2);padding:3px 9px 3px 4px;border-radius:99px;background:color-mix(in srgb,var(--c) var(--fill),var(--panel))}
+.pal i:before{content:"";width:12px;height:12px;border-radius:50%;background:var(--c)}
+
+section{margin-bottom:44px}
+section header{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+section h2{font-size:16px;font-weight:700}
+section header em{font-style:normal;font-size:11.5px;color:var(--ink3);border:1px solid var(--line);border-radius:6px;padding:1px 7px}
+section p{color:var(--ink2);margin-bottom:14px;line-height:1.55}
+.board.pinned{padding-top:30px}
+.board{display:flex;flex-wrap:wrap;gap:16px;padding:22px;background:var(--desk);border-radius:14px;align-items:flex-start}
+
+/* ── 공통 메모 ── */
+.n{position:relative;width:260px;--c:#e9c85a}
+.nb{position:relative;display:flex;flex-direction:column;gap:6px;min-height:150px;padding:12px 14px 14px;border-radius:12px;color:var(--ink)}
+.n[data-c=butter]{--c:#e3bf55}
+.n[data-c=rose]{--c:#e48b96}
+.n[data-c=sky]{--c:#6fa3d6}
+.n[data-c=mint]{--c:#62b088}
+.n[data-c=lilac]{--c:#9d8bd2}
+.pal i[data-c=butter]{--c:#e3bf55}.pal i[data-c=rose]{--c:#e48b96}.pal i[data-c=sky]{--c:#6fa3d6}.pal i[data-c=mint]{--c:#62b088}.pal i[data-c=lilac]{--c:#9d8bd2}
+
+.hd{display:flex;align-items:center;gap:6px}
+.hd .t{flex:1;min-width:0;font-weight:650;font-size:14px;background:none;border:0;outline:0;color:inherit;font-family:inherit;padding:2px 0}
+.hd .t::placeholder{color:var(--ink3)}
+.bd{flex:1;font-size:13px;line-height:1.6;color:var(--ink2);background:none;border:0;outline:0;resize:none;font-family:inherit;min-height:70px;padding:0}
+.ft{display:flex;justify-content:flex-end;gap:2px;height:20px;opacity:0;transition:opacity .12s}
+.n:hover .ft,.n:focus-within .ft{opacity:1}
+.ft button{font-size:11.5px;color:var(--ink3);padding:2px 7px;border-radius:6px}
+.ft button:hover{background:color-mix(in srgb,var(--ink) 7%,transparent);color:var(--ink)}
+.pin{width:24px;height:24px;display:grid;place-items:center;border-radius:7px;color:var(--ink3);opacity:.55}
+.pin:hover{opacity:1;background:color-mix(in srgb,var(--ink) 7%,transparent)}
+.pin[aria-pressed=true]{opacity:1;color:var(--c)}
+.pin svg,.grip svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.pin[aria-pressed=true] svg{fill:currentColor}
+.grip{position:absolute;right:5px;bottom:5px;width:14px;height:14px;color:var(--ink3);opacity:0;transition:opacity .12s;cursor:nwse-resize}
+.n:hover .grip{opacity:.6}
+
+/* 색 선택 점 + 팝오버 */
+.dot{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;flex:none}
+.dot:before{content:"";width:10px;height:10px;border-radius:50%;background:var(--c);box-shadow:0 0 0 1.5px color-mix(in srgb,var(--panel) 70%,transparent)}
+.dot:hover{background:color-mix(in srgb,var(--ink) 8%,transparent)}
+.pick{position:absolute;z-index:5;top:34px;right:8px;display:none;gap:7px;padding:8px 10px;background:var(--panel);border:1px solid var(--line);border-radius:99px;box-shadow:var(--pop)}
+.n.open .pick{display:flex}
+.pick button{width:18px;height:18px;border-radius:50%;background:var(--sw);box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+.pick button[aria-pressed=true]{box-shadow:0 0 0 2px var(--panel),0 0 0 3.5px var(--sw)}
+.pick button:hover{transform:scale(1.12)}
+.pick [data-k=butter]{--sw:#e3bf55}.pick [data-k=rose]{--sw:#e48b96}.pick [data-k=sky]{--sw:#6fa3d6}.pick [data-k=mint]{--sw:#62b088}.pick [data-k=lilac]{--sw:#9d8bd2}
+
+/* A · 색 띠 : 흰 종이 + 위쪽 얇은 색 띠 */
+.vA .nb{background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden;padding-top:15px}
+.vA .nb:before{content:"";position:absolute;left:0;right:0;top:0;height:4px;background:var(--c);opacity:.85}
+
+/* B · 색 줄 : 아주 옅은 틴트 + 왼쪽 세로줄 */
+.vB .nb{background:color-mix(in srgb,var(--c) var(--soft),var(--panel));border:1px solid color-mix(in srgb,var(--c) var(--edge),var(--line));padding-left:19px}
+.vB .nb:before{content:"";position:absolute;left:8px;top:13px;bottom:13px;width:3px;border-radius:3px;background:var(--c)}
+
+/* C · 파스텔 면 : 테두리·그림자 없이 색면만 */
+.vC .nb{background:color-mix(in srgb,var(--c) var(--fill),var(--panel));border-radius:14px}
+.vC .ft button:hover,.vC .pin:hover,.vC .dot:hover{background:color-mix(in srgb,var(--c) 22%,transparent)}
+
+/* D · 색 점 : 흰 종이, 색은 점 하나 + 호버 때만 테두리 */
+.vD .nb{background:var(--panel);border:1px solid var(--line);transition:border-color .15s,box-shadow .15s}
+.vD .n:hover .nb,.vD .n:focus-within .nb{border-color:color-mix(in srgb,var(--c) 55%,var(--line));box-shadow:var(--shadow)}
+.vD .dot{width:20px;height:20px}
+.vD .dot:before{width:11px;height:11px}
+.vD .pick{top:38px;left:8px;right:auto}
+
+/* E · 접힌 모서리 : 파스텔 면 + 오른쪽 아래 접힘(크기 조절 손잡이) */
+.vE .n{filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.08)) drop-shadow(0 6px 12px rgba(0,0,0,.06))}
+.vE .nb{background:color-mix(in srgb,var(--c) var(--fill),var(--panel));border-radius:12px 12px 4px 12px;clip-path:polygon(0 0,100% 0,100% calc(100% - 24px),calc(100% - 24px) 100%,0 100%)}
+.vE .nb:after{content:"";position:absolute;right:0;bottom:0;width:24px;height:24px;background:linear-gradient(135deg,color-mix(in srgb,var(--c) 40%,var(--panel)) 50%,transparent 50%);transform:scale(-1,-1);transform-origin:center;opacity:.9}
+.vE .grip{display:none}
+
+.pinbadge{display:none}
+
+/* ── 고정 메모 표식(메모 위에 얹히는 그림) ── */
+.tack{position:absolute;z-index:3;pointer-events:none;color:color-mix(in srgb,var(--c) 70%,#000 30%);filter:drop-shadow(0 1.5px 1px rgba(0,0,0,.18))}
+.tack svg{display:block;width:34px;height:34px}
+.vA .tack{top:-17px;left:50%;margin-left:-17px}
+.vB .tack{top:-18px;right:14px;transform:rotate(18deg)}
+.vC .tack{top:-18px;left:50%;margin-left:-17px;transform:rotate(-8deg)}
+.vD .tack{top:-9px;left:14px;filter:none;font-size:10.5px;font-weight:650;line-height:1;padding:4px 8px;border-radius:6px;background:var(--c);color:color-mix(in srgb,var(--c) 25%,#000)}
+.vE .tack{top:-22px;right:70px;transform:rotate(6deg)}
+.vE .tack svg{width:22px;height:34px}
+.sub{font-size:12px;color:var(--ink3);margin:18px 0 8px;font-weight:600}
+
+/* ── 메인 타이틀바 고정 메모 칩(30×30) ── */
+.tbwrap{margin-bottom:34px}
+.tbwrap h2{font-size:16px;font-weight:700;margin-bottom:4px}
+.tbrow{display:grid;grid-template-columns:150px 1fr;gap:12px 18px;align-items:center;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:14px}
+.tbrow .nm{font-weight:650;font-size:13px}.tbrow .nm small{display:block;font-weight:400;color:var(--ink3);font-size:11.5px}
+.tbrow .cap{grid-column:2/4;font-size:11px;color:var(--ink3);margin-top:-6px}
+.tb{display:flex;align-items:center;gap:5px;height:32px;padding:0 10px;background:var(--bg);border-radius:8px;width:max-content}
+.tb.z{zoom:2.4;border-radius:4px;grid-column:2;max-width:100%}
+.mc{position:relative;flex:0 0 30px;width:30px;height:30px;padding:9px 2px 2px;font-size:9px;font-weight:700;line-height:1.15;color:var(--ink);overflow:hidden;border-radius:6px;cursor:pointer;--c:#e3bf55}
+.mc[data-c=butter]{--c:#e3bf55}.mc[data-c=rose]{--c:#e48b96}.mc[data-c=sky]{--c:#6fa3d6}.mc[data-c=mint]{--c:#62b088}.mc[data-c=lilac]{--c:#9d8bd2}
+.mc .l{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-align:center;word-break:break-all}
+.mc .mt{position:absolute;pointer-events:none;color:color-mix(in srgb,var(--c) 68%,#000 32%);display:block}
+.mc .mt svg{display:block;width:100%;height:100%}
+.mc:hover{transform:translateY(-1px)}
+.vA .mc{background:var(--panel);border:1px solid var(--line);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.vA .mc:before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:var(--c)}
+.vA .mt{top:2px;left:50%;width:9px;height:9px;margin-left:-4.5px}
+.vB .mc{background:color-mix(in srgb,var(--c) var(--soft),var(--panel));border:1px solid color-mix(in srgb,var(--c) var(--edge),var(--line));padding-left:5px}
+.vB .mc:before{content:"";position:absolute;left:2px;top:4px;bottom:4px;width:2px;border-radius:2px;background:var(--c)}
+.vB .mt{top:0;right:1px;width:10px;height:10px;transform:rotate(18deg)}
+.vC .mc{background:color-mix(in srgb,var(--c) var(--fill),var(--panel));border-radius:7px}
+.vC .mt{top:0;left:50%;width:10px;height:10px;margin-left:-5px}
+.vD .mc{background:var(--panel);border:1px solid var(--line)}
+.vD .mc:hover{border-color:color-mix(in srgb,var(--c) 60%,var(--line))}
+.vD .mt{top:0;left:50%;width:12px;height:5px;margin-left:-6px;border-radius:0 0 3px 3px;background:var(--c)}
+.vE .mc{background:color-mix(in srgb,var(--c) var(--fill),var(--panel));border-radius:6px 6px 2px 6px;clip-path:polygon(0 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%)}
+.vE .mc:after{content:"";position:absolute;right:0;bottom:0;width:7px;height:7px;background:linear-gradient(135deg,color-mix(in srgb,var(--c) 40%,var(--panel)) 50%,transparent 50%);transform:scale(-1,-1)}
+.vE .mt{top:1px;right:4px;width:7px;height:12px}
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>생각수첩 메모 시안</b>
+  <a href="#T">타이틀바 칩</a><a href="#A">A 색 띠</a><a href="#B">B 색 줄</a><a href="#C">C 파스텔 면</a><a href="#D">D 색 점</a><a href="#E">E 접힌 모서리</a>
+  <span class="sp"></span>
+  <button id="theme">라이트 / 다크</button>
+</div>
+<main>
+  <h1>생각수첩 메모 — 5가지 시안</h1>
+  <p class="lead">공통: 기울임·딱딱한 그림자·형광 단색을 없애고, 반경 12·1px 선·조용한 그림자(섬과 종이 토큰)로 통일했습니다. 색은 파스텔 5가지(버터·로즈·스카이·민트·라일락) 중에서 고르고, 고르는 방법은 메모 머리의 <b>색 점</b> 하나로 줄였습니다(예전의 클립 6개 줄 제거). 아래 메모의 색 점을 눌러 색을 바꿔 보세요. 저장·삭제 버튼은 호버할 때만 보입니다.</p>
+  <div class="pal"><span>5색</span>
+    <i data-c="butter">버터</i><i data-c="rose">로즈</i><i data-c="sky">스카이</i><i data-c="mint">민트</i><i data-c="lilac">라일락</i>
+  </div>
+  <div id="out"></div>
+</main>
+<script>
+const COLORS=[["butter","버터"],["rose","로즈"],["sky","스카이"],["mint","민트"],["lilac","라일락"]];
+const VARS=[
+ ["A","색 띠","가장 정돈된 느낌","흰 종이에 위쪽 4px 색 띠만. 본문은 완전히 중립이라 글자가 가장 잘 읽히고, 메모가 많아져도 화면이 시끄럽지 않습니다."],
+ ["B","색 줄","미니멀 · 은은함","아주 옅은 틴트(9%) + 왼쪽 세로 줄. 색이 ‘분류 표시’로만 작동합니다. 섬과 종이의 카드 문법(패널+선)과 가장 가깝습니다."],
+ ["C","파스텔 면","메모다움 · 가장 파스텔","카드 전체를 파스텔로 채우고 선·그림자를 뺐습니다. 포스트잇 느낌은 유지하면서 가장 부드럽습니다. 색이 곧 정보라 한눈에 구분됩니다."],
+ ["D","색 점","가장 미니멀","카드는 항상 흰색, 색은 제목 앞 점 하나. 호버·포커스 때만 테두리가 그 색으로 물듭니다. 색을 거의 쓰지 않고도 분류가 됩니다."],
+ ["E","접힌 모서리","디자인 포인트","파스텔 면 + 오른쪽 아래 접힌 귀. 접힌 귀가 곧 크기 조절 손잡이라 별도 조절 아이콘이 필요 없습니다. 종이 은유를 가장 살린 안입니다."]
+];
+const SAMPLE=[
+ ["결말 아이디어","주인공이 편지를 태우지 않고 서랍에 되돌려 놓는다. 열린 결말로, 마지막 문장은 비 오는 소리로 끝내기.","butter",true],
+ ["서윤의 말버릇","불리할 때마다 ‘그건 중요하지 않아’라고 먼저 말함. 2~4화 사이에 한 번 깨지게.","rose",false],
+ ["복선 메모","3화 시계탑 장면의 멈춘 시계 → 11화에서 다시 움직임.","sky",false],
+ ["참고","섬 마을 사투리는 과하지 않게. 어미만 살짝.","mint",false],
+ ["빈 메모","","lilac",false]
+];
+const PIN='<svg viewBox="0 0 24 24"><path d="M12 17v5M9 3h6l-1 6 3 4H7l3-4z"/></svg>';
+const GRIP='<svg viewBox="0 0 24 24"><path d="M20 10 10 20M20 16l-4 4"/></svg>';
+const PUSH='<svg viewBox="0 0 24 24"><g transform="rotate(42 12 13)"><path fill="currentColor" d="M12 2.55c2.1 0 3.8 1.7 3.8 3.8 0 1.25-.62 2.35-1.55 3.02l1.15 3.4c.4 1.2-.46 2.45-1.72 2.63l-1.18.17V20.3a1 1 0 1 1-2 0v-4.73l-1.18-.17c-1.26-.18-2.12-1.43-1.72-2.63l1.15-3.4A3.78 3.78 0 0 1 8.2 6.35C8.2 4.25 9.9 2.55 12 2.55zm0 1.9a1.9 1.9 0 1 0 .02 3.8 1.9 1.9 0 0 0-.02-3.8z"/></g></svg>';
+const CLIP='<svg viewBox="0 0 22 34"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M7 12v13a4 4 0 0 0 8 0V8a6 6 0 0 0-12 0v18a8 8 0 0 0 16 0V12"/></svg>';
+function tack(v){return `<span class="tack">${v==="D"?"고정":v==="E"?CLIP:PUSH}</span>`}
+function card(v,s,pinned){
+  const [t,b,c,p0]=s; const p=pinned?true:p0;
+  return `<div class="n" data-c="${c}">${p?tack(v):""}<div class="nb">
+    <div class="hd">${v==="D"?'<button class="dot" title="색"></button>':''}<input class="t" value="${t}" placeholder="제목 (예: 결말 아이디어)">
+    ${v!=="D"?'<button class="dot" title="색"></button>':''}<button class="pin" aria-pressed="${p}" title="고정">${PIN}</button></div>
+    <textarea class="bd" placeholder="러프하게 적어 두세요">${b}</textarea>
+    <div class="ft"><button>저장</button><button>삭제</button></div>
+    <span class="grip">${GRIP}</span>
+  </div>
+  <div class="pick">${COLORS.map(([k,l])=>`<button data-k="${k}" title="${l}" aria-label="${l}" aria-pressed="${k===c}"></button>`).join("")}</div></div>`;
+}
+document.getElementById("out").innerHTML=VARS.map(([id,name,tag,desc])=>`
+ <section id="${id}" class="v${id}"><header><h2>${id}. ${name}</h2><em>${tag}</em></header><p>${desc}</p>
+ <div class="board">${SAMPLE.map(s=>card(id,s)).join("")}</div>
+ <div class="sub">고정한 메모 — 5색 모두 고정된 상태</div><div class="board pinned">${SAMPLE.map(s=>card(id,s,true)).join("")}</div></section>`).join("");
+
+const MINI=["결말 아이디어","서윤 말버릇","복선 메모","참고","빈 메모"];
+const MCOL=["butter","rose","sky","mint","lilac"];
+function mini(v){return MINI.map((t,i)=>`<button class="mc" data-c="${MCOL[i]}" title="${t}"><span class="mt">${v==="D"?"":v==="E"?CLIP:PUSH}</span><span class="l">${t}</span></button>`).join("")}
+const TB=document.createElement("div");TB.className="tbwrap";TB.id="T";
+TB.innerHTML=`<h2>메인 화면 타이틀바 — 고정 메모 칩</h2><p style="color:var(--ink2);margin:0 0 12px;line-height:1.55">고정한 메모는 타이틀바 왼쪽부터 30×30 칩으로 놓입니다(최대 8개). 왼쪽이 실제 크기, 오른쪽은 3배 확대입니다. 칩의 색·고정 표식은 위 5안과 같은 문법으로 맞췄습니다.</p><div style="display:flex;flex-direction:column;gap:10px">`+
+VARS.map(([id,name,tag])=>`<div class="tbrow v${id}"><div class="nm">${id}. ${name}<small>${tag}</small></div><div class="tb">${mini(id)}</div><div class="tb z">${mini(id)}</div></div>`).join("")+`</div>`;
+document.getElementById("out").prepend(TB);
+document.addEventListener("click",e=>{
+  const n=e.target.closest(".n");
+  const dot=e.target.closest(".dot"), sw=e.target.closest(".pick button"), pin=e.target.closest(".pin");
+  document.querySelectorAll(".n.open").forEach(x=>{if(x!==n||!dot&&!sw)x.classList.remove("open")});
+  if(dot){n.classList.toggle("open")}
+  if(sw){n.dataset.c=sw.dataset.k;n.querySelectorAll(".pick button").forEach(b=>b.setAttribute("aria-pressed",b===sw));n.classList.remove("open")}
+  if(pin){pin.setAttribute("aria-pressed",pin.getAttribute("aria-pressed")!=="true")}
+});
+document.getElementById("theme").onclick=()=>{const r=document.documentElement;r.dataset.theme=r.dataset.theme==="dark"?"":"dark"};
+</script>
+</body>
+</html>

@@ -2110,3 +2110,134 @@ body.focus-write-open .isl-ai-badge { z-index: 230 !important; }
 @media (max-width: 900px) {
   #synopsisWorkspace .settings-doc-sheet { width: calc(100% - 24px); margin: 12px auto; padding: 22px 24px 32px; }
 }
+
+/* ── 생각수첩 메모 (색 띠 / 색 줄 / 파스텔 면) ──────────────────────────
+   색은 파스텔 5색(--nc)만, 면·띠·줄은 --panel 과 섞어 테마·다크에 맞춘다.
+   스타일 선택: html[data-idea-note-style="band|line|fill"] (기본 fill, localStorage supertory.ideaNoteStyle).
+   고정은 클립 그림(.idea-card-pin / .idea-sticky-pin / .header-idea-chip-pin). */
+html { --nc-fill: 26%; --nc-soft: 9%; --nc-edge: 30%; }
+html[data-ui-scheme="dark"] { --nc-fill: 20%; --nc-soft: 9%; --nc-edge: 34%; }
+.idea-card, .idea-sticky, .header-idea-bar .header-idea-chip { --nc: #e3bf55; }
+.idea-card.color-yellow,
+.idea-sticky.color-yellow,
+.header-idea-bar .header-idea-chip.color-yellow,
+.idea-clip-swatch.color-yellow,
+.idea-color-swatch.color-yellow { --nc: #e3bf55; }
+.idea-card.color-pink,
+.idea-sticky.color-pink,
+.header-idea-bar .header-idea-chip.color-pink,
+.idea-clip-swatch.color-pink,
+.idea-color-swatch.color-pink { --nc: #e48b96; }
+.idea-card.color-blue,
+.idea-sticky.color-blue,
+.header-idea-bar .header-idea-chip.color-blue,
+.idea-clip-swatch.color-blue,
+.idea-color-swatch.color-blue { --nc: #6fa3d6; }
+.idea-card.color-green,
+.idea-sticky.color-green,
+.header-idea-bar .header-idea-chip.color-green,
+.idea-clip-swatch.color-green,
+.idea-color-swatch.color-green { --nc: #62b088; }
+.idea-card.color-purple,
+.idea-sticky.color-purple,
+.header-idea-bar .header-idea-chip.color-purple,
+.idea-clip-swatch.color-purple,
+.idea-color-swatch.color-purple { --nc: #9d8bd2; }
+.idea-card.color-orange,
+.idea-sticky.color-orange,
+.header-idea-bar .header-idea-chip.color-orange,
+.idea-clip-swatch.color-orange,
+.idea-color-swatch.color-orange { --nc: #e3bf55; }
+html .idea-card[class*="color-"],
+html .idea-sticky[class*="color-"],
+html .header-idea-bar .header-idea-chip[class*="color-"] {
+  background: color-mix(in srgb, var(--nc) var(--nc-fill), var(--panel));
+  border: 1px solid color-mix(in srgb, var(--nc) 18%, var(--line));
+  color: var(--text-primary);
+  transform: none;
+  box-shadow: none;
+}
+html .idea-card:nth-child(2n),
+html .idea-card:nth-child(3n),
+html .idea-sticky:nth-child(2n),
+html .idea-sticky:nth-child(3n),
+html .header-idea-bar .header-idea-chip:nth-child(2n),
+html .header-idea-bar .header-idea-chip:nth-child(3n) { transform: none; }
+html .idea-card[class*="color-"] { border-radius: 12px; padding: 14px 14px 12px; box-shadow: var(--isl-shadow); }
+html .idea-sticky[class*="color-"] { border-radius: 9px; padding: 9px 22px 10px 10px; }
+html .idea-sticky.is-pinned[class*="color-"] { padding-left: 10px; }
+html .idea-sticky:hover { filter: none; border-color: color-mix(in srgb, var(--nc) 45%, var(--line)); }
+html .header-idea-bar .header-idea-chip[class*="color-"] { border-radius: 7px; }
+html .header-idea-bar .header-idea-chip::after { display: none; }
+html .header-idea-bar .header-idea-chip:hover { transform: translateY(-1px); box-shadow: none; }
+html[data-idea-note-style="band"] .idea-card[class*="color-"],
+html[data-idea-note-style="band"] .idea-sticky[class*="color-"],
+html[data-idea-note-style="band"] .header-idea-bar .header-idea-chip[class*="color-"] {
+  background: var(--panel);
+  border-color: var(--line);
+}
+html[data-idea-note-style="line"] .idea-card[class*="color-"],
+html[data-idea-note-style="line"] .idea-sticky[class*="color-"],
+html[data-idea-note-style="line"] .header-idea-bar .header-idea-chip[class*="color-"] {
+  background: color-mix(in srgb, var(--nc) var(--nc-soft), var(--panel));
+  border-color: color-mix(in srgb, var(--nc) var(--nc-edge), var(--line));
+}
+.idea-card::before, .idea-sticky::before, .header-idea-bar .header-idea-chip::before { content: none; position: absolute; pointer-events: none; background: var(--nc); }
+html[data-idea-note-style="band"] .idea-card::before { content: ""; left: 0; right: 0; top: 0; height: 4px; opacity: .85; }
+html[data-idea-note-style="band"] .idea-card[class*="color-"] { padding-top: 18px; }
+html[data-idea-note-style="band"] .idea-sticky::before { content: ""; left: 0; right: 0; top: 0; height: 3px; border-radius: 9px 9px 0 0; opacity: .85; }
+html[data-idea-note-style="band"] .header-idea-bar .header-idea-chip::before { content: ""; left: 0; right: 0; top: 0; height: 3px; }
+html[data-idea-note-style="line"] .idea-card::before { content: ""; left: 8px; top: 14px; bottom: 14px; width: 3px; border-radius: 3px; }
+html[data-idea-note-style="line"] .idea-card[class*="color-"] { padding-left: 20px; }
+html[data-idea-note-style="line"] .idea-sticky::before { content: ""; left: 5px; top: 9px; bottom: 9px; width: 3px; border-radius: 3px; }
+html[data-idea-note-style="line"] .idea-sticky[class*="color-"] { padding-left: 16px; }
+html[data-idea-note-style="line"] .header-idea-bar .header-idea-chip::before { content: ""; left: 2px; top: 4px; bottom: 4px; width: 2px; border-radius: 2px; }
+html .idea-card, html .idea-sticky, html .header-idea-bar .header-idea-chip { color: var(--text-primary); }
+html .idea-card textarea, html .idea-card input, html .idea-sticky input, html .idea-sticky textarea { color: var(--text-primary); caret-color: var(--text-primary); }
+html .idea-card textarea { color: var(--isl-ink2); }
+html .idea-sticky-title { color: var(--text-primary); }
+html .idea-sticky-body { color: var(--isl-ink2); }
+html .idea-card-top input[type="text"] { color: var(--text-primary); border-bottom: 0; padding: 2px 70px 2px 0; }
+html[data-ui-scheme="dark"] .idea-card, html[data-ui-scheme="dark"] .idea-sticky, html[data-ui-scheme="dark"] .header-idea-bar .header-idea-chip { color: var(--text-primary); }
+html[data-ui-scheme="dark"] .idea-card textarea, html[data-ui-scheme="dark"] .idea-card input, html[data-ui-scheme="dark"] .idea-sticky input, html[data-ui-scheme="dark"] .idea-sticky textarea { color: var(--text-primary); caret-color: var(--text-primary); }
+html[data-ui-scheme="dark"] .idea-card textarea { color: var(--isl-ink2); }
+html[data-ui-scheme="dark"] .idea-sticky-title { color: var(--text-primary); }
+html[data-ui-scheme="dark"] .idea-sticky-body { color: var(--isl-ink2); }
+html[data-ui-scheme="dark"] .idea-card-top input[type="text"] { color: var(--text-primary); border-bottom: 0; padding: 2px 70px 2px 0; }
+
+/* 메모 안쪽: 색 점(팝오버) · 클립 · 하단 동작 */
+html .idea-card-clips { position: absolute; top: 12px; right: 46px; z-index: 3; display: flex; flex-direction: row-reverse; align-items: center; gap: 7px; margin: 0; min-height: 0; padding: 3px; border-radius: 99px; border: 1px solid transparent; }
+html .idea-card-clips:hover, html .idea-card-clips:focus-within { background: var(--panel); border-color: var(--line); box-shadow: var(--isl-pop-shadow, var(--isl-shadow)); }
+html .idea-card-clips .idea-clip-swatch { display: none; width: 16px; height: 16px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: var(--nc); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .06); transform: none; flex: 0 0 auto; }
+html .idea-card-clips .idea-clip-swatch.is-active { display: block; width: 12px; height: 12px; margin: 2px; box-shadow: none; transform: none; }
+html .idea-card-clips:hover .idea-clip-swatch, html .idea-card-clips:focus-within .idea-clip-swatch { display: block; width: 16px; height: 16px; margin: 0; }
+html .idea-card-clips:hover .idea-clip-swatch.is-active, html .idea-card-clips:focus-within .idea-clip-swatch.is-active { box-shadow: 0 0 0 2px var(--panel), 0 0 0 3.5px var(--nc); }
+html .idea-card-clips .idea-clip-swatch:hover { transform: scale(1.12); }
+
+html .idea-card-pin { position: absolute; top: 0; right: 14px; width: 24px; height: 32px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--isl-ink3); opacity: 0; transition: opacity .12s; z-index: 3; }
+html .idea-card:hover .idea-card-pin, html .idea-card:focus-within .idea-card-pin { opacity: .5; }
+html .idea-card .idea-card-pin:hover { opacity: 1; background: transparent; transform: none; color: color-mix(in srgb, var(--nc) 70%, #000 30%); }
+html .idea-card .idea-card-pin.is-on { opacity: 1; color: color-mix(in srgb, var(--nc) 70%, #000 30%); background: transparent; border: 0; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .18)); }
+html .idea-card-pin .idea-pin-glyph { width: 17px; height: 26px; filter: none; }
+
+html .idea-sticky-pin { left: auto; right: 7px; top: 0; bottom: auto; color: color-mix(in srgb, var(--nc) 70%, #000 30%); filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .15)); opacity: 1; }
+html .idea-sticky-pin .idea-pin-glyph { width: 10px; height: 16px; }
+html .header-idea-bar .header-idea-chip-pin { top: 1px; left: auto; right: 4px; transform: none; width: 8px; height: 12px; color: color-mix(in srgb, var(--nc) 70%, #000 30%); filter: none; opacity: 1; }
+html .header-idea-bar .header-idea-chip-pin .idea-pin-glyph { width: 8px; height: 12px; }
+
+html .idea-card-actions { opacity: 0; transition: opacity .12s; }
+html .idea-card:hover .idea-card-actions, html .idea-card:focus-within .idea-card-actions { opacity: 1; }
+@media (hover: none) { html .idea-card-actions { opacity: 1; } html .idea-card-pin { opacity: .5; } }
+html .idea-card-actions button { background: transparent; color: var(--isl-ink3); border: 0; }
+html .idea-card-actions button:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+html[data-ui-scheme="dark"] .idea-card-actions button { background: transparent; color: var(--isl-ink3); border: 0; }
+html[data-ui-scheme="dark"] .idea-card-actions button:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+html[data-ui-scheme="dark"] .idea-card-resize-hint { filter: invert(1); }
+html .idea-color-swatch[class*="color-"] { background: color-mix(in srgb, var(--nc) 40%, var(--panel)) !important; border-radius: 50% !important; border-color: transparent !important; }
+
+/* 메모 스타일 선택(생각수첩 머리글) */
+.idea-note-style-seg { display: inline-flex; }
+.idea-note-style-seg .seg-control-tab { padding: 4px 10px; font-size: 12px; cursor: pointer; }
+
+/* 생각수첩 보드: 기본 크기는 가로 2개 (직접 크기를 조절한 메모는 인라인 width가 우선) */
+html .idea-board-grid > .idea-card { width: calc((100% - 18px) / 2); }

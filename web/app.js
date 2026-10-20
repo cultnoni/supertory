@@ -17684,9 +17684,36 @@ const IDEA_COLORS = [
   { key: "pink", label: i18n.t('app.분홍') },
   { key: "blue", label: i18n.t('app.파랑') },
   { key: "green", label: i18n.t('app.초록') },
-  { key: "orange", label: i18n.t('app.주황') },
   { key: "purple", label: i18n.t('app.보라') },
 ];
+
+const IDEA_NOTE_STYLES = ["fill", "band", "line"];
+const IDEA_NOTE_STYLE_KEY = "supertory.ideaNoteStyle";
+
+function loadIdeaNoteStyle() {
+  try {
+    const saved = localStorage.getItem(IDEA_NOTE_STYLE_KEY);
+    return IDEA_NOTE_STYLES.includes(saved) ? saved : "fill";
+  } catch (_) {
+    return "fill";
+  }
+}
+
+function applyIdeaNoteStyle(style, { save = false } = {}) {
+  const key = IDEA_NOTE_STYLES.includes(style) ? style : "fill";
+  document.documentElement.dataset.ideaNoteStyle = key;
+  document.querySelectorAll("button[data-idea-note-style]").forEach((btn) => {
+    const on = btn.dataset.ideaNoteStyle === key;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  if (!save) return;
+  try {
+    localStorage.setItem(IDEA_NOTE_STYLE_KEY, key);
+  } catch (_) {
+    /* ignore */
+  }
+}
 
 function ideaPreview(text, max = 90) {
   const cleaned = String(text || "").replace(/\s+/g, " ").trim();
@@ -17736,14 +17763,14 @@ function saveLocalIdeaPin(ideaId, pinned) {
   }
 }
 
-/** 오른쪽→왼쪽 아래로 꽂힌 압정 (테두리 없는 아이콘 전용) */
+/** 고정 표시용 종이 클립 (size = 높이 px, 선 아이콘 전용) */
 function ideaPinGlyphHtml(size = 18) {
-  const s = Math.max(12, Number(size) || 18);
+  const h = Math.max(12, Number(size) || 18);
+  const w = Math.round(h * 0.65);
   return (
-    `<svg class="idea-pin-glyph" viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true" focusable="false">`
-    + `<g transform="rotate(42 12 13)">`
-    + `<path fill="currentColor" d="M12 2.55c2.1 0 3.8 1.7 3.8 3.8 0 1.25-.62 2.35-1.55 3.02l1.15 3.4c.4 1.2-.46 2.45-1.72 2.63l-1.18.17V20.3a1 1 0 1 1-2 0v-4.73l-1.18-.17c-1.26-.18-2.12-1.43-1.72-2.63l1.15-3.4A3.78 3.78 0 0 1 8.2 6.35C8.2 4.25 9.9 2.55 12 2.55zm0 1.9a1.9 1.9 0 1 0 .02 3.8 1.9 1.9 0 0 0-.02-3.8z"/>`
-    + `</g></svg>`
+    `<svg class="idea-pin-glyph" viewBox="0 0 22 34" width="${w}" height="${h}" aria-hidden="true" focusable="false">`
+    + `<path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M7 12v13a4 4 0 0 0 8 0V8a6 6 0 0 0-12 0v18a8 8 0 0 0 16 0V12"/>`
+    + `</svg>`
   );
 }
 
@@ -18202,7 +18229,11 @@ function applyIdeaCardSize(card, ideaId) {
   const saved = loadIdeaCardSize(ideaId);
   const w = saved?.w || IDEA_CARD_DEFAULT_W;
   const h = saved?.h || IDEA_CARD_DEFAULT_H;
-  card.style.width = `${w}px`;
+  // 보드의 기본 너비는 CSS(가로 2개)가 정한다. 직접 조절한 크기만 인라인으로 둔다.
+  // (예전 기본값 354px가 그대로 저장된 메모도 기본 크기로 본다.)
+  const customW = saved?.w && Math.abs(saved.w - IDEA_CARD_DEFAULT_W) > 2;
+  const useCssWidth = !customW && card.closest(".idea-board-grid");
+  card.style.width = useCssWidth ? "" : `${w}px`;
   card.style.height = `${h}px`;
 }
 
@@ -18223,6 +18254,7 @@ function bindIdeaCardResize(card, ideaId) {
   const persist = () => {
     const rect = card.getBoundingClientRect();
     if (rect.width < 40 || rect.height < 40) return;
+    if (!card.style.width && card.closest(".idea-board-grid")) return;
     saveIdeaCardSize(ideaId, rect.width, rect.height);
   };
   const schedulePersist = () => {
@@ -18285,7 +18317,7 @@ function bindIdeaCardResize(card, ideaId) {
       event.preventDefault();
       event.stopPropagation();
       clearIdeaCardSize(ideaId);
-      card.style.width = `${IDEA_CARD_DEFAULT_W}px`;
+      card.style.width = card.closest(".idea-board-grid") ? "" : `${IDEA_CARD_DEFAULT_W}px`;
       card.style.height = `${IDEA_CARD_DEFAULT_H}px`;
       toast(i18n.t('app.메모_크기를_기본값으로_돌렸어요'));
     });
@@ -18449,9 +18481,11 @@ function applyIdeaCardColor(card, colorKey, { save = true } = {}) {
   if (!card || !colorKey) return;
   const key = IDEA_COLORS.some((c) => c.key === colorKey) ? colorKey : "yellow";
   const size = { w: card.offsetWidth, h: card.offsetHeight };
+  const inlineWidth = Boolean(card.style.width);
   card.dataset.ideaColor = key;
   card.className = `idea-card color-${key}`;
-  card.style.width = `${size.w}px`;
+  if (!inlineWidth && card.closest(".idea-board-grid")) card.style.width = "";
+  else card.style.width = `${size.w}px`;
   card.style.height = `${size.h}px`;
   syncIdeaCardClips(card, key);
   // Keep resize observer alive after className reset
@@ -19174,6 +19208,10 @@ function openIdeaFloat(ideaId) {
 
 function setupIdeaBank() {
   ideaFloatHost();
+  applyIdeaNoteStyle(loadIdeaNoteStyle());
+  document.querySelectorAll("button[data-idea-note-style]").forEach((btn) => {
+    btn.addEventListener("click", () => applyIdeaNoteStyle(btn.dataset.ideaNoteStyle, { save: true }));
+  });
   $("newIdeaButton")?.addEventListener("click", () => createIdeaNote().catch(handleError));
   $("ideaBoardAddButton")?.addEventListener("click", () => createIdeaNote().catch(handleError));
   $("ideaBoardCloseButton")?.addEventListener("click", () => closeIdeaBoard().catch(handleError));
@@ -52097,7 +52135,7 @@ function renderHeaderIdeaBar() {
         return (
           `<button type="button" class="header-idea-chip is-pinned color-${escapeHtml(idea.color || "yellow")}" `
           + `${i18n.t('app.data_header_idea_idea_id', {'idea.id': idea.id, label: label})}`
-          + `<span class="header-idea-chip-pin" aria-hidden="true">${ideaPinGlyphHtml(10)}</span>`
+          + `<span class="header-idea-chip-pin" aria-hidden="true">${ideaPinGlyphHtml(12)}</span>`
           + `<span class="header-idea-chip-label">${label}</span>`
           + `</button>`
         );
