@@ -1340,10 +1340,62 @@ main { padding-top: 6px !important; }
 .scene-goal-bar { background: var(--isl-sunk) !important; border: 0 !important; height: 5px !important; border-radius: 4px !important; }
 .scene-goal-bar-fill { background: var(--accent) !important; border-radius: 4px !important; }
 
-/* 가상 독자 목록: 즐겨찾기 패널이 목록 자리를 잡아먹지 않도록 */
-.reader-favorite-grid { max-height: 96px !important; }
-.reader-persona-picker { overflow-y: auto; }
-.reader-persona-chat-pane .reader-persona-grid { flex: 1 0 200px; min-height: 200px; }
+/* 가상 독자 1:1 목록: 스크롤은 독자 목록 한 곳만. 대화 시작하기 버튼은 아래에 고정 (스크롤 밖) */
+.reader-persona-picker { overflow: hidden; }
+.reader-persona-chat-pane { overflow: hidden; }
+.reader-favorite-grid { max-height: none !important; overflow: visible !important; }
+.reader-persona-chat-pane .reader-persona-grid { flex: 1 1 auto; min-height: 0; }
+#readerChatStartActions { flex: 0 0 auto; }
+
+/* 즐겨찾기 상단 고정 헤더: 노란 별 + 개수만. 2개 이상이면 접힘/펼침 */
+.reader-favorite-panel { padding: 6px 8px; gap: 4px; margin-bottom: 8px; }
+.reader-favorite-title { display: none; }
+.reader-favorite-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--ink2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.reader-favorite-star { flex: none; fill: #f5b400; stroke: #d99a00; stroke-width: 1; stroke-linejoin: round; }
+.reader-favorite-count { font-weight: 650; color: var(--ink); }
+.reader-favorite-chev { display: none; margin-left: auto; color: var(--ink3); transition: transform 0.15s ease; }
+.reader-favorite-panel.is-collapsible .reader-favorite-chev { display: block; }
+.reader-favorite-panel.is-collapsible:not(.is-collapsed) .reader-favorite-chev { transform: rotate(180deg); }
+/* 접힘 = 카드 쌓기(세로): 각 카드는 첫 줄(이름 쪽)만 보이고 다음 카드가 아래를 살짝 덮는다. 클릭은 펼치기로 */
+.reader-favorite-panel.is-collapsed .reader-favorite-empty { display: none; }
+/* 접힘 = 아바타만 겹쳐 한 줄 (C): 카드 글자·별·테두리는 숨기고 원형 아바타만 보인다 */
+.reader-favorite-panel.is-collapsed .reader-favorite-grid { flex-direction: row; flex-wrap: wrap; gap: 4px 0; padding: 2px 4px; pointer-events: none; }
+.reader-favorite-panel.is-collapsed .reader-persona-card-wrap { flex: none; width: 36px; height: 36px; margin-left: -8px; }
+.reader-favorite-panel.is-collapsed .reader-persona-card-wrap:first-child { margin-left: 0; }
+.reader-favorite-panel.is-collapsed .reader-persona-card { width: 36px; height: 36px; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.reader-favorite-panel.is-collapsed .reader-persona-card-text,
+.reader-favorite-panel.is-collapsed .reader-persona-fav-btn { display: none; }
+.reader-favorite-panel.is-collapsed .reader-persona-avatar { width: 36px; height: 36px; border-radius: 50%; box-shadow: 0 0 0 2px var(--panel); }
+
+/* 시작 버튼 시안 A (컴팩트): 대화 시작 · 상황 설정하기 · 대화 시작하기 · 토론 시작하기 */
+#toryChatCharacterStart,
+#toryChatCharacterAllStart,
+#charDebateNextButton,
+#readerChatStartButton,
+#readerDebateStartButton {
+  align-self: flex-end;
+  width: auto;
+  min-width: 0;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1;
+}
 
 /* ── SuperTORY 위젯 탭 · 접힘 배지 ── */
 .isl-widget-view { padding: 4px 2px; }
@@ -2155,6 +2207,23 @@ body.focus-write-open .isl-ai-badge { z-index: 230 !important; }
   cursor: pointer;
 }
 .tory-chat-bubble-action:hover { border-color: var(--hover-border, var(--line)); background: var(--sunk, var(--panel)); color: var(--ink); }
+
+/* 도구 직접 요청(요청 칸) 보내기: 대화창 보내기와 같은 아이콘 전용 정사각 버튼. 글자는 DOM에 남겨 두고 숨긴다 (진행 상태 문구 교체 호환) */
+.ai-submit-btn {
+  width: 30px !important;
+  height: 30px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  font-size: 0 !important;
+  border-radius: 8px !important;
+  border: 0 !important;
+  background: var(--accent) !important;
+  color: var(--panel) !important;
+  box-shadow: none !important;
+}
+.ai-submit-btn::before { width: 16px; height: 16px; }
+.ai-submit-btn:hover { background: color-mix(in srgb, var(--accent) 88%, #000) !important; transform: none; box-shadow: none !important; }
+.ai-submit-btn:disabled { opacity: 0.5; }
 .episode-tab.is-active .episode-tab-icon { color: var(--isl-ink2); }
 
 /* ═════ 설정 문서 메인(작품소개·기획의도 / 로그라인·시놉시스) — 본문 서식도구 + 두 단락 종이 ═════

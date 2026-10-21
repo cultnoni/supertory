@@ -36086,9 +36086,27 @@ function renderReaderFavoritePanel() {
   const panel = $("readerFavoritePanel");
   if (!grid || !panel) return;
   const favoriteIds = readerFavoriteIds.slice();
+  // 즐겨찾기에 든 독자는 아래 목록에서 빼고, 즐겨찾기 칸에만 둔다
+  const listGrid = $("readerPersonaGrid");
+  if (listGrid && readerPersonaCache) {
+    const favoriteSet = new Set(favoriteIds.map(String));
+    listGrid.innerHTML = flattenReaderPersonas(readerPersonaCache)
+      .filter((persona) => !favoriteSet.has(String(persona.id)))
+      .map((persona) => readerPersonaCardHtml(persona))
+      .join("");
+    bindReaderAvatarErrors(listGrid);
+  }
   const people = flattenReaderPersonas(readerPersonaCache)
     .filter((persona) => favoriteIds.includes(String(persona.id)));
   people.sort((a, b) => favoriteIds.indexOf(String(a.id)) - favoriteIds.indexOf(String(b.id)));
+  // 즐겨찾기가 2개 이상이면 접힌 상태로 시작 (헤더의 별표를 눌러 펼친다)
+  const collapsible = people.length >= 2;
+  const toggle = $("readerFavoriteToggle");
+  const count = $("readerFavoriteCount");
+  if (count) count.textContent = people.length ? String(people.length) : "";
+  panel.classList.toggle("is-collapsible", collapsible);
+  panel.classList.toggle("is-collapsed", collapsible && !readerFavoriteOpen);
+  if (toggle) toggle.setAttribute("aria-expanded", collapsible && !readerFavoriteOpen ? "false" : "true");
   if (!people.length) {
     grid.innerHTML = "";
     panel.classList.toggle("is-empty", true);
@@ -36216,6 +36234,11 @@ function showReaderPersonaGrid() {
   room?.classList.add("hidden");
   if (room) room.hidden = true;
   $("readerDebateRoom")?.classList.add("hidden");
+  // 목록 모드(1:1 / 토론)에 맞춰 두 패널을 맞춘다: 1:1 화면에서 토론 패널이 같이 보이면 스크롤·버튼이 밀린다
+  const isDebate = readerListMode === "debate";
+  $("readerPersonaChatPane")?.classList.toggle("hidden", isDebate);
+  $("readerPersonaGrid")?.classList.toggle("hidden", isDebate);
+  $("readerDebatePane")?.classList.toggle("hidden", !isDebate);
 }
 
 function showReaderChatRoom() {
@@ -36633,6 +36656,11 @@ function setupReaderChatUi() {
     event.preventDefault();
     openReaderPersonaAllModal().catch(handleError);
   });
+  $("readerFavoriteToggle")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    readerFavoriteOpen = !readerFavoriteOpen;
+    renderReaderFavoritePanel();
+  });
   document.querySelectorAll("[data-close-reader-persona-all]").forEach((el) => {
     el.addEventListener("click", () => closeReaderPersonaAllModal());
   });
@@ -36676,6 +36704,8 @@ const READER_DEBATE_REVEAL_MS_MIN = 1000;
 const READER_DEBATE_REVEAL_MS_MAX = 1800;
 /** @type {"chat"|"debate"} */
 let readerListMode = "chat";
+// 즐겨찾기 칸을 펼쳤는지 (2개 이상일 때만 접힘 적용)
+let readerFavoriteOpen = false;
 /** @type {string[]} */
 let readerDebateSelectedIds = [];
 /** @type {string[]} */
