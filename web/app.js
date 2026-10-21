@@ -29745,6 +29745,7 @@ function renderAiModePickerMenu() {
   const menu = $("aiModePickerMenu");
   if (!sel || !menu) return;
   const chunks = [];
+  let groupIndex = 0;
   [...sel.children].forEach((node) => {
     if (node.tagName === "OPTGROUP") {
       const rawLabel = String(node.label || "");
@@ -29754,6 +29755,8 @@ function renderAiModePickerMenu() {
         ? `<span class="ai-mode-picker-icon" aria-hidden="true">🪄</span>`
         : `<span class="ai-mode-picker-icon ai-mode-tory-icon" aria-hidden="true"></span>`;
       const optionHtml = [];
+      // 같은 그룹의 항목은 같은 색 점, 그룹이 다르면 다른 색 점
+      const dotToken = AI_MODE_GROUP_DOT_TOKENS[groupIndex % AI_MODE_GROUP_DOT_TOKENS.length];
       [...node.children].forEach((opt) => {
         if (!(opt instanceof HTMLOptionElement)) return;
         if (REMOVED_AI_ASSIST_MODES.has(String(opt.value || ""))) return;
@@ -29770,13 +29773,18 @@ function renderAiModePickerMenu() {
         ].filter(Boolean).join(" ");
         const unavailable = opt.value === "successfeedback" && !getLinkedSuccessProfileId();
         optionHtml.push(
-          `<button type="button" role="option" class="${cls}" data-ai-mode-value="${escapeHtml(opt.value)}" aria-selected="${opt.value === sel.value ? "true" : "false"}"${unavailable ? ` aria-disabled="true" title="${i18n.t("app.먼저_설정집에서_흥행작_프로파일을_연결해_주세요")}"` : ""}>${escapeHtml(opt.textContent || "")}</button>`,
+          `<button type="button" role="option" class="${cls}" style="--gdot: var(${dotToken})" data-ai-mode-value="${escapeHtml(opt.value)}" aria-selected="${opt.value === sel.value ? "true" : "false"}"${unavailable ? ` aria-disabled="true" title="${i18n.t("app.먼저_설정집에서_흥행작_프로파일을_연결해_주세요")}"` : ""}>${escapeHtml(opt.textContent || "")}</button>`,
         );
       });
       if (!optionHtml.length) return;
+      // 그룹 접기: 첫 그룹만 기본으로 펼침, 이후 사용자가 누른 상태를 기억
+      const isOpen = aiModePickerGroupOpen.has(label) ? aiModePickerGroupOpen.get(label) : groupIndex === 0;
+      groupIndex += 1;
       chunks.push(`<div class="ai-mode-picker-group">`);
-      chunks.push(`<div class="ai-mode-picker-group-label">${iconHtml}${escapeHtml(label)}</div>`);
+      chunks.push(`<button type="button" class="ai-mode-picker-group-label is-toggle" data-ai-mode-group="${escapeHtml(label)}" aria-expanded="${isOpen ? "true" : "false"}">${iconHtml}<span class="ai-mode-picker-group-name">${escapeHtml(label)}</span><span class="ai-mode-picker-group-chev" aria-hidden="true">▾</span></button>`);
+      chunks.push(`<div class="ai-mode-picker-group-items"${isOpen ? "" : " hidden"}>`);
       chunks.push(...optionHtml);
+      chunks.push(`</div>`);
       chunks.push(`</div>`);
       return;
     }
@@ -29935,6 +29943,11 @@ function installAiModeValueSync(sel) {
   });
 }
 
+// 선택하기 목록의 그룹별 펼침 상태 (그룹 라벨 → 펼침 여부)
+const aiModePickerGroupOpen = new Map();
+// 그룹 머리글 점 색: 본문 회차 상태 점과 같은 토큰을 그룹 순서대로 쓴다
+const AI_MODE_GROUP_DOT_TOKENS = ["--isl-st-complete", "--isl-st-revision", "--isl-st-idea", "--isl-st-draft", "--isl-st-outline"];
+
 function setupAiModePicker() {
   applyTranslationComingLock();
   const sel = $("aiMode");
@@ -29954,6 +29967,15 @@ function setupAiModePicker() {
   renderAiModePickerMenu();
   syncAiModePickerUi();
   menu.addEventListener("click", (event) => {
+    const groupBtn = event.target.closest?.("[data-ai-mode-group]");
+    if (groupBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const key = groupBtn.getAttribute("data-ai-mode-group") || "";
+      aiModePickerGroupOpen.set(key, groupBtn.getAttribute("aria-expanded") !== "true");
+      renderAiModePickerMenu();
+      return;
+    }
     const optBtn = event.target.closest?.("[data-ai-mode-value]");
     if (!optBtn) return;
     event.preventDefault();

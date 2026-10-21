@@ -1018,6 +1018,8 @@ main { padding-top: 6px !important; }
   font-size: 13.5px !important; font-weight: 700 !important; letter-spacing: 0;
   color: var(--isl-ink2) !important; min-height: 0 !important; padding: 0 2px !important;
 }
+#outline :is(.part-row, .chapter-row) .folder-icon-btn svg { width: 18px !important; height: 18px !important; }
+#outline :is(.part-row, .chapter-row) :is(.part-twistie, .chapter-twistie) { width: 22px !important; height: 22px !important; }
 #outline .folder-add-scene { display: none !important; }
 .outline-end-add { display: none !important; }
 
@@ -1383,6 +1385,43 @@ main { padding-top: 6px !important; }
 #readerDebateFavoritePanel.is-collapsed .reader-debate-card { cursor: pointer; }
 #readerDebateFavoritePanel.is-collapsed .reader-debate-card:has(input:checked) .reader-persona-avatar { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
 #readerDebateFavoritePanel.is-collapsed .reader-debate-card.is-disabled { opacity: 0.45; }
+
+/* 도구 · 선택하기: 그룹 접기. 머리글은 기존 그룹 라벨 색·글자 그대로 (배경 없음), 펼침/접힘 화살표만 추가.
+   기존 라벨은 pointer-events:none 이라 클릭이 통과했기 때문에 토글에서는 클릭을 받도록 켠다 */
+.ai-mode-picker-group-label.is-toggle {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.ai-mode-picker-group-label.is-toggle:hover { color: var(--text-primary, var(--ink)); }
+.ai-mode-picker-group-name { flex: 1 1 auto; min-width: 0; }
+/* 본문 목록(회차)과 같은 바탕·모서리·호버: 메뉴 상자 테두리·배경, 그룹 박스 배경 없음, 항목 호버는 회차 호버와 동일.
+   항목마다 앞에 색 점 (같은 그룹은 같은 색), 본문 회차 점처럼 */
+.ai-mode-picker-menu { background: transparent; border: 0; box-shadow: none; }
+.ai-mode-picker-group { background: transparent; border-color: transparent; }
+.ai-mode-picker-option { border-radius: var(--isl-r-sm, 9px); padding-left: 12px; color: var(--muted); font-size: 13.5px; }
+.ai-mode-picker-group .ai-mode-picker-option::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 10px;
+  border-radius: 50%;
+  background: var(--gdot, var(--isl-st-draft));
+  vertical-align: 1px;
+}
+.ai-mode-picker-option:hover { background: var(--isl-sunk) !important; color: var(--muted) !important; }
+.ai-mode-picker-group-chev { color: var(--ink3); transition: transform 0.15s ease; }
+.ai-mode-picker-group-label.is-toggle[aria-expanded="false"] .ai-mode-picker-group-chev { transform: rotate(-90deg); }
+.ai-mode-picker-group-items[hidden] { display: none !important; }
 
 /* 시작 버튼 시안 A (컴팩트): 대화 시작 · 상황 설정하기 · 대화 시작하기 · 토론 시작하기 */
 #toryChatCharacterStart,
@@ -2226,7 +2265,8 @@ body.focus-write-open .isl-ai-badge { z-index: 230 !important; }
   color: var(--panel) !important;
   box-shadow: none !important;
 }
-.ai-submit-btn::before { width: 16px; height: 16px; }
+.ai-submit-btn { gap: 0 !important; justify-content: center !important; }
+.ai-submit-btn::before { width: 16px; height: 16px; margin: 0; }
 .ai-submit-btn:hover { background: color-mix(in srgb, var(--accent) 88%, #000) !important; transform: none; box-shadow: none !important; }
 .ai-submit-btn:disabled { opacity: 0.5; }
 .episode-tab.is-active .episode-tab-icon { color: var(--isl-ink2); }
