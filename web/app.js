@@ -23584,7 +23584,7 @@ function openDockFloatWindow(key, spec, sourceEl) {
   `;
   if (spec.halfToggle) {
     const halfKey = `supertory.dock.half.${key}`;
-    try { win.classList.toggle("is-half", localStorage.getItem(halfKey) === "1"); } catch (_) { /* 저장소를 못 써도 위젯은 보인다 */ }
+    try { win.classList.toggle("is-half", localStorage.getItem(halfKey) !== "0"); } catch (_) { /* 저장소를 못 써도 위젯은 보인다 */ }
     const halfBtn = win.querySelector("[data-role='toggle-half']");
     halfBtn?.addEventListener("pointerdown", (event) => event.stopPropagation());
     halfBtn?.addEventListener("click", (event) => {
@@ -33991,6 +33991,8 @@ function islWidgetIcon(svg, size) {
   const copy = svg.cloneNode(true);
   copy.removeAttribute("id");
   copy.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+  // 타이머가 돌아가는 동안 도크 버튼은 모래시계를 숨기고 숫자를 보여주므로, 복사본에는 숨김 표시를 가져오지 않는다
+  copy.classList.remove("hidden");
   copy.setAttribute("width", String(size));
   copy.setAttribute("height", String(size));
   return copy;
@@ -34032,13 +34034,29 @@ function islRailWindows(side = "") {
 function islRailOther(side) {
   return side === "left" ? "right" : "left";
 }
+/** 위젯을 띄울 때 놓이는 자리의 우선순위
+ *  "열 때 자동 정렬" 토글이 켜져 있을 때만 적용한다(꺼져 있으면 사용자가 놓는 자리 그대로).
+ *  1) 양쪽 패널이 모두 펼쳐져 있으면 본문과 오른쪽 패널 사이(오른쪽 레일)
+ *  2) 왼쪽만 펼쳐져 있으면(오른쪽 닫힘) 본문의 오른쪽
+ *  3) 오른쪽만 펼쳐져 있으면(왼쪽 닫힘) 본문의 왼쪽
+ *  4) 양쪽 패널이 모두 닫혀 있으면 좌우로 번갈아
+ *  새 위젯은 어느 경우든 같은 열의 맨 위에 쌓인다(islRailDock의 top 기본값). */
+function islRailAutoSide() {
+  const body = document.body;
+  const aiClosed = body.classList.contains("ai-panel-collapsed");
+  const binderClosed = body.classList.contains("binder-panel-collapsed");
+  if (aiClosed && binderClosed) return islRailWindows("left").length > islRailWindows("right").length ? "right" : "left";
+  return aiClosed || !binderClosed ? "right" : "left";
+}
+const ISL_RAIL_PAIRS = { "dock:statsTracker": "dock:writingTimer", "dock:writingTimer": "dock:statsTracker" };
 function islRailDock(win, { top = true, side = "" } = {}) {
   if (!win) return;
-  let target = side;
-  if (!target) {
-    target = islRailSide || "left";
-    if (islRailWindows(target).length > islRailWindows(islRailOther(target)).length) target = islRailOther(target);
-  }
+  // 글자수·기록 타이머(반 폭)는 짝꿍이 이미 레일에 있으면 같은 레일로 가서 나란히 놓인다
+  const pairKey = ISL_RAIL_PAIRS[win.dataset.floatKey];
+  const partner = pairKey ? ideaFloatWindows.get(pairKey) : null;
+  const paired = Boolean(top && partner && partner !== win && partner.classList.contains("is-railed")
+    && partner.classList.contains("is-half") && win.classList.contains("is-half"));
+  const target = side || (paired ? partner.parentElement?.dataset.railSide : "") || islRailAutoSide();
   if (!win.classList.contains("is-railed")) {
     win.classList.add("is-railed");
     ["left", "top", "right", "bottom", "width"].forEach((k) => { win.style[k] = ""; });
@@ -34046,6 +34064,8 @@ function islRailDock(win, { top = true, side = "" } = {}) {
   }
   const rail = islRailEl(target);
   if (top) rail.prepend(win); else rail.appendChild(win);
+  // 새 위젯이 맨 위로 올라오므로, 먼저 놓인 짝꿍도 같이 끌어올려 새 위젯 왼쪽에 붙인다(먼저 놓인 것의 오른쪽에 새 위젯)
+  if (paired && partner.parentElement === rail) rail.prepend(partner);
 }
 function islRailUndock(win, rect = null) {
   if (!win || !win.classList.contains("is-railed")) return;
@@ -34226,7 +34246,7 @@ function setupIslRail() {
   islRailObserver = new MutationObserver((records) => {
     records.forEach((rec) => {
       rec.addedNodes.forEach((node) => {
-        if ((islRailSide || islWidgetAutoAlignOn()) && rec.target === host && node.nodeType === 1 && node.classList?.contains("idea-float") && !node.classList.contains("is-railed")) islRailDock(node);
+        if (islWidgetAutoAlignOn() && rec.target === host && node.nodeType === 1 && node.classList?.contains("dock-float") && !node.classList.contains("is-railed")) islRailDock(node);
       });
     });
     // 레일이 모두 비면 자동 붙이기도 끈다 — 새로 여는 위젯이 다시 떠 있는 창으로 열리게

@@ -4059,3 +4059,19 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 .idea-float.dock-float.is-railed.is-half,
 .idea-float.dock-float.dock-float-writing-timer.is-railed.is-half,
 .idea-float.dock-float-mini.is-railed.is-half[data-dock-float="statsTracker"] { width: auto !important; min-width: 0 !important; }
+
+/* 글자수·기록 타이머: 세로 길이를 똑같이(같은 줄에 놓이면 늘려서 맞춘다) */
+.idea-float.dock-float.dock-float-writing-timer,
+.idea-float.dock-float[data-dock-float="statsTracker"] { min-height: 104px !important; }
+.isl-rail > .idea-float.is-half { align-self: stretch; }
+
+/* 위젯 닫기(×) 버튼: 글자 모양 × 는 글꼴 때문에 오른쪽 아래로 쏠리므로 글자 대신 두 선으로 그려 호버 박스의 정중앙에 둔다 */
+.idea-float-close { position: relative; display: block; padding: 0; font-size: 0 !important; line-height: 0; }
+.idea-float-close::before, .idea-float-close::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 12px; height: 1.6px; border-radius: 2px; background: currentColor;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.idea-float-close::after { transform: translate(-50%, -50%) rotate(-45deg); }
+
+/* 열린 회차 탭 줄의 좌·우 패널 열고 닫기 화살표(‹ ›): 선을 얇게 */
+.episode-tab-row-toggle svg, .episode-tab-row-toggle svg * { stroke-width: 1.5px !important; }
