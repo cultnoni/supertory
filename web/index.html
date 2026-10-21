@@ -261,7 +261,7 @@
 
     <link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
     <link rel="stylesheet" href="/styles.css?v=1.4.262">
-    <link rel="stylesheet" href="/island.css?v=81">
+    <link rel="stylesheet" href="/island.css?v=82">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -4304,7 +4304,15 @@
                 </div>
                 <div id="readerDebatePane" class="reader-debate-pane hidden">
                   <p class="reader-debate-count" id="readerDebateCount" aria-live="polite" data-i18n="index.0_5명_선택됨">0 / 5명 선택됨</p>
-                  <div id="readerDebateGrid" class="reader-debate-grid" aria-label="토론할 가상 독자 고르기" data-i18n-aria-label="index.토론할_가상_독자_고르기"></div>
+                  <section id="readerDebateFavoritePanel" class="reader-favorite-panel reader-debate-favorite-panel hidden" aria-label="자주쓰는 가상독자 모음" data-i18n-aria-label="index.자주쓰는_가상독자_모음">
+                    <button type="button" class="reader-favorite-toggle" id="readerDebateFavoriteToggle" aria-expanded="true" aria-controls="readerDebateFavoriteGrid" data-i18n-aria-label="index.자주쓰는_가상독자_모음" aria-label="자주쓰는 가상독자 모음">
+                      <svg class="reader-favorite-star" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false"><path d="M12 2.8l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.6 6.1 20.8l1.2-6.5-4.8-4.6 6.6-.9z"/></svg>
+                      <span class="reader-favorite-count" id="readerDebateFavoriteCount" aria-hidden="true"></span>
+                      <svg class="reader-favorite-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg>
+                    </button>
+                    <div id="readerDebateFavoriteGrid" class="reader-persona-grid reader-favorite-grid" aria-label="토론할 자주쓰는 가상독자" data-i18n-aria-label="index.토론할_자주쓰는_가상독자"></div>
+                  </section>
+                  <div id="readerDebateGrid" class="reader-debate-grid"aria-label="토론할 가상 독자 고르기" data-i18n-aria-label="index.토론할_가상_독자_고르기"></div>
                   <div class="reader-debate-actions">
                     <p class="hint reader-debate-start-hint" id="readerDebateStartHint" data-i18n="app.최소_3명을_골라주세요">최소 3명을 골라주세요</p>
                     <button type="button" class="primary" id="readerDebateStartButton" disabled data-i18n="index.토론_시작하기">토론 시작하기</button>
@@ -9994,7 +10002,7 @@
     <script src="/typeset_metrics.js?v=1.4.45"></script>
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
-    <script src="/app.js?v=1.4.255-c7"></script>
+    <script src="/app.js?v=1.4.255-c8"></script>
     <script src="/js/gitsi.js?v=1"></script>
     <script src="/feedback_panel.js?v=30"></script>
     <script src="/app-boot.js?v=1"></script>
