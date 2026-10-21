@@ -897,9 +897,7 @@ main { padding-top: 6px !important; }
 #outline .scene-link.active { color: var(--text-primary) !important; }
 #outline .scene-row .scene-status-slot { order: 0; margin-left: 9px; }
 #outline .scene-add-btn { display: none !important; }
-#outline .chapter-row { padding: 10px 6px 4px !important; min-height: 0 !important; }
-#outline .chapter-row .folder-icon-btn svg { width: 14px !important; height: 14px !important; }
-#outline .chapter-title.folder-title { font-size: 11.5px !important; letter-spacing: 0.02em; color: var(--isl-ink3) !important; }
+#outline .chapter-row { padding: 10px 6px 4px !important; min-height: 0 !important; height: auto !important; max-height: none !important; }
 #outline { padding-bottom: 0 !important; }
 #outline .outline-part, #outline .outline-chapter { margin: 0 !important; padding: 0 !important; }
 .isl-legend { padding: 8px 4px 4px; }
@@ -1013,12 +1011,12 @@ main { padding-top: 6px !important; }
 #outline .scene-tree-item { margin: 0 !important; padding-left: 0 !important; min-height: 0 !important; }
 #outline .scene-link { border: 0 !important; padding: 6px 9px !important; min-height: 0 !important; }
 #outline .chapter-insert-slot { margin: 0 !important; }
-#outline .part-row, #outline .chapter-row { min-height: 0 !important; padding: 8px 4px 2px !important; }
+#outline .part-row, #outline .chapter-row { min-height: 0 !important; height: auto !important; max-height: none !important; padding: 8px 4px 2px !important; }
 #outline :is(.part-twistie, .chapter-twistie) { min-height: 0 !important; width: 16px !important; height: 16px !important; }
 #outline :is(.part-twistie, .chapter-twistie) svg { width: 13px !important; height: 13px !important; opacity: 0.6; }
 #outline :is(.part-title, .chapter-title).folder-title-box {
-  font-size: 11.5px !important; font-weight: 600 !important; letter-spacing: 0.02em;
-  color: var(--isl-ink3) !important; min-height: 0 !important; padding: 0 2px !important;
+  font-size: 13.5px !important; font-weight: 700 !important; letter-spacing: 0;
+  color: var(--isl-ink2) !important; min-height: 0 !important; padding: 0 2px !important;
 }
 #outline .folder-add-scene { display: none !important; }
 .outline-end-add { display: none !important; }
