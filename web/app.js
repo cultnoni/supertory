@@ -545,6 +545,26 @@ function applyPageMarginX(value) {
 
 applyPageMarginX(readPageMarginXMm());
 
+/** 원고 페이지 모양: paper(기본, A4 종이처럼 양옆이 잘려 보임) | flat(양옆 없이 전체가 본문 색) */
+const PAGE_LAYOUT_STORAGE_KEY = "supertory.pageLayout";
+
+function readPageLayout() {
+  let raw = null;
+  try { raw = localStorage.getItem(PAGE_LAYOUT_STORAGE_KEY); } catch (_) { /* ignore */ }
+  return raw === "flat" ? "flat" : "paper";
+}
+
+function applyPageLayout(value) {
+  const layout = value === "flat" ? "flat" : "paper";
+  document.documentElement.dataset.pageLayout = layout;
+  document.querySelectorAll("[data-isl-page-layout]").forEach((el) => {
+    el.setAttribute("aria-pressed", el.dataset.islPageLayout === layout ? "true" : "false");
+  });
+  return layout;
+}
+
+applyPageLayout(readPageLayout());
+
 const AI_ASSIST_ERR_CONNECTION =
   i18n.t('app.인터넷_연결이_필요해요');
 const AI_ASSIST_ERR_GENERIC =
@@ -6830,6 +6850,11 @@ function applyFormatColorToSelection(kind, color, editorEl = null, options = {})
   }
   const range = getUsableEditorRange(editor);
   if (!range || range.collapsed) {
+    // 팔레트에서 색을 고른 경우: 선택이 없어도 버튼 색(기본 색)은 바꿔 둔다
+    if (color && options.forceApply === true) {
+      setFormatColorState(kind, color);
+      return;
+    }
     toast(i18n.t('app.문장을_드래그해_선택한_뒤_색_음영_버튼을'));
     return;
   }
@@ -19654,6 +19679,7 @@ const DOCK_FLOAT_SPECS = {
     compact: true,
     pinned: true,
     resize: false,
+    halfToggle: true,
     fallbackPos() { return dockTrackerFallbackPos(); },
     seedLayout() { return loadDockTrackerLayout(); },
     onOpen() {
@@ -19668,6 +19694,7 @@ const DOCK_FLOAT_SPECS = {
     compact: true,
     pinned: true,
     windowClass: "dock-float-writing-timer",
+    halfToggle: true,
     resize: { minWidth: DOCK_WRITING_TIMER_MIN_W, minHeight: DOCK_WRITING_TIMER_MIN_H },
     fallbackPos() { return dockWritingTimerFallbackPos(); },
     seedLayout() { return loadDockWritingTimerLayout(); },
@@ -20872,16 +20899,18 @@ function renderDockStatsTracker(body, snapshot = lastStatusBarCountSnapshot) {
   const flagsTitle = `${flags.scopeTitle} · ${flags.spaceTitle}`;
   body.innerHTML = `
     <div class="dock-stats-card${hasGoal ? " has-goal" : ""}">
-      <div class="dock-stats-line">
-        <span class="dock-stats-flags" title="${escapeHtml(flagsTitle)}">
-          <span class="dock-stats-flag">${escapeHtml(flags.scopeLabel)}</span>
-          <span class="dock-stats-flag-sep" aria-hidden="true">·</span>
-          <span class="dock-stats-flag">${escapeHtml(flags.spaceLabel)}</span>
-        </span>
-        <div class="dock-stats-value">${escapeHtml(valueText)}</div>
+      <div class="dock-stats-main">
+        <div class="dock-stats-line">
+          <span class="dock-stats-flags" title="${escapeHtml(flagsTitle)}">
+            <span class="dock-stats-flag">${escapeHtml(flags.scopeLabel)}</span>
+            <span class="dock-stats-flag-sep" aria-hidden="true">·</span>
+            <span class="dock-stats-flag">${escapeHtml(flags.spaceLabel)}</span>
+          </span>
+          <div class="dock-stats-value">${escapeHtml(valueText)}</div>
+        </div>
+        ${hasGoal ? `<div class="dock-stats-remain">${escapeHtml(i18n.t("index.남은_분량", { n: formatStatNumber(remain), unit }))}</div>` : ""}
       </div>
-      ${hasGoal ? `<div class="dock-stats-remain">${escapeHtml(i18n.t("index.남은_분량", { n: formatStatNumber(remain), unit }))}</div>` : ""}
-      ${hasGoal ? `<div class="dock-stats-bar"><span style="width:${percent}%"></span></div><div class="dock-stats-pct">${percent}%</div>` : ""}
+      ${hasGoal ? `<div class="dock-stats-side"><div class="dock-stats-bar"><span style="width:${percent}%"></span></div><div class="dock-stats-pct">${percent}%</div></div>` : ""}
     </div>
   `;
 }
@@ -23540,15 +23569,30 @@ function openDockFloatWindow(key, spec, sourceEl) {
   const resizeHtml = resizeCfg
     ? `<div class="idea-float-resize" data-resize-edge="se" title="${escapeHtml(i18n.t("app.끌어서_크기_조절"))}" aria-hidden="true"></div>`
     : "";
+  const halfHtml = spec.halfToggle
+    ? `<button type="button" class="idea-float-half" data-role="toggle-half" title="${escapeHtml(i18n.t("app.위젯_폭_반으로"))}" aria-label="${escapeHtml(i18n.t("app.위젯_폭_반으로"))}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h6M7 9l3 3-3 3M20 12h-6M17 9l-3 3 3 3"/></svg></button>`
+    : "";
   win.innerHTML = `
     <div class="idea-float-drag" title="${escapeHtml(i18n.t("index.끌어_이동"))}">
       <span class="tory-chat-popup-grip" aria-hidden="true">⋮⋮</span>
       <strong class="idea-float-title">${escapeHtml(title)}</strong>
+      ${halfHtml}
       <button type="button" class="idea-float-close" data-role="close-idea-float" title="${escapeHtml(i18n.t("app.닫기"))}" aria-label="${escapeHtml(i18n.t("app.닫기"))}">×</button>
     </div>
     <div class="idea-float-body" data-role="dock-float-body"></div>
     ${resizeHtml}
   `;
+  if (spec.halfToggle) {
+    const halfKey = `supertory.dock.half.${key}`;
+    try { win.classList.toggle("is-half", localStorage.getItem(halfKey) === "1"); } catch (_) { /* 저장소를 못 써도 위젯은 보인다 */ }
+    const halfBtn = win.querySelector("[data-role='toggle-half']");
+    halfBtn?.addEventListener("pointerdown", (event) => event.stopPropagation());
+    halfBtn?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const half = win.classList.toggle("is-half");
+      try { localStorage.setItem(halfKey, half ? "1" : "0"); } catch (_) { /* 무시 */ }
+    });
+  }
   ideaFloatHost().appendChild(win);
   ideaFloatWindows.set(key, win);
   ideaFloatProjectId = Number(state.projectId) || ideaFloatProjectId;
@@ -33106,23 +33150,30 @@ function fitFormatRow() {
   const tb = $("formatToolbar");
   const body = tb?.querySelector(".format-toolbar-row-body");
   if (!tb || !body || tb.offsetParent === null) return;
+  // 시안대로 본문·글꼴·크기·줄 | B I U S A | ⋯ 더보기 가 기본 — 패널을 접어 폭이 넓어져도
+  // 더보기 안의 기능(장평·자간·단·기호·글머리)은 밖으로 꺼내지 않는다
   const tiers = [
-    "",
-    "is-tight",
     "is-tight is-compact",
     "is-tight is-compact is-mini",
     "is-tight is-compact is-mini is-micro",
     "is-tight is-compact is-mini is-micro is-nano",
-    // 그래도 모자라면(아주 좁은 폭) 정렬·색 묶음도 접는다 — 더보기 팝오버에 같은 기능이 있다
-    "is-tight is-compact is-mini is-micro is-nano is-flat",
+    // 그래도 모자라면(아주 좁은 폭) 색 묶음 → 정렬 묶음 순서로 접는다 — 접힌 것은 더보기 팝오버에 나타난다
+    "is-tight is-compact is-mini is-micro is-nano is-flat-color",
+    "is-tight is-compact is-mini is-micro is-nano is-flat-color is-flat",
   ];
   tb.classList.add("isl-measure");
   for (let i = 0; i < tiers.length; i += 1) {
-    tb.classList.remove("is-tight", "is-compact", "is-mini", "is-micro", "is-nano", "is-flat");
+    tb.classList.remove("is-tight", "is-compact", "is-mini", "is-micro", "is-nano", "is-flat-color", "is-flat");
     tiers[i].split(" ").filter(Boolean).forEach((c) => tb.classList.add(c));
     if (body.scrollWidth - body.clientWidth <= 1) break;
   }
   tb.classList.remove("isl-measure");
+  // 서식줄에서 접힌 기능만 더보기 팝오버에 보여 준다 (펼쳐져 있으면 중복이라 숨김)
+  const pop = $("islFmtPop");
+  if (pop) {
+    pop.classList.toggle("is-show-color", tb.classList.contains("is-flat-color"));
+    pop.classList.toggle("is-show-align", tb.classList.contains("is-flat"));
+  }
 }
 let fitFormatRowRaf = 0;
 function scheduleFitFormatRow() {
@@ -33313,6 +33364,11 @@ function setupFormatMorePopover() {
       plus.addEventListener("click", () => picker.click());
       text.appendChild(plus); text.appendChild(picker);
     }
+    const shade = $("islFpShadeSw");
+    if (shade && !shade.childElementCount) {
+      FORMAT_PRESET_COLORS.forEach((c) => shade.appendChild(swatch(c.hex, c.label, () => withSelection((ed) => applyFormatColorToSelection("shade", c.hex, ed, { forceApply: true })))));
+      shade.appendChild(clearDot(i18n.t("island.fp_지우기"), () => withSelection(() => clearShadeBox())));
+    }
     if (hl && !hl.childElementCount) {
       FORMAT_HIGHLIGHT_PRESET_COLORS.forEach((c) => hl.appendChild(swatch(c.hex, c.label, () => withSelection((ed) => applyFormatColorToSelection("highlight", c.hex, ed, { forceApply: true })))));
       hl.appendChild(clearDot(i18n.t("island.fp_지우기"), () => withSelection(() => clearHighlight())));
@@ -33398,6 +33454,12 @@ function setupFormatMorePopover() {
     const mm = applyPageMarginX(e.target.value);
     try { localStorage.setItem(PAGE_MARGIN_X_STORAGE_KEY, String(mm)); } catch (_) { /* ignore */ }
   });
+  // 페이지 모양(종이/평면) — 기기별 화면 설정이라 localStorage에 둔다
+  applyPageLayout(readPageLayout());
+  pop.querySelectorAll("[data-isl-page-layout]").forEach((chip) => chip.addEventListener("click", () => {
+    const layout = applyPageLayout(chip.dataset.islPageLayout);
+    try { localStorage.setItem(PAGE_LAYOUT_STORAGE_KEY, layout); } catch (_) { /* ignore */ }
+  }));
   // 정렬·단 나누기·글머리·기호 → 기존 서식 버튼 그대로 클릭, 번호 목록·삽입·서식 지우기는 기존 함수
   pop.addEventListener("click", (event) => {
     const fmt = event.target.closest("[data-isl-fmt]");
