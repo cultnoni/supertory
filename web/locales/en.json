@@ -1,4 +1,8 @@
 {
+  "island.설정집_찾기": "Find settings",
+  "island.설정집_그룹_기획": "Planning",
+  "island.설정집_그룹_세계와_인물": "World & characters",
+  "island.설정집_그룹_공개_자료": "Publishing & sources",
   "app.서버에_연결할_수_없습니다_작성_중인_글은": "Can't connect to the server. Your writing is safely stored on this device.",
   "app.응답을_해석하지_못했습니다": "Couldn't parse the response.",
   "app.저장_중_문제가_생겼습니다_response": "A problem occurred while saving. (${response.status})",

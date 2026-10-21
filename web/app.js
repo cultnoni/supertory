@@ -12732,6 +12732,7 @@ function renderSettingsCodex() {
     }
   }
 
+  renderSettingsCounts();
   applySettingsSectionOrder();
   applySettingsSectionState();
   if (state.characterBoardOpen) renderCharacterBoard();
@@ -18075,6 +18076,7 @@ function setupSettingsCodex() {
   $("deleteItemButton")?.addEventListener("click", () => deleteItem().catch(handleError));
   setupDictionaryUi();
   bindSettingsSearchEvents();
+  bindSettingsFinder();
   setupCharacterBoardViewControls();
   bindSettingsDocSidebarInput("intro");
   bindSettingsDocSidebarInput("intent");
@@ -33837,8 +33839,68 @@ function islWidgetItems() {
   });
   return ISL_WIDGET_GROUPS.map((g) => ({
     ...g,
-    items: g.keys.map((k) => byKey.get(k)).filter(Boolean),
+    items: islWidgetSortByOrder(g.keys.map((k) => byKey.get(k)).filter(Boolean)),
   })).filter((g) => g.items.length);
+}
+const ISL_WIDGET_ORDER_KEY = "supertory.islWidgetOrder";
+function loadIslWidgetOrder() {
+  try {
+    const list = JSON.parse(localStorage.getItem(ISL_WIDGET_ORDER_KEY) || "null");
+    return Array.isArray(list) ? list : [];
+  } catch (_) {
+    return [];
+  }
+}
+function saveIslWidgetOrder(list) {
+  try { localStorage.setItem(ISL_WIDGET_ORDER_KEY, JSON.stringify(list)); } catch (_) { /* ignore */ }
+}
+/** 저장된 순서가 있으면 그 순서로, 없는 위젯은 기본 순서대로 뒤에 둔다. */
+function islWidgetSortByOrder(items) {
+  const saved = loadIslWidgetOrder();
+  const rank = (key) => {
+    const at = saved.indexOf(key);
+    return at < 0 ? 1e9 : at;
+  };
+  return items
+    .map((item, idx) => ({ item, idx }))
+    .sort((a, b) => (rank(a.item.key) - rank(b.item.key)) || (a.idx - b.idx))
+    .map((entry) => entry.item);
+}
+let islWidgetDragTile = null;
+function bindIslWidgetDrag(host) {
+  if (host.dataset.dragBound === "1") return;
+  host.dataset.dragBound = "1";
+  host.addEventListener("dragstart", (event) => {
+    const tile = event.target.closest?.("[data-isl-widget]");
+    if (!tile) return;
+    islWidgetDragTile = tile;
+    tile.classList.add("is-dragging");
+    try {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", tile.dataset.islWidget);
+    } catch (_) { /* ignore */ }
+  });
+  host.addEventListener("dragover", (event) => {
+    if (!islWidgetDragTile) return;
+    const tile = event.target.closest?.("[data-isl-widget]");
+    // 같은 묶음 안에서만 옮긴다.
+    if (!tile || tile === islWidgetDragTile || tile.parentElement !== islWidgetDragTile.parentElement) return;
+    event.preventDefault();
+    const grid = tile.parentElement;
+    const dragIdx = Array.from(grid.children).indexOf(islWidgetDragTile);
+    const targetIdx = Array.from(grid.children).indexOf(tile);
+    grid.insertBefore(islWidgetDragTile, dragIdx < targetIdx ? tile.nextSibling : tile);
+  });
+  host.addEventListener("drop", (event) => {
+    if (!islWidgetDragTile) return;
+    event.preventDefault();
+    const keys = Array.from(host.querySelectorAll("[data-isl-widget]")).map((el) => el.dataset.islWidget);
+    saveIslWidgetOrder(keys);
+  });
+  host.addEventListener("dragend", () => {
+    islWidgetDragTile?.classList.remove("is-dragging");
+    islWidgetDragTile = null;
+  });
 }
 function islWidgetIcon(svg, size) {
   if (!svg) return null;
@@ -34120,6 +34182,7 @@ function renderIslWidgetTiles() {
     }
   }
   const groups = islWidgetItems();
+  bindIslWidgetDrag(host);
   host.textContent = "";
   groups.forEach((g) => {
     const head = document.createElement("div");
@@ -34133,6 +34196,7 @@ function renderIslWidgetTiles() {
       tile.type = "button";
       tile.className = `isl-tile${item.open ? " is-open" : ""}`;
       tile.dataset.islWidget = item.key;
+      tile.draggable = true;
       const icon = islWidgetIcon(item.svg, 17);
       if (icon) tile.appendChild(icon);
       const strong = document.createElement("strong");
@@ -51248,13 +51312,90 @@ function saveSettingsOrder(order) {
   }
 }
 
+// 설정집 그룹(섬) 소속은 고정. 순서 변경은 같은 그룹 안에서만 한다.
+const SETTINGS_GROUP_OF = {
+  ideas: "plan", intro: "plan", style: "plan", logsyn: "plan", keywords: "plan",
+  world: "world", characters: "world", items: "world", dictionary: "world",
+  baits: "publish", successProfile: "publish", toryVault: "publish", readingInvite: "publish", sources: "publish",
+};
+
+function settingsGroupEl(key) {
+  const accordion = $("settingsAccordion");
+  const group = SETTINGS_GROUP_OF[key] || "plan";
+  return accordion?.querySelector(`.settings-group[data-settings-group="${group}"]`) || accordion;
+}
+
 function applySettingsSectionOrder() {
   const accordion = $("settingsAccordion");
   if (!accordion) return;
   const order = loadSettingsOrder();
   order.forEach((key) => {
     const box = accordion.querySelector(`.settings-box[data-settings-section="${key}"]`);
-    if (box) accordion.appendChild(box);
+    if (box) settingsGroupEl(key)?.appendChild(box);
+  });
+}
+
+// 각 설정 행 오른쪽의 개수 — 호버할 때만 보인다(island.css).
+function renderSettingsCounts() {
+  const fmt = (n, unit) => (n == null ? null : `${n}${i18n.t(unit)}`);
+  const counts = {
+    ideas: fmt(state.ideas?.length, "island.장"),
+    keywords: fmt(state.keywords?.length, "island.개"),
+    baits: fmt(loadBaits().length, "island.개"),
+    characters: fmt(state.characters?.length, "island.명"),
+    items: fmt(state.items?.length, "island.개"),
+    dictionary: fmt(state.dictionaryTerms?.length, "island.개"),
+    sources: fmt(loadSources().length, "island.개"),
+  };
+  document.querySelectorAll("#settingsAccordion .settings-box[data-settings-section]").forEach((box) => {
+    const header = box.querySelector(":scope > .settings-box-header");
+    if (!header) return;
+    const value = counts[box.dataset.settingsSection];
+    let badge = header.querySelector(":scope > .settings-box-count");
+    if (value == null) {
+      badge?.remove();
+      return;
+    }
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "settings-box-count";
+      badge.setAttribute("aria-hidden", "true");
+      header.insertBefore(badge, header.querySelector(".settings-main-open"));
+    }
+    badge.textContent = String(value);
+  });
+}
+
+// 설정 찾기: 입력하면 행 제목으로 거르고, Enter는 크로스 레퍼런스 검색으로 넘긴다.
+function bindSettingsFinder() {
+  const input = $("settingsFinderInput");
+  if (!input || input.dataset.bound === "1") return;
+  input.dataset.bound = "1";
+  input.addEventListener("input", () => {
+    const q = input.value.trim().toLowerCase();
+    document.querySelectorAll("#settingsAccordion .settings-box[data-settings-section]").forEach((box) => {
+      const title = (box.querySelector(".settings-box-title")?.textContent || "").toLowerCase();
+      box.classList.toggle("is-finder-hidden", Boolean(q) && !title.includes(q));
+    });
+    document.querySelectorAll("#settingsAccordion .settings-group").forEach((group) => {
+      const hasVisible = Boolean(group.querySelector(".settings-box:not(.is-finder-hidden)"));
+      group.classList.toggle("is-finder-empty", Boolean(q) && !hasVisible);
+    });
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && input.value) {
+      event.preventDefault();
+      input.value = "";
+      input.dispatchEvent(new Event("input"));
+      return;
+    }
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    const q = input.value.trim();
+    if (!q) return;
+    const search = $("settingsSearchInput");
+    if (search) search.value = q;
+    openSettingsSearchBoard().catch(handleError);
   });
 }
 
@@ -51282,8 +51423,11 @@ function setupSettingsSectionDrag() {
   boxes().forEach((box) => box.setAttribute("draggable", "false"));
 
   accordion.addEventListener("pointerdown", (event) => {
-    const handle = event.target.closest?.(".settings-drag-handle");
-    if (!handle || !accordion.contains(handle)) return;
+    // 행 어디서든 끌어서 옮긴다 (점 손잡이는 숨김). 화살표·개수는 제외.
+    const header = event.target.closest?.(".settings-box-header");
+    if (!header || !accordion.contains(header)) return;
+    if (event.target.closest?.(".settings-main-open, .settings-box-count")) return;
+    const handle = header;
     const box = handle.closest(".settings-box");
     if (!box) return;
     // Grip is outside the toggle button so HTML5 drag can start reliably.
@@ -51329,6 +51473,8 @@ function setupSettingsSectionDrag() {
     try { event.dataTransfer.dropEffect = "move"; } catch (_) { /* ignore */ }
     const box = event.target.closest?.(".settings-box");
     if (!box || box === dragged || !accordion.contains(box)) return;
+    // 그룹을 넘는 순서 변경은 하지 않는다.
+    if (box.closest(".settings-group") !== dragged.closest(".settings-group")) return;
     const rect = box.getBoundingClientRect();
     const before = event.clientY < rect.top + rect.height / 2;
     boxes().forEach((other) => {
@@ -51345,7 +51491,7 @@ function setupSettingsSectionDrag() {
       return;
     }
     const box = event.target.closest?.(".settings-box");
-    if (box && box !== dragged && accordion.contains(box)) {
+    if (box && box !== dragged && accordion.contains(box) && box.closest(".settings-group") === dragged.closest(".settings-group")) {
       const rect = box.getBoundingClientRect();
       const before = event.clientY < rect.top + rect.height / 2;
       if (before) accordion.insertBefore(dragged, box);
