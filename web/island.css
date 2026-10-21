@@ -818,6 +818,26 @@ body { --isl-paper-ink: var(--page-ink); }
   padding-left: min(var(--ms-page-margin-x, 30mm), 22%) !important;
   padding-right: min(var(--ms-page-margin-x, 30mm), 22%) !important;
 }
+/* 페이지 모양 "평면": 종이 가장자리·그림자 없이 작업 영역 전체를 본문 페이지와 같은 색으로.
+   (기본 "종이"는 위 규칙 그대로 — html[data-page-layout="flat"] 일 때만 덮어씀) */
+html[data-page-layout="flat"] .scene-workspace:not(.split-active) form#sceneEditor {
+  background: var(--page-editor-bg, var(--page-bg, white));
+}
+html[data-page-layout="flat"] .scene-workspace:not(.split-active) .isl-crumb,
+html[data-page-layout="flat"] .scene-workspace:not(.split-active) .episode-nav-bar,
+html[data-page-layout="flat"] .scene-workspace:not(.split-active) #sceneStatusShell,
+html[data-page-layout="flat"] .scene-workspace:not(.split-active) .manuscript-page {
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: 0 !important; margin-right: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+html[data-page-layout="flat"] .scene-workspace:not(.split-active) .isl-crumb,
+html[data-page-layout="flat"] .scene-workspace:not(.split-active) .episode-nav-bar { margin-top: 0 !important; }
+html[data-page-layout="flat"] .scene-workspace:not(.split-active) .manuscript-page { margin-bottom: 0 !important; }
+.isl-fp-lab.isl-fp-lab-wide { width: auto; white-space: nowrap; }
+.isl-fp-chip[aria-pressed="true"] { background: var(--isl-accent-soft, var(--isl-sunk)) !important; color: var(--text-primary) !important; font-weight: 600; }
 /* 서식줄은 이제 패널색 띠 위 → 글자색은 테마 본문색 */
 .scene-workspace:not(.split-active) #formatToolbarShell,
 .scene-workspace:not(.split-active) #formatIconsShell {
@@ -1211,7 +1231,9 @@ main { padding-top: 6px !important; }
 #formatToolbar .format-seg:has([data-format="bold"]) { margin-left: 4px !important; padding-left: 6px !important; border-left: 1px solid var(--line); }
 #formatToolbar .format-seg:has([data-format="textColor"]) { margin-left: 0 !important; }
 #formatToolbar .format-seg-icon:first-of-type { padding-right: 4px !important; }
-#formatToolbar .isl-fmt-more { margin-left: 4px !important; padding-left: 10px; border-left: 1px solid var(--line) !important; border-radius: 0 var(--isl-r-sm) var(--isl-r-sm) 0 !important; }
+#formatToolbar .isl-fmt-more { position: relative; margin-left: 10px !important; padding-left: 10px; border-radius: var(--isl-r-sm) !important; }
+/* 구분선은 버튼 밖(왼쪽)에 그려서 후버 배경의 왼쪽 모서리가 잘리지 않게 */
+#formatToolbar .isl-fmt-more::before { content: ""; position: absolute; left: -6px; top: 50%; height: 14px; width: 1px; margin-top: -7px; background: var(--line); }
 
 /* 서식줄 ⋯ 더보기는 A 바로 뒤(같은 줄)에 붙는다 */
 #formatToolbar .format-toolbar-row { display: flex !important; flex-wrap: nowrap !important; align-items: center; justify-content: flex-start; }
@@ -1253,8 +1275,7 @@ main { padding-top: 6px !important; }
 
 
 /* ═════ 요청 반영: 좁아질 때만 ⋯ 더보기 · 기본은 모두 바깥 · 선택 표시 · 아이콘 도구는 아이콘만 ═════ */
-.isl-fmt-more { display: none !important; }
-#formatToolbar.is-tight .isl-fmt-more, #formatToolbar.is-compact .isl-fmt-more { display: inline-flex !important; }
+.isl-fmt-more { display: inline-flex !important; }
 #formatToolbar.isl-measure .format-toolbar-row-body { flex-wrap: nowrap !important; overflow: hidden !important; }
 #formatToolbar .format-btn.active,
 #formatToolbar .format-btn[aria-pressed="true"] {
@@ -1331,6 +1352,9 @@ main { padding-top: 6px !important; }
   background: var(--panel) !important; border-top: 1px solid var(--line) !important;
   box-shadow: none !important; border-radius: 0 !important;
 }
+/* 패널을 접어 상태줄이 길어져도 게이지는 늘리지 않고, 칸만 길어지며 내용은 가운데 정렬 */
+#manuscriptStatusBar { justify-content: safe center; }
+#manuscriptStatusBar .status-bar-progress { flex: 0 1 200px !important; max-width: 200px !important; }
 #manuscriptStatusBar { padding: 4px 16px !important; background: transparent !important; border: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
 .manuscript-status-bar .status-seg, .manuscript-status-bar .status-seg-btn, .manuscript-status-bar .stat-chip { background: transparent !important; box-shadow: none !important; border: 0 !important; }
 .scene-workspace:not(.split-active) .manuscript-page { margin-bottom: 0 !important; border-radius: 4px 4px 0 0 !important; }
@@ -1451,9 +1475,7 @@ main { padding-top: 6px !important; }
 body.ai-panel-collapsed .ai-dock-rail { display: none !important; }
 body.ai-panel-collapsed main { grid-template-columns: var(--outline-width) minmax(0, 1fr) 0 !important; }
 body.binder-panel-collapsed.ai-panel-collapsed main { grid-template-columns: var(--panel-dock-rail-w, 48px) minmax(0, 1fr) 0 !important; }
-/* 아이콘 독이 열려 있는 동안은 오른쪽에 얇은 패널 자리를 실제로 띄워 본문을 밀어낸다(겹쳐 뜨지 않게) */
-body.ai-panel-collapsed.isl-wdock-open:not(.focus-write-open) main { grid-template-columns: var(--outline-width) minmax(0, 1fr) var(--isl-dock-rail-w, 64px) !important; }
-body.binder-panel-collapsed.ai-panel-collapsed.isl-wdock-open:not(.focus-write-open) main { grid-template-columns: var(--panel-dock-rail-w, 48px) minmax(0, 1fr) var(--isl-dock-rail-w, 64px) !important; }
+/* 아이콘 독은 본문 위에 그대로 덮어씌운다(자리를 차지해 본문을 밀지 않는다) */
 body.ai-panel-collapsed .isl-ai-badge,
 body.focus-write-open .isl-ai-badge {
   display: grid; place-items: center; position: fixed; right: 14px; bottom: 48px; z-index: 230;
@@ -1536,7 +1558,11 @@ body.focus-write-open .isl-ai-badge:hover { border-color: color-mix(in srgb, var
 #formatToolbar .format-toolbar-row-body { flex: 1 1 0 !important; min-width: 0 !important; }
 #formatToolbar.is-nano .format-field-chip:has(#formatParagraphStyle), #formatToolbar.is-nano .format-field-chip:has(#formatLineHeight), #formatToolbar.is-nano .toolbar-field:has(#formatLineHeight), #formatToolbar.is-nano .toolbar-field:has(#formatParagraphStyle) { display: none !important; }
 /* 그래도 폭이 모자라면 정렬·색 묶음도 접는다 — 같은 기능이 서식 더보기 팝오버(#islFmtPop)에 있다 */
-#formatToolbar.is-flat .format-seg-colors, #formatToolbar.is-flat .format-seg-align { display: none !important; }
+#formatToolbar.is-flat-color .format-seg-colors, #formatToolbar.is-flat .format-seg-colors, #formatToolbar.is-flat .format-seg-align { display: none !important; }
+/* 더보기 팝오버: 서식줄에 이미 보이는 색·정렬은 숨기고, 접혔을 때만 나타남 */
+.isl-fmt-pop [data-isl-when] { display: none !important; }
+.isl-fmt-pop.is-show-color .isl-fp-row[data-isl-when="color"] { display: flex !important; }
+.isl-fmt-pop.is-show-align .isl-fp-chip[data-isl-when="align"] { display: inline-flex !important; }
 #formatToolbar.is-flat .format-row-divider:not(.format-toolbar-mid-divider):not(.format-field-divider) { display: none !important; }
 #formatIconsToolbar .format-tool-badge.feature-chip-count { top: 1px !important; left: 18px !important; }
 #formatIconsToolbar .format-toolbar-row-body, #formatIconsToolbar .format-toolbar-track { padding-top: 3px; }
@@ -2116,6 +2142,28 @@ body.isl-wdock-open:not(.focus-write-open) .isl-wdock {
   color: var(--text-primary); font-size: 12px; line-height: 1.5; white-space: nowrap; pointer-events: none; z-index: 2;
 }
 body.focus-write-open .isl-wdock { right: 12px; border-radius: 16px; border: 1px solid var(--line) !important; }
+/* 부채꼴 독(시안 ④): 전체를 감싸는 불투명한 세로 박스 + 동그라미 아이콘. 본문 위에 덮어씌우고 자리는 차지하지 않는다. */
+.isl-wdock,
+body.isl-wdock-open:not(.focus-write-open) .isl-wdock,
+body.focus-write-open .isl-wdock {
+  background: color-mix(in srgb, var(--panel) 30%, transparent) !important; border: 1px solid var(--line) !important; box-shadow: var(--isl-shadow) !important; backdrop-filter: none !important;
+  border-radius: var(--isl-r) !important;
+  width: auto !important; padding: 10px 8px !important; justify-content: flex-end; gap: calc(6px - 1mm); pointer-events: auto;
+}
+body.focus-write-open .isl-wdock { justify-content: center; }
+/* 박스 높이는 아이콘 길이만큼만(위에 빈 공간 없이) — 아래는 패널 아래선에 맞춘 채 위로 자란다 */
+body.isl-wdock-open:not(.focus-write-open) .isl-wdock { transform: translateY(-9mm); top: auto !important; max-height: calc(100vh - 56px); overflow-y: auto; scrollbar-width: none; }
+.isl-wdock > *, .isl-wdock .isl-wd { pointer-events: auto; }
+.isl-wdock .isl-wdock-grid { gap: calc(6px - 1mm); }
+.isl-wdock-sep { display: none !important; }
+.isl-wdock .isl-wdock-grid + .isl-wdock-grid { margin-top: calc(6px - 1mm); }
+.isl-wdock .isl-wd {
+  width: 38px; height: 38px; border-radius: 50% !important; color: var(--accent) !important;
+  background: var(--panel) !important; border: 1px solid var(--line) !important; box-shadow: 0 1px 6px rgba(31, 36, 41, 0.12) !important;
+}
+.isl-wdock .isl-wd:hover { background: var(--isl-sunk) !important; color: var(--text-primary) !important; }
+.isl-wdock .isl-wd.is-open { background: var(--accent) !important; color: var(--accent-ink, white) !important; border-color: transparent !important; }
+.isl-wdock .isl-wdock-panel { font-size: 0; }
 /* 독이 열려 있는 동안은 마스코트를 숨긴다(독 안에 마스코트가 같이 보이지 않도록) */
 body.isl-wdock-open:not(.focus-write-open) .isl-ai-badge { display: none !important; }
 
@@ -2164,8 +2212,27 @@ body.focus-write-open .isl-ai-badge { z-index: 230 !important; }
 #formatIconsToolbar :is(.analyze-menu-control, .format-analyze-control)[data-icon-key="analyze"],
 #formatIconsToolbar .format-tool-item[data-icon-key="viewer"] { margin-left: 8px !important; }
 
-/* 아래 글자수 표시칸(글자수 트래커 위젯) 폭을 살짝 좁게 */
-.idea-float.dock-float-mini[data-dock-float="statsTracker"] { width: 168px !important; }
+/* 글자수 트래커 위젯: 다른 미니 위젯과 같은 폭(340px). 게이지는 오른쪽, 숫자는 조금 작게 */
+.idea-float.dock-float-mini[data-dock-float="statsTracker"] { width: 340px !important; }
+/* 폭 반으로 줄이기 버튼(글자수·기록 타이머) */
+.idea-float-half { flex: 0 0 auto; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--isl-ink3); cursor: pointer; }
+.idea-float-half:hover { background: var(--isl-sunk); color: var(--text-primary); }
+.idea-float.is-half[data-dock-float="statsTracker"] { width: 170px !important; min-width: 0 !important; }
+/* 반 폭 타이머: 숫자 카운트다운과 진행 시간(기록) 두 가지만 보인다 */
+.idea-float.dock-float.dock-float-writing-timer.is-half { width: 170px !important; }
+.is-half .dtm-bar { justify-content: space-between; gap: 6px; }
+.is-half .dtm-phase, .is-half .dtm-gear, .is-half .dock-timer-quick-start, .is-half .dtm-pop { display: none !important; }
+.is-half .dtm-time .dock-timer-digits-time { font-size: 19px !important; }
+.is-half .dtm-rec { padding: 3px 7px !important; gap: 4px; }
+.idea-float.is-half .dock-stats-card.has-goal { flex-direction: column; align-items: stretch; gap: 4px; }
+.idea-float.is-half .dock-stats-side { flex: 0 0 auto; flex-direction: row; align-items: center; gap: 6px; }
+.idea-float.is-half .dock-stats-side .dock-stats-bar { flex: 1 1 auto; }
+.idea-float.is-half[data-dock-float="statsTracker"] .idea-float-body { padding-bottom: 8px; }
+.idea-float.is-half .dock-stats-flags, .idea-float.is-half .dock-stats-remain { display: none; }
+.dock-stats-card.has-goal { flex-direction: row; align-items: center; gap: 10px; }
+.dock-stats-card .dock-stats-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dock-stats-card .dock-stats-value { font-size: 14px; }
+.dock-stats-card .dock-stats-side { flex: 0 0 52px; display: flex; flex-direction: column; align-items: stretch; gap: 3px; text-align: right; }
 
 /* ═════ 설정집 탭: ↗ 로 연 설정집 화면도 열린 회차 탭 줄에 붙는다 ═════
    설정집 탭을 보는 동안 탭 줄(#episodeChrome)은 가운데 칸 맨 위 줄로 올라오고, 설정집 화면은 그 아래 줄을 채운다 */
@@ -3984,3 +4051,27 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 /* 본문 안 닫기 버튼 제거 (닫기는 열린 회차 탭 ×로 통일). 생각수첩 + 공개·자료 5개(떡밥·성공 프로파일·수집창고·읽기 권한·참고자료)가 쓰는 설정 모음 보드 */
 #ideaBoardCloseButton,
 #settingsCollectionCloseButton { display: none !important; }
+
+/* 반 폭 위젯(글자수·기록 타이머)은 레일에서 두 개가 가로로 나란히 놓인다 — 레일을 2열로 나눠 일반 위젯은 두 칸, 반 폭은 한 칸을 쓴다 */
+.isl-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: row dense; }
+.isl-rail > .idea-float { grid-column: 1 / -1; }
+.isl-rail > .idea-float.is-half { grid-column: auto; }
+.idea-float.dock-float.is-railed.is-half,
+.idea-float.dock-float.dock-float-writing-timer.is-railed.is-half,
+.idea-float.dock-float-mini.is-railed.is-half[data-dock-float="statsTracker"] { width: auto !important; min-width: 0 !important; }
+
+/* 글자수·기록 타이머: 세로 길이를 똑같이(같은 줄에 놓이면 늘려서 맞춘다) */
+.idea-float.dock-float.dock-float-writing-timer,
+.idea-float.dock-float[data-dock-float="statsTracker"] { min-height: 104px !important; }
+.isl-rail > .idea-float.is-half { align-self: stretch; }
+
+/* 위젯 닫기(×) 버튼: 글자 모양 × 는 글꼴 때문에 오른쪽 아래로 쏠리므로 글자 대신 두 선으로 그려 호버 박스의 정중앙에 둔다 */
+.idea-float-close { position: relative; display: block; padding: 0; font-size: 0 !important; line-height: 0; }
+.idea-float-close::before, .idea-float-close::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 12px; height: 1.6px; border-radius: 2px; background: currentColor;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.idea-float-close::after { transform: translate(-50%, -50%) rotate(-45deg); }
+
+/* 열린 회차 탭 줄의 좌·우 패널 열고 닫기 화살표(‹ ›): 선을 얇게 */
+.episode-tab-row-toggle svg, .episode-tab-row-toggle svg * { stroke-width: 1.5px !important; }

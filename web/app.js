@@ -545,6 +545,26 @@ function applyPageMarginX(value) {
 
 applyPageMarginX(readPageMarginXMm());
 
+/** 원고 페이지 모양: paper(기본, A4 종이처럼 양옆이 잘려 보임) | flat(양옆 없이 전체가 본문 색) */
+const PAGE_LAYOUT_STORAGE_KEY = "supertory.pageLayout";
+
+function readPageLayout() {
+  let raw = null;
+  try { raw = localStorage.getItem(PAGE_LAYOUT_STORAGE_KEY); } catch (_) { /* ignore */ }
+  return raw === "flat" ? "flat" : "paper";
+}
+
+function applyPageLayout(value) {
+  const layout = value === "flat" ? "flat" : "paper";
+  document.documentElement.dataset.pageLayout = layout;
+  document.querySelectorAll("[data-isl-page-layout]").forEach((el) => {
+    el.setAttribute("aria-pressed", el.dataset.islPageLayout === layout ? "true" : "false");
+  });
+  return layout;
+}
+
+applyPageLayout(readPageLayout());
+
 const AI_ASSIST_ERR_CONNECTION =
   i18n.t('app.인터넷_연결이_필요해요');
 const AI_ASSIST_ERR_GENERIC =
@@ -6830,6 +6850,11 @@ function applyFormatColorToSelection(kind, color, editorEl = null, options = {})
   }
   const range = getUsableEditorRange(editor);
   if (!range || range.collapsed) {
+    // 팔레트에서 색을 고른 경우: 선택이 없어도 버튼 색(기본 색)은 바꿔 둔다
+    if (color && options.forceApply === true) {
+      setFormatColorState(kind, color);
+      return;
+    }
     toast(i18n.t('app.문장을_드래그해_선택한_뒤_색_음영_버튼을'));
     return;
   }
@@ -19654,6 +19679,7 @@ const DOCK_FLOAT_SPECS = {
     compact: true,
     pinned: true,
     resize: false,
+    halfToggle: true,
     fallbackPos() { return dockTrackerFallbackPos(); },
     seedLayout() { return loadDockTrackerLayout(); },
     onOpen() {
@@ -19668,6 +19694,7 @@ const DOCK_FLOAT_SPECS = {
     compact: true,
     pinned: true,
     windowClass: "dock-float-writing-timer",
+    halfToggle: true,
     resize: { minWidth: DOCK_WRITING_TIMER_MIN_W, minHeight: DOCK_WRITING_TIMER_MIN_H },
     fallbackPos() { return dockWritingTimerFallbackPos(); },
     seedLayout() { return loadDockWritingTimerLayout(); },
@@ -20872,16 +20899,18 @@ function renderDockStatsTracker(body, snapshot = lastStatusBarCountSnapshot) {
   const flagsTitle = `${flags.scopeTitle} · ${flags.spaceTitle}`;
   body.innerHTML = `
     <div class="dock-stats-card${hasGoal ? " has-goal" : ""}">
-      <div class="dock-stats-line">
-        <span class="dock-stats-flags" title="${escapeHtml(flagsTitle)}">
-          <span class="dock-stats-flag">${escapeHtml(flags.scopeLabel)}</span>
-          <span class="dock-stats-flag-sep" aria-hidden="true">·</span>
-          <span class="dock-stats-flag">${escapeHtml(flags.spaceLabel)}</span>
-        </span>
-        <div class="dock-stats-value">${escapeHtml(valueText)}</div>
+      <div class="dock-stats-main">
+        <div class="dock-stats-line">
+          <span class="dock-stats-flags" title="${escapeHtml(flagsTitle)}">
+            <span class="dock-stats-flag">${escapeHtml(flags.scopeLabel)}</span>
+            <span class="dock-stats-flag-sep" aria-hidden="true">·</span>
+            <span class="dock-stats-flag">${escapeHtml(flags.spaceLabel)}</span>
+          </span>
+          <div class="dock-stats-value">${escapeHtml(valueText)}</div>
+        </div>
+        ${hasGoal ? `<div class="dock-stats-remain">${escapeHtml(i18n.t("index.남은_분량", { n: formatStatNumber(remain), unit }))}</div>` : ""}
       </div>
-      ${hasGoal ? `<div class="dock-stats-remain">${escapeHtml(i18n.t("index.남은_분량", { n: formatStatNumber(remain), unit }))}</div>` : ""}
-      ${hasGoal ? `<div class="dock-stats-bar"><span style="width:${percent}%"></span></div><div class="dock-stats-pct">${percent}%</div>` : ""}
+      ${hasGoal ? `<div class="dock-stats-side"><div class="dock-stats-bar"><span style="width:${percent}%"></span></div><div class="dock-stats-pct">${percent}%</div></div>` : ""}
     </div>
   `;
 }
@@ -23540,15 +23569,30 @@ function openDockFloatWindow(key, spec, sourceEl) {
   const resizeHtml = resizeCfg
     ? `<div class="idea-float-resize" data-resize-edge="se" title="${escapeHtml(i18n.t("app.끌어서_크기_조절"))}" aria-hidden="true"></div>`
     : "";
+  const halfHtml = spec.halfToggle
+    ? `<button type="button" class="idea-float-half" data-role="toggle-half" title="${escapeHtml(i18n.t("app.위젯_폭_반으로"))}" aria-label="${escapeHtml(i18n.t("app.위젯_폭_반으로"))}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h6M7 9l3 3-3 3M20 12h-6M17 9l-3 3 3 3"/></svg></button>`
+    : "";
   win.innerHTML = `
     <div class="idea-float-drag" title="${escapeHtml(i18n.t("index.끌어_이동"))}">
       <span class="tory-chat-popup-grip" aria-hidden="true">⋮⋮</span>
       <strong class="idea-float-title">${escapeHtml(title)}</strong>
+      ${halfHtml}
       <button type="button" class="idea-float-close" data-role="close-idea-float" title="${escapeHtml(i18n.t("app.닫기"))}" aria-label="${escapeHtml(i18n.t("app.닫기"))}">×</button>
     </div>
     <div class="idea-float-body" data-role="dock-float-body"></div>
     ${resizeHtml}
   `;
+  if (spec.halfToggle) {
+    const halfKey = `supertory.dock.half.${key}`;
+    try { win.classList.toggle("is-half", localStorage.getItem(halfKey) !== "0"); } catch (_) { /* 저장소를 못 써도 위젯은 보인다 */ }
+    const halfBtn = win.querySelector("[data-role='toggle-half']");
+    halfBtn?.addEventListener("pointerdown", (event) => event.stopPropagation());
+    halfBtn?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const half = win.classList.toggle("is-half");
+      try { localStorage.setItem(halfKey, half ? "1" : "0"); } catch (_) { /* 무시 */ }
+    });
+  }
   ideaFloatHost().appendChild(win);
   ideaFloatWindows.set(key, win);
   ideaFloatProjectId = Number(state.projectId) || ideaFloatProjectId;
@@ -33106,23 +33150,30 @@ function fitFormatRow() {
   const tb = $("formatToolbar");
   const body = tb?.querySelector(".format-toolbar-row-body");
   if (!tb || !body || tb.offsetParent === null) return;
+  // 시안대로 본문·글꼴·크기·줄 | B I U S A | ⋯ 더보기 가 기본 — 패널을 접어 폭이 넓어져도
+  // 더보기 안의 기능(장평·자간·단·기호·글머리)은 밖으로 꺼내지 않는다
   const tiers = [
-    "",
-    "is-tight",
     "is-tight is-compact",
     "is-tight is-compact is-mini",
     "is-tight is-compact is-mini is-micro",
     "is-tight is-compact is-mini is-micro is-nano",
-    // 그래도 모자라면(아주 좁은 폭) 정렬·색 묶음도 접는다 — 더보기 팝오버에 같은 기능이 있다
-    "is-tight is-compact is-mini is-micro is-nano is-flat",
+    // 그래도 모자라면(아주 좁은 폭) 색 묶음 → 정렬 묶음 순서로 접는다 — 접힌 것은 더보기 팝오버에 나타난다
+    "is-tight is-compact is-mini is-micro is-nano is-flat-color",
+    "is-tight is-compact is-mini is-micro is-nano is-flat-color is-flat",
   ];
   tb.classList.add("isl-measure");
   for (let i = 0; i < tiers.length; i += 1) {
-    tb.classList.remove("is-tight", "is-compact", "is-mini", "is-micro", "is-nano", "is-flat");
+    tb.classList.remove("is-tight", "is-compact", "is-mini", "is-micro", "is-nano", "is-flat-color", "is-flat");
     tiers[i].split(" ").filter(Boolean).forEach((c) => tb.classList.add(c));
     if (body.scrollWidth - body.clientWidth <= 1) break;
   }
   tb.classList.remove("isl-measure");
+  // 서식줄에서 접힌 기능만 더보기 팝오버에 보여 준다 (펼쳐져 있으면 중복이라 숨김)
+  const pop = $("islFmtPop");
+  if (pop) {
+    pop.classList.toggle("is-show-color", tb.classList.contains("is-flat-color"));
+    pop.classList.toggle("is-show-align", tb.classList.contains("is-flat"));
+  }
 }
 let fitFormatRowRaf = 0;
 function scheduleFitFormatRow() {
@@ -33313,6 +33364,11 @@ function setupFormatMorePopover() {
       plus.addEventListener("click", () => picker.click());
       text.appendChild(plus); text.appendChild(picker);
     }
+    const shade = $("islFpShadeSw");
+    if (shade && !shade.childElementCount) {
+      FORMAT_PRESET_COLORS.forEach((c) => shade.appendChild(swatch(c.hex, c.label, () => withSelection((ed) => applyFormatColorToSelection("shade", c.hex, ed, { forceApply: true })))));
+      shade.appendChild(clearDot(i18n.t("island.fp_지우기"), () => withSelection(() => clearShadeBox())));
+    }
     if (hl && !hl.childElementCount) {
       FORMAT_HIGHLIGHT_PRESET_COLORS.forEach((c) => hl.appendChild(swatch(c.hex, c.label, () => withSelection((ed) => applyFormatColorToSelection("highlight", c.hex, ed, { forceApply: true })))));
       hl.appendChild(clearDot(i18n.t("island.fp_지우기"), () => withSelection(() => clearHighlight())));
@@ -33398,6 +33454,12 @@ function setupFormatMorePopover() {
     const mm = applyPageMarginX(e.target.value);
     try { localStorage.setItem(PAGE_MARGIN_X_STORAGE_KEY, String(mm)); } catch (_) { /* ignore */ }
   });
+  // 페이지 모양(종이/평면) — 기기별 화면 설정이라 localStorage에 둔다
+  applyPageLayout(readPageLayout());
+  pop.querySelectorAll("[data-isl-page-layout]").forEach((chip) => chip.addEventListener("click", () => {
+    const layout = applyPageLayout(chip.dataset.islPageLayout);
+    try { localStorage.setItem(PAGE_LAYOUT_STORAGE_KEY, layout); } catch (_) { /* ignore */ }
+  }));
   // 정렬·단 나누기·글머리·기호 → 기존 서식 버튼 그대로 클릭, 번호 목록·삽입·서식 지우기는 기존 함수
   pop.addEventListener("click", (event) => {
     const fmt = event.target.closest("[data-isl-fmt]");
@@ -33929,6 +33991,8 @@ function islWidgetIcon(svg, size) {
   const copy = svg.cloneNode(true);
   copy.removeAttribute("id");
   copy.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+  // 타이머가 돌아가는 동안 도크 버튼은 모래시계를 숨기고 숫자를 보여주므로, 복사본에는 숨김 표시를 가져오지 않는다
+  copy.classList.remove("hidden");
   copy.setAttribute("width", String(size));
   copy.setAttribute("height", String(size));
   return copy;
@@ -33970,13 +34034,29 @@ function islRailWindows(side = "") {
 function islRailOther(side) {
   return side === "left" ? "right" : "left";
 }
+/** 위젯을 띄울 때 놓이는 자리의 우선순위
+ *  "열 때 자동 정렬" 토글이 켜져 있을 때만 적용한다(꺼져 있으면 사용자가 놓는 자리 그대로).
+ *  1) 양쪽 패널이 모두 펼쳐져 있으면 본문과 오른쪽 패널 사이(오른쪽 레일)
+ *  2) 왼쪽만 펼쳐져 있으면(오른쪽 닫힘) 본문의 오른쪽
+ *  3) 오른쪽만 펼쳐져 있으면(왼쪽 닫힘) 본문의 왼쪽
+ *  4) 양쪽 패널이 모두 닫혀 있으면 좌우로 번갈아
+ *  새 위젯은 어느 경우든 같은 열의 맨 위에 쌓인다(islRailDock의 top 기본값). */
+function islRailAutoSide() {
+  const body = document.body;
+  const aiClosed = body.classList.contains("ai-panel-collapsed");
+  const binderClosed = body.classList.contains("binder-panel-collapsed");
+  if (aiClosed && binderClosed) return islRailWindows("left").length > islRailWindows("right").length ? "right" : "left";
+  return aiClosed || !binderClosed ? "right" : "left";
+}
+const ISL_RAIL_PAIRS = { "dock:statsTracker": "dock:writingTimer", "dock:writingTimer": "dock:statsTracker" };
 function islRailDock(win, { top = true, side = "" } = {}) {
   if (!win) return;
-  let target = side;
-  if (!target) {
-    target = islRailSide || "left";
-    if (islRailWindows(target).length > islRailWindows(islRailOther(target)).length) target = islRailOther(target);
-  }
+  // 글자수·기록 타이머(반 폭)는 짝꿍이 이미 레일에 있으면 같은 레일로 가서 나란히 놓인다
+  const pairKey = ISL_RAIL_PAIRS[win.dataset.floatKey];
+  const partner = pairKey ? ideaFloatWindows.get(pairKey) : null;
+  const paired = Boolean(top && partner && partner !== win && partner.classList.contains("is-railed")
+    && partner.classList.contains("is-half") && win.classList.contains("is-half"));
+  const target = side || (paired ? partner.parentElement?.dataset.railSide : "") || islRailAutoSide();
   if (!win.classList.contains("is-railed")) {
     win.classList.add("is-railed");
     ["left", "top", "right", "bottom", "width"].forEach((k) => { win.style[k] = ""; });
@@ -33984,6 +34064,8 @@ function islRailDock(win, { top = true, side = "" } = {}) {
   }
   const rail = islRailEl(target);
   if (top) rail.prepend(win); else rail.appendChild(win);
+  // 새 위젯이 맨 위로 올라오므로, 먼저 놓인 짝꿍도 같이 끌어올려 새 위젯 왼쪽에 붙인다(먼저 놓인 것의 오른쪽에 새 위젯)
+  if (paired && partner.parentElement === rail) rail.prepend(partner);
 }
 function islRailUndock(win, rect = null) {
   if (!win || !win.classList.contains("is-railed")) return;
@@ -34164,7 +34246,7 @@ function setupIslRail() {
   islRailObserver = new MutationObserver((records) => {
     records.forEach((rec) => {
       rec.addedNodes.forEach((node) => {
-        if ((islRailSide || islWidgetAutoAlignOn()) && rec.target === host && node.nodeType === 1 && node.classList?.contains("idea-float") && !node.classList.contains("is-railed")) islRailDock(node);
+        if (islWidgetAutoAlignOn() && rec.target === host && node.nodeType === 1 && node.classList?.contains("dock-float") && !node.classList.contains("is-railed")) islRailDock(node);
       });
     });
     // 레일이 모두 비면 자동 붙이기도 끈다 — 새로 여는 위젯이 다시 떠 있는 창으로 열리게

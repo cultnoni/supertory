@@ -29144,7 +29144,7 @@ body.popup-dragging * {
   color: var(--ink);
   box-shadow: 0 8px 22px #00000028;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.4;
   pointer-events: none;
 }

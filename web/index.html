@@ -6937,16 +6937,17 @@
         <h5 data-i18n="island.fp_글자">글자</h5>
         <div class="isl-fp-row"><span class="isl-fp-lab" data-i18n="island.fp_장평">장평</span><input type="range" id="islFpWidth" min="50" max="200" step="5" value="100"><output id="islFpWidthVal">100%</output></div>
         <div class="isl-fp-row"><span class="isl-fp-lab" data-i18n="island.fp_자간">자간</span><input type="range" id="islFpTracking" min="-10" max="30" step="1" value="0"><output id="islFpTrackingVal">0</output></div>
-        <div class="isl-fp-row"><span class="isl-fp-lab" data-i18n="island.fp_글자색">글자색</span><div class="isl-fp-sw" id="islFpTextSw"></div></div>
-        <div class="isl-fp-row"><span class="isl-fp-lab" data-i18n="island.fp_형광펜">형광펜</span><div class="isl-fp-sw" id="islFpHlSw"></div></div>
+        <div class="isl-fp-row" data-isl-when="color"><span class="isl-fp-lab" data-i18n="island.fp_글자색">글자색</span><div class="isl-fp-sw" id="islFpTextSw"></div></div>
+        <div class="isl-fp-row" data-isl-when="color"><span class="isl-fp-lab" data-i18n="island.fp_형광펜">형광펜</span><div class="isl-fp-sw" id="islFpHlSw"></div></div>
+        <div class="isl-fp-row" data-isl-when="color"><span class="isl-fp-lab" data-i18n="island.fp_음영상자">음영상자</span><div class="isl-fp-sw" id="islFpShadeSw"></div></div>
       </section>
       <section>
         <h5 data-i18n="island.fp_단락">단락</h5>
         <div class="isl-fp-chips">
-          <button type="button" class="isl-fp-chip" data-isl-fmt="justifyLeft"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h12M3 18h16"/></svg><span data-i18n="island.fp_왼쪽">왼쪽 정렬</span></button>
-          <button type="button" class="isl-fp-chip" data-isl-fmt="justifyCenter"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M6 12h12M4 18h16"/></svg><span data-i18n="island.fp_가운데">가운데 정렬</span></button>
-          <button type="button" class="isl-fp-chip" data-isl-fmt="justifyRight"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M9 12h12M5 18h16"/></svg><span data-i18n="island.fp_오른쪽">오른쪽 정렬</span></button>
-          <button type="button" class="isl-fp-chip" data-isl-fmt="justifyFull"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg><span data-i18n="island.fp_양쪽">양쪽 정렬</span></button>
+          <button type="button" class="isl-fp-chip" data-isl-when="align" data-isl-fmt="justifyLeft"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h12M3 18h16"/></svg><span data-i18n="island.fp_왼쪽">왼쪽 정렬</span></button>
+          <button type="button" class="isl-fp-chip" data-isl-when="align" data-isl-fmt="justifyCenter"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M6 12h12M4 18h16"/></svg><span data-i18n="island.fp_가운데">가운데 정렬</span></button>
+          <button type="button" class="isl-fp-chip" data-isl-when="align" data-isl-fmt="justifyRight"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M9 12h12M5 18h16"/></svg><span data-i18n="island.fp_오른쪽">오른쪽 정렬</span></button>
+          <button type="button" class="isl-fp-chip" data-isl-when="align" data-isl-fmt="justifyFull"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg><span data-i18n="island.fp_양쪽">양쪽 정렬</span></button>
           <button type="button" class="isl-fp-chip" data-isl-fmt="dan"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/></svg><span data-i18n="island.fp_단나누기">단 나누기</span></button>
           <button type="button" class="isl-fp-chip" data-isl-fmt="list"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4.5" cy="6" r=".8"/><circle cx="4.5" cy="12" r=".8"/><circle cx="4.5" cy="18" r=".8"/></svg><span data-i18n="island.fp_글머리">글머리 기호</span></button>
           <button type="button" class="isl-fp-chip" data-isl-list="decimal"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M4 14h2l-2 4h2"/></svg><span data-i18n="island.fp_번호">번호 목록</span></button>
@@ -6964,6 +6965,12 @@
       <section>
         <h5 data-i18n="island.fp_문서">문서</h5>
         <div class="isl-fp-row" title="한글 기본 30mm · 워드 기본 25.4mm" data-i18n-title="island.fp_좌우여백_도움"><span class="isl-fp-lab" data-i18n="island.fp_좌우여백">좌우 여백</span><input type="range" id="islFpMarginX" min="10" max="45" step="1" value="30" aria-label="좌우 여백" data-i18n-aria-label="island.fp_좌우여백"><output id="islFpMarginXVal">30mm</output></div>
+        <div class="isl-fp-row"><span class="isl-fp-lab isl-fp-lab-wide" data-i18n="island.fp_페이지모양">페이지 모양</span>
+          <div class="isl-fp-chips" role="group" aria-label="페이지 모양" data-i18n-aria-label="island.fp_페이지모양">
+            <button type="button" class="isl-fp-chip" data-isl-page-layout="paper" aria-pressed="true" title="A4 용지처럼 양옆이 잘려 보여요" data-i18n="island.fp_종이" data-i18n-title="island.fp_종이_도움">종이</button>
+            <button type="button" class="isl-fp-chip" data-isl-page-layout="flat" aria-pressed="false" title="양옆을 자르지 않고 전체를 본문 색으로 채워요" data-i18n="island.fp_평면" data-i18n-title="island.fp_평면_도움">평면</button>
+          </div>
+        </div>
         <div class="isl-fp-chips">
           <button type="button" class="isl-fp-chip" data-isl-doc="applyAll"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg><span data-i18n="island.fp_전체문서적용">전체 문서에 적용</span></button>
           <button type="button" class="isl-fp-chip" data-isl-cmd="removeFormat"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4-4 11-11a2 2 0 0 1 3 0l3 3a2 2 0 0 1 0 3L11 21zM12 21h9"/></svg><span data-i18n="island.fp_서식지우기">서식 지우기</span></button>
