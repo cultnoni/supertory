@@ -3786,3 +3786,7 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 /* 작품소개·기획의도, 로그라인·시놉시스: 펼친 본문 안의 '메인에서 보기' 버튼 숨김 (박스 화살표는 유지) */
 #settingsBinder .settings-box[data-settings-section="intro"] .settings-inline-main,
 #settingsBinder .settings-box[data-settings-section="logsyn"] .settings-inline-main { display: none !important; }
+
+/* 본문 안 닫기 버튼 제거 (닫기는 열린 회차 탭 ×로 통일). 생각수첩 + 공개·자료 5개(떡밥·성공 프로파일·수집창고·읽기 권한·참고자료)가 쓰는 설정 모음 보드 */
+#ideaBoardCloseButton,
+#settingsCollectionCloseButton { display: none !important; }
