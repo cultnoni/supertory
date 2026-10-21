@@ -14,13 +14,22 @@
   --isl-panel-w: 292px;
   --isl-dock-rail-w: 56px;
   /* 바깥 여백(gutter)과 책상: 기본 라이트 테마만 한 단계 어둡게 */
-  --isl-desk: color-mix(in srgb, var(--chrome-bg, #fafaf9) 94%, black 6%);
+  --isl-desk: color-mix(in srgb, var(--chrome-bg) 94%, black 6%);
   --isl-sunk: color-mix(in srgb, var(--panel, white) 92%, black 8%);
   /* 보조 글자색은 각 테마의 본문색에서 파생 → 어두운/텍스처 테마에서도 대비 유지 */
-  --isl-ink2: color-mix(in srgb, var(--text-primary, #1c1917) 74%, var(--panel, white));
-  --isl-ink3: color-mix(in srgb, var(--text-primary, #1c1917) 54%, var(--panel, white));
+  --isl-ink2: color-mix(in srgb, var(--text-primary) 74%, var(--panel, white));
+  --isl-ink3: color-mix(in srgb, var(--text-primary) 54%, var(--panel, white));
   --outline-width: var(--isl-panel-w);
   --ai-panel-width: var(--isl-panel-w);
+  /* 카테고리 색 — 캐릭터·관계·키워드·아이디어 보드 공용 (고정 색, 테마 무관) */
+  --isl-cat-rose: #e48b96;
+  --isl-cat-violet: #9d8bd2;
+  --isl-cat-sage: #62b088;
+  --isl-cat-sky: #6fa3d6;
+  --isl-cat-gold: #e3bf55;
+  --isl-cat-orange: #e09a63;
+  --isl-cat-amber: #d9a85f;
+  --isl-switch-off: #d5dae0;
 }
 /* 기본(라이트)·샌드 팔레트 — 시안 main-design-c-variations #c1 (섬과 종이)의 색을 그대로 */
 html[data-theme="light"],
@@ -1891,7 +1900,7 @@ main { padding-left: 0 !important; padding-right: 0 !important; }
 .wl-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 .wl-t { display: flex; flex-direction: column; gap: 1px; font-size: 13px; color: var(--text-primary); }
 .wl-t small { font-size: 12px; color: var(--isl-ink3); }
-.wl-switch { appearance: none; -webkit-appearance: none; width: 32px; height: 19px; border-radius: 99px; background: #d5dae0; position: relative; flex: none; border: 0; margin: 0; cursor: pointer; }
+.wl-switch { appearance: none; -webkit-appearance: none; width: 32px; height: 19px; border-radius: 99px; background: var(--isl-switch-off); position: relative; flex: none; border: 0; margin: 0; cursor: pointer; }
 .wl-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: white; transition: left 0.15s; }
 .wl-switch:checked { background: var(--accent); }
 .wl-switch:checked::after { left: 15px; }
@@ -2125,37 +2134,37 @@ body.focus-write-open .isl-ai-badge { z-index: 230 !important; }
    고정은 클립 그림(.idea-card-pin / .idea-sticky-pin / .header-idea-chip-pin). */
 html { --nc-fill: 26%; --nc-soft: 9%; --nc-edge: 30%; }
 html[data-ui-scheme="dark"] { --nc-fill: 20%; --nc-soft: 9%; --nc-edge: 34%; }
-.idea-card, .idea-sticky, .header-idea-bar .header-idea-chip { --nc: #e3bf55; }
+.idea-card, .idea-sticky, .header-idea-bar .header-idea-chip { --nc: var(--isl-cat-gold); }
 .idea-card.color-yellow,
 .idea-sticky.color-yellow,
 .header-idea-bar .header-idea-chip.color-yellow,
 .idea-clip-swatch.color-yellow,
-.idea-color-swatch.color-yellow { --nc: #e3bf55; }
+.idea-color-swatch.color-yellow { --nc: var(--isl-cat-gold); }
 .idea-card.color-pink,
 .idea-sticky.color-pink,
 .header-idea-bar .header-idea-chip.color-pink,
 .idea-clip-swatch.color-pink,
-.idea-color-swatch.color-pink { --nc: #e48b96; }
+.idea-color-swatch.color-pink { --nc: var(--isl-cat-rose); }
 .idea-card.color-blue,
 .idea-sticky.color-blue,
 .header-idea-bar .header-idea-chip.color-blue,
 .idea-clip-swatch.color-blue,
-.idea-color-swatch.color-blue { --nc: #6fa3d6; }
+.idea-color-swatch.color-blue { --nc: var(--isl-cat-sky); }
 .idea-card.color-green,
 .idea-sticky.color-green,
 .header-idea-bar .header-idea-chip.color-green,
 .idea-clip-swatch.color-green,
-.idea-color-swatch.color-green { --nc: #62b088; }
+.idea-color-swatch.color-green { --nc: var(--isl-cat-sage); }
 .idea-card.color-purple,
 .idea-sticky.color-purple,
 .header-idea-bar .header-idea-chip.color-purple,
 .idea-clip-swatch.color-purple,
-.idea-color-swatch.color-purple { --nc: #9d8bd2; }
+.idea-color-swatch.color-purple { --nc: var(--isl-cat-violet); }
 .idea-card.color-orange,
 .idea-sticky.color-orange,
 .header-idea-bar .header-idea-chip.color-orange,
 .idea-clip-swatch.color-orange,
-.idea-color-swatch.color-orange { --nc: #e3bf55; }
+.idea-color-swatch.color-orange { --nc: var(--isl-cat-gold); }
 html .idea-card[class*="color-"],
 html .idea-sticky[class*="color-"],
 html .header-idea-bar .header-idea-chip[class*="color-"] {
@@ -2224,13 +2233,13 @@ html .idea-card-clips .idea-clip-swatch:hover { transform: scale(1.12); }
 
 html .idea-card-pin { position: absolute; top: 0; right: 14px; width: 24px; height: 32px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--isl-ink3); opacity: 0; transition: opacity .12s; z-index: 3; }
 html .idea-card:hover .idea-card-pin, html .idea-card:focus-within .idea-card-pin { opacity: .5; }
-html .idea-card .idea-card-pin:hover { opacity: 1; background: transparent; transform: none; color: color-mix(in srgb, var(--nc) 70%, #000 30%); }
-html .idea-card .idea-card-pin.is-on { opacity: 1; color: color-mix(in srgb, var(--nc) 70%, #000 30%); background: transparent; border: 0; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .18)); }
+html .idea-card .idea-card-pin:hover { opacity: 1; background: transparent; transform: none; color: color-mix(in srgb, var(--nc) 70%, black 30%); }
+html .idea-card .idea-card-pin.is-on { opacity: 1; color: color-mix(in srgb, var(--nc) 70%, black 30%); background: transparent; border: 0; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .18)); }
 html .idea-card-pin .idea-pin-glyph { width: 17px; height: 26px; filter: none; }
 
-html .idea-sticky-pin { left: auto; right: 7px; top: 0; bottom: auto; color: color-mix(in srgb, var(--nc) 70%, #000 30%); filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .15)); opacity: 1; }
+html .idea-sticky-pin { left: auto; right: 7px; top: 0; bottom: auto; color: color-mix(in srgb, var(--nc) 70%, black 30%); filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .15)); opacity: 1; }
 html .idea-sticky-pin .idea-pin-glyph { width: 10px; height: 16px; }
-html .header-idea-bar .header-idea-chip-pin { top: 1px; left: auto; right: 4px; transform: none; width: 8px; height: 12px; color: color-mix(in srgb, var(--nc) 70%, #000 30%); filter: none; opacity: 1; }
+html .header-idea-bar .header-idea-chip-pin { top: 1px; left: auto; right: 4px; transform: none; width: 8px; height: 12px; color: color-mix(in srgb, var(--nc) 70%, black 30%); filter: none; opacity: 1; }
 html .header-idea-bar .header-idea-chip-pin .idea-pin-glyph { width: 8px; height: 12px; }
 
 html .idea-card-actions { opacity: 0; transition: opacity .12s; }
@@ -2343,10 +2352,10 @@ html .idea-board-grid > .idea-card { width: calc((100% - 18px) / 2); }
   border-radius: 50%;
   background: var(--rc);
 }
-#characterBoard .character-board-card[data-character-role="protagonist"] { --rc: #e48b96; }
-#characterBoard .character-board-card[data-character-role="antagonist"] { --rc: #9d8bd2; }
-#characterBoard .character-board-card[data-character-role="supporting"] { --rc: #62b088; }
-#characterBoard .character-board-card[data-character-role="minor"] { --rc: #6fa3d6; }
+#characterBoard .character-board-card[data-character-role="protagonist"] { --rc: var(--isl-cat-rose); }
+#characterBoard .character-board-card[data-character-role="antagonist"] { --rc: var(--isl-cat-violet); }
+#characterBoard .character-board-card[data-character-role="supporting"] { --rc: var(--isl-cat-sage); }
+#characterBoard .character-board-card[data-character-role="minor"] { --rc: var(--isl-cat-sky); }
 #characterBoard .character-board-card-summary {
   -webkit-line-clamp: 2;
   font-size: 13px;
@@ -2651,7 +2660,7 @@ html .idea-board-grid > .idea-card { width: calc((100% - 18px) / 2); }
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #d9a85f;
+  background: var(--isl-cat-amber);
 }
 #itemBoard .character-board-card-summary {
   -webkit-line-clamp: 2;
@@ -2827,11 +2836,11 @@ html .idea-board-grid > .idea-card { width: calc((100% - 18px) / 2); }
   color: var(--isl-ink3);
   font-variant-numeric: tabular-nums;
 }
-#keywordBoard .keyword-category:nth-child(5n+1) { --c: #e48b96; }
-#keywordBoard .keyword-category:nth-child(5n+2) { --c: #9d8bd2; }
-#keywordBoard .keyword-category:nth-child(5n+3) { --c: #62b088; }
-#keywordBoard .keyword-category:nth-child(5n+4) { --c: #6fa3d6; }
-#keywordBoard .keyword-category:nth-child(5n+5) { --c: #e3bf55; }
+#keywordBoard .keyword-category:nth-child(5n+1) { --c: var(--isl-cat-rose); }
+#keywordBoard .keyword-category:nth-child(5n+2) { --c: var(--isl-cat-violet); }
+#keywordBoard .keyword-category:nth-child(5n+3) { --c: var(--isl-cat-sage); }
+#keywordBoard .keyword-category:nth-child(5n+4) { --c: var(--isl-cat-sky); }
+#keywordBoard .keyword-category:nth-child(5n+5) { --c: var(--isl-cat-gold); }
 #keywordBoard .keyword-category-title {
   display: flex;
   align-items: center;
@@ -2920,12 +2929,12 @@ html .idea-board-grid > .idea-card { width: calc((100% - 18px) / 2); }
 .world-toc-no { width: 18px; font-size: 11.5px; color: var(--isl-ink3); font-variant-numeric: tabular-nums; }
 .world-toc-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--isl-ink3)); flex: none; }
 .world-toc-count { margin-left: auto; font-style: normal; font-size: 11.5px; font-weight: 400; color: var(--isl-ink3); }
-.world-toc-link:nth-child(6n+1), #worldbuildingMainForm > .world-main-card:nth-child(6n+1) { --c: #e48b96; }
-.world-toc-link:nth-child(6n+2), #worldbuildingMainForm > .world-main-card:nth-child(6n+2) { --c: #9d8bd2; }
-.world-toc-link:nth-child(6n+3), #worldbuildingMainForm > .world-main-card:nth-child(6n+3) { --c: #62b088; }
-.world-toc-link:nth-child(6n+4), #worldbuildingMainForm > .world-main-card:nth-child(6n+4) { --c: #6fa3d6; }
-.world-toc-link:nth-child(6n+5), #worldbuildingMainForm > .world-main-card:nth-child(6n+5) { --c: #e3bf55; }
-.world-toc-link:nth-child(6n+6), #worldbuildingMainForm > .world-main-card:nth-child(6n+6) { --c: #e09a63; }
+.world-toc-link:nth-child(6n+1), #worldbuildingMainForm > .world-main-card:nth-child(6n+1) { --c: var(--isl-cat-rose); }
+.world-toc-link:nth-child(6n+2), #worldbuildingMainForm > .world-main-card:nth-child(6n+2) { --c: var(--isl-cat-violet); }
+.world-toc-link:nth-child(6n+3), #worldbuildingMainForm > .world-main-card:nth-child(6n+3) { --c: var(--isl-cat-sage); }
+.world-toc-link:nth-child(6n+4), #worldbuildingMainForm > .world-main-card:nth-child(6n+4) { --c: var(--isl-cat-sky); }
+.world-toc-link:nth-child(6n+5), #worldbuildingMainForm > .world-main-card:nth-child(6n+5) { --c: var(--isl-cat-gold); }
+.world-toc-link:nth-child(6n+6), #worldbuildingMainForm > .world-main-card:nth-child(6n+6) { --c: var(--isl-cat-orange); }
 
 /* 섹션 = 카드 없는 문서 블록 */
 #worldbuildingMainForm .world-main-card {
@@ -3078,7 +3087,7 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
   padding: 5px;
   max-width: calc(100% - 32px);
   border-radius: 14px;
-  background: var(--panel, #fff);
+  background: var(--panel);
   box-shadow: var(--isl-shadow);
 }
 #relationCanvas .relation-toolbar-actions > button {
@@ -3114,10 +3123,10 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
   isolation: auto;
   overflow: visible;
 }
-#relationCanvas .relation-canvas-card[data-rel-role="protagonist"] { --rc: #e48b96; }
-#relationCanvas .relation-canvas-card[data-rel-role="antagonist"] { --rc: #9d8bd2; }
-#relationCanvas .relation-canvas-card[data-rel-role="supporting"] { --rc: #62b088; }
-#relationCanvas .relation-canvas-card[data-rel-role="minor"] { --rc: #6fa3d6; }
+#relationCanvas .relation-canvas-card[data-rel-role="protagonist"] { --rc: var(--isl-cat-rose); }
+#relationCanvas .relation-canvas-card[data-rel-role="antagonist"] { --rc: var(--isl-cat-violet); }
+#relationCanvas .relation-canvas-card[data-rel-role="supporting"] { --rc: var(--isl-cat-sage); }
+#relationCanvas .relation-canvas-card[data-rel-role="minor"] { --rc: var(--isl-cat-sky); }
 /* 주인공 반짝임 테두리·그림자 제거 */
 #relationCanvas .relation-canvas-card::before,
 #relationCanvas .relation-canvas-card.is-protagonist::before { content: none; animation: none; }
@@ -3144,7 +3153,7 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--rc) 26%, var(--panel, #fff));
+  background: color-mix(in srgb, var(--rc) 26%, var(--panel));
   box-shadow: 0 0 0 0 transparent;
   color: color-mix(in srgb, var(--rc) 58%, var(--text-primary) 42%);
   font-size: 22px;
@@ -3199,7 +3208,7 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
   font-size: 11.5px;
   font-weight: 500;
   fill: var(--isl-ink2);
-  stroke: var(--chrome-bg, var(--header-bg, #f4f2ef));
+  stroke: var(--chrome-bg, var(--header-bg));
   stroke-width: 9px;
   stroke-linejoin: round;
 }
@@ -3227,7 +3236,7 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 #relationCanvas .relation-deck {
   border: 0;
   border-radius: 12px;
-  background: var(--panel, #fff);
+  background: var(--panel);
   box-shadow: var(--isl-shadow);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -3249,16 +3258,16 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 
 /* 서랍 카드: 인물마다 자기 색(사용자가 정한 색이 있으면 그 색, 없으면 역할 색) */
 #relationCanvas .relation-deck-card { --dc: var(--rel-ring, var(--rc, var(--isl-ink3))); }
-#relationCanvas .relation-deck-card[data-rel-role="protagonist"] { --rc: #e48b96; }
-#relationCanvas .relation-deck-card[data-rel-role="antagonist"] { --rc: #9d8bd2; }
-#relationCanvas .relation-deck-card[data-rel-role="supporting"] { --rc: #62b088; }
-#relationCanvas .relation-deck-card[data-rel-role="minor"] { --rc: #6fa3d6; }
+#relationCanvas .relation-deck-card[data-rel-role="protagonist"] { --rc: var(--isl-cat-rose); }
+#relationCanvas .relation-deck-card[data-rel-role="antagonist"] { --rc: var(--isl-cat-violet); }
+#relationCanvas .relation-deck-card[data-rel-role="supporting"] { --rc: var(--isl-cat-sage); }
+#relationCanvas .relation-deck-card[data-rel-role="minor"] { --rc: var(--isl-cat-sky); }
 #relationCanvas .relation-deck-card {
-  background: color-mix(in srgb, var(--dc) 24%, var(--panel, #fff));
+  background: color-mix(in srgb, var(--dc) 24%, var(--panel));
   box-shadow: inset 3px 0 0 var(--dc);
 }
 #relationCanvas .relation-deck-card:hover:not(.is-deck-source) {
-  background: color-mix(in srgb, var(--dc) 34%, var(--panel, #fff));
+  background: color-mix(in srgb, var(--dc) 34%, var(--panel));
   box-shadow: inset 3px 0 0 var(--dc);
 }
 #relationCanvas .relation-deck-card-name { color: color-mix(in srgb, var(--dc) 45%, var(--text-primary) 55%); }
@@ -3277,10 +3286,10 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 #relationCanvas .relation-canvas-group-count { margin-left: 6px; font-weight: 500; }
 
 /* ── 관계 이어보기 2단계: 보기 전환(그래프/목록/표) · 노드 hover 강조 ───────────────────── */
-#relationCanvas [data-rel-role="protagonist"] { --rc: #e48b96; }
-#relationCanvas [data-rel-role="antagonist"] { --rc: #9d8bd2; }
-#relationCanvas [data-rel-role="supporting"] { --rc: #62b088; }
-#relationCanvas [data-rel-role="minor"] { --rc: #6fa3d6; }
+#relationCanvas [data-rel-role="protagonist"] { --rc: var(--isl-cat-rose); }
+#relationCanvas [data-rel-role="antagonist"] { --rc: var(--isl-cat-violet); }
+#relationCanvas [data-rel-role="supporting"] { --rc: var(--isl-cat-sage); }
+#relationCanvas [data-rel-role="minor"] { --rc: var(--isl-cat-sky); }
 
 /* 보기 전환 스위치 */
 .relation-view-switch {
@@ -3301,7 +3310,7 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
   cursor: pointer;
 }
 .relation-view-switch button:hover { color: var(--text-primary); }
-.relation-view-switch button[aria-pressed="true"] { background: var(--panel, #fff); color: var(--text-primary); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+.relation-view-switch button[aria-pressed="true"] { background: var(--panel); color: var(--text-primary); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
 
 /* 목록/표에서는 그래프 전용 요소를 숨긴다 */
 #relationCanvas.is-view-list #relationCanvasWorld,
@@ -3329,7 +3338,7 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
   inset: 0;
   z-index: 5;
   overflow: auto;
-  background: var(--chrome-bg, var(--header-bg, #f4f2ef));
+  background: var(--chrome-bg, var(--header-bg));
   padding: 8px 8px 96px;
   cursor: default;
 }
@@ -3346,7 +3355,7 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--rc, var(--isl-ink3)) 26%, var(--panel, #fff));
+  background: color-mix(in srgb, var(--rc, var(--isl-ink3)) 26%, var(--panel));
   color: color-mix(in srgb, var(--rc, var(--isl-ink3)) 58%, var(--text-primary) 42%);
   font-size: 12px;
   font-weight: 650;
@@ -3430,7 +3439,7 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 .rv-table th.rv-row > span { display: inline-flex; align-items: center; gap: 7px; }
 .rv-table td { width: 72px; height: 44px; border: 1px solid var(--line); text-align: center; font-size: 11.5px; color: var(--isl-ink2); position: relative; }
 .rv-table td.rv-diag { background: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--isl-ink3) 14%, transparent) 5px 6px); }
-.rv-table td.rv-has { background: color-mix(in srgb, var(--rc, var(--isl-ink3)) 20%, var(--panel, #fff)); color: var(--text-primary); font-weight: 600; cursor: pointer; }
+.rv-table td.rv-has { background: color-mix(in srgb, var(--rc, var(--isl-ink3)) 20%, var(--panel)); color: var(--text-primary); font-weight: 600; cursor: pointer; }
 .rv-table td.rv-has.is-suggested { background: transparent; border-style: dashed; font-weight: 500; }
 .rv-table td.rv-has small { margin-left: 3px; font-weight: 400; color: var(--isl-ink3); }
 .rv-table td.rv-empty-cell { cursor: pointer; }
@@ -3458,10 +3467,10 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 
 /* ── 대기인물·단역 서랍: 카드 더미 대신 칩 (시안 A) ─────────────────────────────── */
 /* 끌 때 나오는 고스트는 body 아래에 붙으므로 #relationCanvas 밖에서도 같은 규칙을 적용한다 */
-.relation-deck-ghost[data-rel-role="protagonist"], #relationCanvas .relation-deck-card[data-rel-role="protagonist"] { --rc: #e48b96; }
-.relation-deck-ghost[data-rel-role="antagonist"], #relationCanvas .relation-deck-card[data-rel-role="antagonist"] { --rc: #9d8bd2; }
-.relation-deck-ghost[data-rel-role="supporting"], #relationCanvas .relation-deck-card[data-rel-role="supporting"] { --rc: #62b088; }
-.relation-deck-ghost[data-rel-role="minor"], #relationCanvas .relation-deck-card[data-rel-role="minor"] { --rc: #6fa3d6; }
+.relation-deck-ghost[data-rel-role="protagonist"], #relationCanvas .relation-deck-card[data-rel-role="protagonist"] { --rc: var(--isl-cat-rose); }
+.relation-deck-ghost[data-rel-role="antagonist"], #relationCanvas .relation-deck-card[data-rel-role="antagonist"] { --rc: var(--isl-cat-violet); }
+.relation-deck-ghost[data-rel-role="supporting"], #relationCanvas .relation-deck-card[data-rel-role="supporting"] { --rc: var(--isl-cat-sage); }
+.relation-deck-ghost[data-rel-role="minor"], #relationCanvas .relation-deck-card[data-rel-role="minor"] { --rc: var(--isl-cat-sky); }
 
 #relationCanvas .relation-deck-stack,
 #relationCanvas .relation-deck.is-expanded .relation-deck-stack {
@@ -3490,14 +3499,14 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
   padding: 3px 11px 3px 4px;
   border: 0;
   border-radius: 999px;
-  background: var(--panel, #fff);
+  background: var(--panel);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--dc) 45%, var(--line));
   transform: none;
   text-align: left;
 }
 #relationCanvas .relation-deck-card:hover:not(.is-deck-source) {
   transform: none;
-  background: color-mix(in srgb, var(--dc) 14%, var(--panel, #fff));
+  background: color-mix(in srgb, var(--dc) 14%, var(--panel));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--dc) 70%, var(--line));
 }
 #relationCanvas .relation-deck-card.is-selected { outline: 0; box-shadow: 0 0 0 2px var(--accent); }
@@ -3508,7 +3517,7 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--dc) 30%, var(--panel, #fff));
+  background: color-mix(in srgb, var(--dc) 30%, var(--panel));
   color: color-mix(in srgb, var(--dc) 60%, var(--text-primary) 40%);
   font-size: 10.5px;
   font-weight: 650;
