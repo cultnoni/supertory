@@ -261,7 +261,7 @@
 
     <link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
     <link rel="stylesheet" href="/styles.css?v=1.4.262">
-    <link rel="stylesheet" href="/island.css?v=71">
+    <link rel="stylesheet" href="/island.css?v=81">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -4155,14 +4155,17 @@
               <p class="tory-chat-hub-lead" data-i18n="index.누구와_대화할까요">누구와 대화할까요?</p>
               <div class="tory-chat-hub-options" role="list">
                 <button type="button" class="tory-chat-hub-option" data-chat-hub-pick="tory" role="listitem">
+                  <span class="tory-chat-hub-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2z"/></svg></span>
                   <strong data-i18n="index.토리와_대화하기">토리와 대화하기</strong>
                   <span data-i18n="index.플롯_문체_막히는_장면_1_1로_편하게_물어">플롯·문체·막히는 장면, 1:1로 편하게 물어봐요</span>
                 </button>
                 <button type="button" class="tory-chat-hub-option" data-chat-hub-pick="characters" role="listitem">
+                  <span class="tory-chat-hub-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.2A4.5 4.5 0 0 1 20.5 19"/></svg></span>
                   <strong data-i18n="index.내_캐릭터와_대화하기">내 캐릭터와 대화하기</strong>
                   <span data-i18n="index.설정집_인물과_이야기하거나_여러_명을_골라">설정집 인물과 이야기하거나, 여러 명을 골라 단톡방으로</span>
                 </button>
                 <button type="button" class="tory-chat-hub-option" data-chat-hub-pick="reader" role="listitem">
+                  <span class="tory-chat-hub-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 4.5c0-.8.6-1.4 1.4-1.4h7.2c.8 0 1.4.6 1.4 1.4v6.2c0 3-2.2 5.3-5 5.3S3 13.7 3 10.7z"/><path d="M6.2 9.6c.5.5 1.1.5 1.6 0M9.5 9.6c.4.4 1 .4 1.4 0"/><path d="M5.4 12.2c1 .9 2.6 1 3.6.1"/><path d="M11.2 11.4c0-.8.6-1.4 1.4-1.4h7.6c.8 0 1.4.6 1.4 1.4v5.6c0 3-2.2 5.3-5.2 5.3s-5.2-2.3-5.2-5.3z" transform="translate(-1 -1)"/><path d="M14.4 15.2c.5-.5 1.1-.5 1.6 0M18.2 15.2c.4-.4 1-.4 1.4 0" transform="translate(-1 -1)"/><path d="M14.1 19.6c1-.9 2.6-.9 3.6 0" transform="translate(-1 -1)"/></svg></span>
                   <strong data-i18n="index.가상_독자와_대화하기">가상 독자와 대화하기</strong>
                   <span data-i18n="index.독자_시점으로_반응을_들어_봐요">독자 시점으로 반응을 들어 봐요</span>
                 </button>
@@ -4287,10 +4290,13 @@
                 </div>
                 <div id="readerPersonaChatPane" class="reader-persona-chat-pane">
                   <section id="readerFavoritePanel" class="reader-favorite-panel" aria-label="자주쓰는 가상독자 모음" data-i18n-aria-label="index.자주쓰는_가상독자_모음">
-                    <h4 class="reader-favorite-title" data-i18n="index.자주쓰는_가상독자_모음">자주쓰는 가상독자 모음</h4>
+                    <button type="button" class="reader-favorite-toggle" id="readerFavoriteToggle" aria-expanded="true" aria-controls="readerFavoriteGrid" data-i18n-aria-label="index.자주쓰는_가상독자_모음" aria-label="자주쓰는 가상독자 모음">
+                      <svg class="reader-favorite-star" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false"><path d="M12 2.8l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.6 6.1 20.8l1.2-6.5-4.8-4.6 6.6-.9z"/></svg>
+                      <span class="reader-favorite-count" id="readerFavoriteCount" aria-hidden="true"></span>
+                      <svg class="reader-favorite-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg>
+                    </button>
                     <div id="readerFavoriteGrid" class="reader-persona-grid reader-favorite-grid" aria-label="자주쓰는 가상독자" data-i18n-aria-label="index.자주쓰는_가상독자"></div>
-                    <p class="hint reader-favorite-empty" id="readerFavoriteEmpty" data-i18n="index.즐겨찾기한_가상독자가_없어요">즐겨찾기한 가상독자가 없어요. 목록에서 별표를 눌러 추가해보세요</p>
-                  </section>
+                    <p class="hint reader-favorite-empty" id="readerFavoriteEmpty" data-i18n="index.즐겨찾기한_가상독자가_없어요">즐겨찾기한 가상독자가 없어요. 목록에서 별표를 눌러 추가해보세요</p>                  </section>
                   <div id="readerPersonaGrid" class="reader-persona-grid" aria-label="가상 독자 목록" data-i18n-aria-label="index.가상_독자_목록"></div>
                   <div class="reader-debate-actions" id="readerChatStartActions">
                     <button type="button" class="primary" id="readerChatStartButton" disabled data-i18n="index.대화_시작하기">대화 시작하기</button>
@@ -4469,8 +4475,7 @@
               <form id="toryChatForm" class="tory-chat-form">
                 <textarea id="toryChatInput" rows="3" maxlength="4000" placeholder="토리에게 말걸기&#10;(Enter 전송 Shift + Enter 줄바꿈)" data-i18n-placeholder="index.토리에게_말걸기_10_Enter_전송_Shi" aria-label="보낼 메시지" data-i18n-aria-label="index.보낼_메시지"></textarea>
                 <div class="tory-chat-actions">
-                  <button type="button" class="secondary" id="toryChatCollectButton" title="선택 문장 또는 최근 답변을 수집창고에" data-i18n-title="index.선택_문장_또는_최근_답변을_수집창고에" data-i18n="app.수집">수집</button>
-                  <button type="submit" class="primary" id="toryChatSendButton" data-i18n="app.보내기">보내기</button>
+                  <button type="submit" class="primary" id="toryChatSendButton" title="보내기" data-i18n-title="app.보내기" aria-label="보내기" data-i18n-aria-label="app.보내기"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg></button>
                 </div>
               </form>
             </div>
@@ -9989,7 +9994,7 @@
     <script src="/typeset_metrics.js?v=1.4.45"></script>
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
-    <script src="/app.js?v=1.4.255-c1"></script>
+    <script src="/app.js?v=1.4.255-c7"></script>
     <script src="/js/gitsi.js?v=1"></script>
     <script src="/feedback_panel.js?v=30"></script>
     <script src="/app-boot.js?v=1"></script>
