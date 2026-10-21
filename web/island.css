@@ -1648,6 +1648,9 @@ main { padding-left: 0 !important; padding-right: 0 !important; }
 .episode-tab:not(.is-active)::after { top: 4px !important; bottom: 4px !important; background: var(--hover-border, var(--line)) !important; }
 .episode-tab.is-active + .episode-tab::after, .episode-tab:has(+ .episode-tab.is-active)::after { background: transparent !important; }
 .episode-tab.is-active + .episode-tab:not(:has(+ .episode-tab.is-active))::after { background: var(--hover-border, var(--line)) !important; }
+/* 왼쪽이나 오른쪽 패널 중 하나라도 접혔을 때: 열린 회차 탭 줄을 가운데에 둔다 (오른쪽 spacer 대신 양쪽 auto 여백이 남는 칸을 나눈다) */
+body:is(.binder-panel-collapsed, .ai-panel-collapsed) .episode-tab-row-spacer { flex: 0 0 4px; }
+body:is(.binder-panel-collapsed, .ai-panel-collapsed) .episode-tab-bar { margin-left: auto; margin-right: auto; }
 
 /* ═════ 기록·타이머 위젯 (알약 한 줄 + 공용 설정 팝오버) — 시안 timer-widget-v6 ═════ */
 .idea-float.dock-float.dock-float-writing-timer {
@@ -2075,6 +2078,83 @@ body.focus-write-open .isl-ai-badge { z-index: 230 !important; }
 #workArea.has-hoisted-tabs > #episodeChrome { grid-row: 1 !important; grid-column: 1; width: 100%; min-width: 0; }
 .episode-tab-icon { display: inline-flex; flex: none; width: 14px; height: 14px; color: var(--isl-ink3); }
 .episode-tab-icon svg { width: 14px; height: 14px; }
+
+/* 소통방 대화 박스 (시안 B): 아이콘 칩 위, 제목·설명 가운데 정렬 */
+#toryChatHub .tory-chat-hub-options { display: grid; grid-template-columns: 1fr; gap: 8px; }
+#toryChatHub .tory-chat-hub-option {
+  align-items: center;
+  gap: 6px;
+  padding: 16px 12px 14px;
+  border-radius: var(--isl-r-sm, 9px);
+  text-align: center;
+}
+#toryChatHub .tory-chat-hub-option:hover { background: var(--accent-soft, var(--isl-sunk)); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); transform: none; }
+.tory-chat-hub-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent-soft, var(--isl-sunk));
+  color: var(--accent);
+}
+.tory-chat-hub-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* 대화창 (섬과 종이 v4 ⑤ 대화 스타일): 본문 바탕 위에 말풍선, 아래 입력 박스 한 덩어리 */
+#toryChatMessages.tory-chat-messages { gap: 8px; padding: 4px 2px; border: 0; border-radius: 0; background: transparent; }
+.tory-chat-bubble { max-width: 88%; padding: 9px 11px; font-size: 12.5px; line-height: 1.6; }
+.tory-chat-bubble.is-user {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--panel);
+  border-bottom-right-radius: 4px;
+}
+.tory-chat-bubble.is-tory {
+  background: var(--panel);
+  border-color: var(--line);
+  border-bottom-left-radius: 4px;
+}
+.tory-chat-form {
+  margin-top: 10px;
+  gap: 0;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.tory-chat-form textarea {
+  min-height: 48px;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0;
+}
+.tory-chat-form textarea:focus { outline: none; }
+.tory-chat-actions { margin-top: 6px; }
+.tory-chat-actions #toryChatSendButton {
+  width: 30px;
+  height: 30px;
+  min-width: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+}
+.tory-chat-actions #toryChatSendButton.is-busy { opacity: 0.5; cursor: progress; }
+/* 토리 답변 아래 행동 줄 (복사 · 수집 · 원고 끝에 넣기): 항상 보임 */
+.tory-chat-bubble-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.tory-chat-bubble-action {
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--sunk, var(--panel)) 70%, transparent);
+  color: var(--ink2);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.tory-chat-bubble-action:hover { border-color: var(--hover-border, var(--line)); background: var(--sunk, var(--panel)); color: var(--ink); }
 .episode-tab.is-active .episode-tab-icon { color: var(--isl-ink2); }
 
 /* ═════ 설정 문서 메인(작품소개·기획의도 / 로그라인·시놉시스) — 본문 서식도구 + 두 단락 종이 ═════
@@ -3706,7 +3786,7 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 /* ── 설정집 즐겨찾기: 설정집 타일과 같은 디자인, 개수가 늘어도 줄어들지 않음 ── */
 #islTiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 #islTiles .isl-tile { grid-column: auto !important; position: relative; min-height: 0; padding: 9px 10px !important; }
-#islTiles .isl-tile strong { font-size: 12.5px; white-space: normal; max-width: none; overflow: visible; text-overflow: clip; }
+#islTiles .isl-tile strong { font-size: 12.5px; font-weight: 400; white-space: normal; max-width: none; overflow: visible; text-overflow: clip; }
 #islTiles .isl-tile span {
   display: block !important;
   position: absolute;

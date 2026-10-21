@@ -35171,13 +35171,34 @@ function toryChatBubbleMetaHtml(isUser) {
     + i18n.t('app.토리_span');
 }
 
-function toryChatBubbleCopyButtonHtml(isUser) {
-  if (isUser || toryChatHub !== "character-room") return "";
-  return i18n.t('app.button_type_button_clas')
-    + `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">`
-    + `<rect x="9" y="9" width="13" height="13" rx="2"/>`
-    + `<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>`
-    + `</svg></button>`;
+/** 토리 답변 아래 항상 보이는 행동: 복사 · 수집 · 원고 끝에 넣기 */
+function toryChatBubbleActionsHtml() {
+  return `<div class="tory-chat-bubble-actions">`
+    + `<button type="button" class="tory-chat-bubble-action" data-tory-msg-action="copy">${i18n.t('app.복사')}</button>`
+    + `<button type="button" class="tory-chat-bubble-action" data-tory-msg-action="collect">${i18n.t('app.수집')}</button>`
+    + `<button type="button" class="tory-chat-bubble-action" data-tory-msg-action="insert">${i18n.t('index.원고_끝에_넣기')}</button>`
+    + `</div>`;
+}
+
+async function runToryChatBubbleAction(button) {
+  const action = button.getAttribute("data-tory-msg-action");
+  const bubble = button.closest(".tory-chat-bubble");
+  if (!bubble) return;
+  if (action === "copy") return copyToryChatCharacterReply(button);
+  const index = Number(bubble.getAttribute("data-msg-index"));
+  const message = Number.isInteger(index) ? loadToryChatHistory()[index] : null;
+  const text = String(message?.content || "").trim();
+  if (!text) return toast(i18n.t('app.복사할_내용이_없어요'));
+  if (action === "collect") {
+    collectToToryVault({
+      text,
+      title: toryChatHub === "character-room" ? i18n.t('app.캐릭터_대화_수집') : i18n.t('app.토리_대화_수집'),
+      mode: "chat",
+      prompt: "",
+    });
+    return;
+  }
+  if (action === "insert") insertTextIntoSceneEditor(text);
 }
 
 function renderToryChatMessages() {
@@ -35206,8 +35227,8 @@ function renderToryChatMessages() {
       : (m.contentHtml
         ? sanitizeToryChatHtml(m.contentHtml)
         : escapeHtml(m.content).replace(/\r\n|\r|\n/g, "<br>"));
-    const copyClass = (!isUser && toryChatHub === "character-room") ? " has-copy" : "";
-    return `<div class="tory-chat-bubble ${cls}${copyClass}" data-msg-index="${index}" data-msg-role="${isUser ? "user" : "tory"}">${toryChatBubbleCopyButtonHtml(isUser)}${toryChatBubbleMetaHtml(isUser)}<div class="tory-chat-bubble-body">${body}</div></div>`;
+    const actions = isUser ? "" : toryChatBubbleActionsHtml();
+    return `<div class="tory-chat-bubble ${cls}" data-msg-index="${index}" data-msg-role="${isUser ? "user" : "tory"}">${toryChatBubbleMetaHtml(isUser)}<div class="tory-chat-bubble-body">${body}</div>${actions}</div>`;
   }).join("");
   box.scrollTop = box.scrollHeight;
   syncToryChatHighlightBar();
@@ -35417,39 +35438,6 @@ function clearToryChatHighlight() {
   else toast(i18n.t('app.선택한_구간에_형광펜이_없어요'));
 }
 
-function collectFromToryChat() {
-  // Prefer selection inside chat (tory or user), else last tory message
-  const sel = window.getSelection();
-  let text = "";
-  if (sel && !sel.isCollapsed && sel.rangeCount) {
-    const range = sel.getRangeAt(0);
-    let node = range.commonAncestorContainer;
-    if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
-    if (node?.closest?.("#toryChatMessages, #toryChatHistoryDetailMessages")) {
-      text = sel.toString().trim();
-    }
-  }
-  if (!text) {
-    const history = loadToryChatHistory();
-    for (let i = history.length - 1; i >= 0; i -= 1) {
-      if (history[i].role === "tory" && history[i].content) {
-        text = history[i].content;
-        break;
-      }
-    }
-  }
-  if (!text) {
-    toast(i18n.t('app.수집할_토리_답변이_없어요_대화를_하거나_문'));
-    return;
-  }
-  collectToToryVault({
-    text,
-    title: toryChatHub === "character-room" ? i18n.t('app.캐릭터_대화_수집') : i18n.t('app.토리_대화_수집'),
-    mode: "chat",
-    prompt: "",
-  });
-}
-
 async function sendToryChatMessage(event) {
   if (event) event.preventDefault();
   if (toryChatSending) return;
@@ -35497,7 +35485,8 @@ async function sendToryChatMessage(event) {
   const sendBtn = $("toryChatSendButton");
   if (sendBtn) {
     sendBtn.disabled = true;
-    sendBtn.textContent = i18n.t('app.생각_중');
+    sendBtn.title = i18n.t('app.생각_중');
+    sendBtn.classList.add("is-busy");
   }
 
   try {
@@ -35573,7 +35562,8 @@ async function sendToryChatMessage(event) {
     toryChatSending = false;
     if (sendBtn) {
       sendBtn.disabled = false;
-      sendBtn.textContent = i18n.t('app.보내기');
+      sendBtn.title = i18n.t('app.보내기');
+      sendBtn.classList.remove("is-busy");
     }
     $("toryChatPending")?.remove();
   }
@@ -37493,11 +37483,11 @@ function setupToryChat() {
   updateToryChatSuccessUi();
   // Event delegation: buttons may move with chat into popup
   document.addEventListener("click", (event) => {
-    const copyBtn = event.target.closest?.("[data-tory-chat-copy]");
-    if (copyBtn) {
+    const msgActionBtn = event.target.closest?.("[data-tory-msg-action]");
+    if (msgActionBtn) {
       event.preventDefault();
       event.stopPropagation();
-      copyToryChatCharacterReply(copyBtn).catch(handleError);
+      runToryChatBubbleAction(msgActionBtn).catch(handleError);
       return;
     }
     const hlBtn = event.target.closest?.("#toryChatHighlightButton");
@@ -37505,12 +37495,6 @@ function setupToryChat() {
       event.preventDefault();
       captureToryChatHighlightSelection();
       applyToryChatHighlight();
-      return;
-    }
-    const collectBtn = event.target.closest?.("#toryChatCollectButton");
-    if (collectBtn) {
-      event.preventDefault();
-      collectFromToryChat();
       return;
     }
     const histBtn = event.target.closest?.("#toryChatHistoryButton");
