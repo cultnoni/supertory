@@ -36067,6 +36067,7 @@ async function toggleReaderFavorite(personaId) {
     readerFavoriteIds = normalizeReaderFavoriteIds(data?.persona_ids);
     readerFavoritesProjectId = state.projectId;
     renderReaderFavoritePanel();
+    if (readerListMode === "debate") void loadAndRenderReaderDebateGrid();
     syncReaderFavoriteStars();
   } catch (error) {
     const message = String(error?.message || "");
@@ -36706,6 +36707,8 @@ const READER_DEBATE_REVEAL_MS_MAX = 1800;
 let readerListMode = "chat";
 // 즐겨찾기 칸을 펼쳤는지 (2개 이상일 때만 접힘 적용)
 let readerFavoriteOpen = false;
+// 토론 패널의 즐겨찾기 묶음 펼침 상태
+let readerDebateFavoriteOpen = false;
 /** @type {string[]} */
 let readerDebateSelectedIds = [];
 /** @type {string[]} */
@@ -36759,10 +36762,36 @@ function readerDebateCardHtml(persona, { fullIdentity = false } = {}) {
     + `</div>`;
 }
 
-function readerDebateSectionsHtml({ fullIdentity = false } = {}) {
+/** 토론 패널 맨 위 즐겨찾기 묶음: 접힘/펼침은 토론 전용 상태로 관리 (1:1 묶음과 별개) */
+function renderReaderDebateFavoritePanel() {
+  const panel = $("readerDebateFavoritePanel");
+  const grid = $("readerDebateFavoriteGrid");
+  if (!panel || !grid) return;
+  const favoriteIds = readerFavoriteIds.slice();
+  const people = flattenReaderPersonas(readerPersonaCache)
+    .filter((persona) => favoriteIds.includes(String(persona.id)));
+  people.sort((a, b) => favoriteIds.indexOf(String(a.id)) - favoriteIds.indexOf(String(b.id)));
+  const collapsible = people.length >= 2;
+  const collapsed = collapsible && !readerDebateFavoriteOpen;
+  panel.classList.toggle("hidden", !people.length);
+  panel.classList.toggle("is-empty", !people.length);
+  panel.classList.toggle("is-collapsible", collapsible);
+  panel.classList.toggle("is-collapsed", collapsed);
+  grid.innerHTML = people.map((persona) => readerDebateCardHtml(persona)).join("");
+  bindReaderAvatarErrors(grid);
+  const count = $("readerDebateFavoriteCount");
+  if (count) count.textContent = people.length ? String(people.length) : "";
+  const toggle = $("readerDebateFavoriteToggle");
+  if (toggle) toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  syncReaderFavoriteStars();
+}
+
+function readerDebateSectionsHtml({ fullIdentity = false, excludeIds = [] } = {}) {
   const grouped = readerPersonaCache || {};
+  const excluded = new Set(excludeIds.map(String));
   return Object.keys(READER_PERSONA_CATEGORY_LABELS).map((category) => {
-    const people = Array.isArray(grouped[category]) ? grouped[category] : [];
+    const people = (Array.isArray(grouped[category]) ? grouped[category] : [])
+      .filter((persona) => !excluded.has(String(persona.id)));
     if (!people.length) return "";
     const cards = people.map((persona) => readerDebateCardHtml(persona, { fullIdentity })).join("");
     return `<section class="reader-debate-section" data-debate-category="${escapeHtml(category)}">`
@@ -36792,8 +36821,10 @@ async function loadAndRenderReaderDebateGrid() {
       readerFavoriteIds = [];
       handleError(favError);
     }
-    grid.innerHTML = readerDebateSectionsHtml() || i18n.t('app.p_class_hint_가상_독자를_불러오');
+    // 즐겨찾기 독자는 위 묶음에만 두고, 아래 카테고리 목록에서는 뺀다
+    grid.innerHTML = readerDebateSectionsHtml({ excludeIds: readerFavoriteIds }) || i18n.t('app.p_class_hint_가상_독자를_불러오');
     bindReaderAvatarErrors(grid);
+    renderReaderDebateFavoritePanel();
     syncReaderFavoriteStars();
   } catch (error) {
     grid.innerHTML = i18n.t('app.p_class_hint_독자_목록을_불러오');
@@ -37257,10 +37288,17 @@ function setupReaderDebateUi() {
       setReaderListMode(btn.getAttribute("data-reader-list-mode"));
     });
   });
-  $("readerDebateGrid")?.addEventListener("change", (event) => {
-    const input = event.target.closest?.("input[data-reader-debate-check]");
-    if (!(input instanceof HTMLInputElement)) return;
-    toggleReaderDebatePersona(input.getAttribute("data-reader-debate-check"), input.checked);
+  ["readerDebateGrid", "readerDebateFavoriteGrid"].forEach((id) => {
+    $(id)?.addEventListener("change", (event) => {
+      const input = event.target.closest?.("input[data-reader-debate-check]");
+      if (!(input instanceof HTMLInputElement)) return;
+      toggleReaderDebatePersona(input.getAttribute("data-reader-debate-check"), input.checked);
+    });
+  });
+  $("readerDebateFavoriteToggle")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    readerDebateFavoriteOpen = !readerDebateFavoriteOpen;
+    renderReaderDebateFavoritePanel();
   });
   $("readerPersonaAllGrid")?.addEventListener("change", (event) => {
     const input = event.target.closest?.("input[data-reader-debate-check]");

@@ -1379,6 +1379,13 @@ main { padding-top: 6px !important; }
 .reader-favorite-panel.is-collapsed .reader-persona-fav-btn { display: none; }
 .reader-favorite-panel.is-collapsed .reader-persona-avatar { width: 36px; height: 36px; border-radius: 50%; box-shadow: 0 0 0 2px var(--panel); }
 
+/* 토론 패널 즐겨찾기 묶음: 접힌 아바타를 눌러 토론 선택. 체크 상자는 숨기고 선택은 아바타 테두리로 표시 */
+#readerDebateFavoritePanel.is-collapsed .reader-favorite-grid { pointer-events: auto; }
+#readerDebateFavoritePanel.is-collapsed input[data-reader-debate-check] { display: none; }
+#readerDebateFavoritePanel.is-collapsed .reader-debate-card { cursor: pointer; }
+#readerDebateFavoritePanel.is-collapsed .reader-debate-card:has(input:checked) .reader-persona-avatar { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
+#readerDebateFavoritePanel.is-collapsed .reader-debate-card.is-disabled { opacity: 0.45; }
+
 /* 시작 버튼 시안 A (컴팩트): 대화 시작 · 상황 설정하기 · 대화 시작하기 · 토론 시작하기 */
 #toryChatCharacterStart,
 #toryChatCharacterAllStart,
