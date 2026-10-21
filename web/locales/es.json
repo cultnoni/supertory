@@ -1,4 +1,8 @@
 {
+  "island.설정집_찾기": "Buscar ajustes",
+  "island.설정집_그룹_기획": "Planificación",
+  "island.설정집_그룹_세계와_인물": "Mundo y personajes",
+  "island.설정집_그룹_공개_자료": "Publicación y fuentes",
   "app.서버에_연결할_수_없습니다_작성_중인_글은": "No se puede conectar al servidor. Tu escritura se guarda de forma segura en este dispositivo.",
   "app.응답을_해석하지_못했습니다": "No se pudo interpretar la respuesta.",
   "app.저장_중_문제가_생겼습니다_response": "Ocurrió un problema al guardar. (${response.status})",

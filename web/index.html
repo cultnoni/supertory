@@ -879,25 +879,6 @@
             <div class="settings-panel-top">
               <div class="panel-heading">
                 <h2 data-i18n="app.설정집">설정집</h2>
-                <div class="panel-heading-actions">
-                  <button
-                    type="button"
-                    class="settings-search-open"
-                    id="openSettingsSearchButton"
-                    title="크로스 레퍼런스 시스템"
-                    data-i18n-title="app.크로스_레퍼런스_시스템"
-                    aria-label="크로스 레퍼런스 시스템"
-                    data-i18n-aria-label="app.크로스_레퍼런스_시스템"
-                  >
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
-                      <path d="M11 22H5.5a1 1 0 0 1 0-5h4.501"/>
-                      <path d="m21 22-1.879-1.878"/>
-                      <path d="M3 19.5v-15A2.5 2.5 0 0 1 5.5 2H18a1 1 0 0 1 1 1v8"/>
-                      <circle cx="17" cy="18" r="3"/>
-                    </svg>
-                    <span class="sr-only" data-i18n="app.크로스_레퍼런스_시스템">크로스 레퍼런스 시스템</span>
-                  </button>
-                </div>
               </div>
               <div id="settingsBinderTipBox" class="guide-tip-box settings-guide-tip" data-guide-tip="settingsBinder" role="note">
                 <div class="guide-tip-body">
@@ -908,7 +889,13 @@
               </div>
             </div>
 
+            <div class="settings-finder">
+              <input type="search" id="settingsFinderInput" class="settings-finder-input" placeholder="설정 찾기" data-i18n-placeholder="island.설정집_찾기" aria-label="설정 찾기" data-i18n-aria-label="island.설정집_찾기" title="Enter: 크로스 레퍼런스로 검색" data-i18n-title="index.크로스_레퍼런스로_검색" autocomplete="off">
+            </div>
+
             <div class="settings-accordion" id="settingsAccordion">
+              <div class="settings-group" data-settings-group="plan">
+                <h3 class="settings-group-head" data-i18n="island.설정집_그룹_기획">기획</h3>
               <section class="settings-box" data-settings-section="ideas" id="ideaBank" draggable="true">
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
@@ -1173,7 +1160,10 @@
                   </div>
                 </div>
               </section>
+              </div>
 
+              <div class="settings-group" data-settings-group="world">
+                <h3 class="settings-group-head" data-i18n="island.설정집_그룹_세계와_인물">세계와 인물</h3>
               <section class="settings-box" data-settings-section="world" draggable="true">
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
@@ -1422,7 +1412,10 @@
                   <nav id="dictionaryList" class="settings-panel-card-grid" aria-label="토리 사전 목록" data-i18n-aria-label="index.토리_사전_목록"></nav>
                 </div>
               </section>
+              </div>
 
+              <div class="settings-group" data-settings-group="publish">
+                <h3 class="settings-group-head" data-i18n="island.설정집_그룹_공개_자료">공개·자료</h3>
               <section class="settings-box" data-settings-section="baits" id="baitBank" draggable="true">
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
@@ -1689,6 +1682,7 @@
                   <div id="sourceList" class="source-list" aria-label="참고자료·출처 목록" data-i18n-aria-label="index.참고자료_출처_목록"></div>
                 </div>
               </section>
+              </div>
             </div>
           </div>
 

@@ -1520,9 +1520,9 @@ body.focus-write-open .isl-ai-badge.is-intro img { animation: islBadgeIntro 1.4s
 /* 설정집 머리글도 보통 굵기 */
 #settingsBinder .panel-heading h2, #settingsBinder .settings-panel-top h2 { font-weight: 400 !important; }
 
-/* 설정집 탭: 머리글 글자 삭제(탭 이름과 중복) — 검색 버튼은 유지 */
+/* 설정집 탭: 머리글 글자 삭제(탭 이름과 중복) — 아이콘도 없어 머리글 줄 자체를 접는다 */
 #settingsBinder .settings-panel-top .panel-heading h2 { display: none !important; }
-#settingsBinder .settings-panel-top .panel-heading { justify-content: flex-end; }
+#settingsBinder .settings-panel-top .panel-heading { display: none; }
 
 /* 서식줄 더 얇게 */
 #formatToolbar .format-toolbar-row { min-height: 26px !important; padding: 1px 6px !important; }
@@ -3551,3 +3551,242 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
   color: var(--isl-ink3);
   font-size: 12px;
 }
+
+/* ── 설정집: 그룹 섬 · 설정 찾기 · 호버 개수 (B 그룹 섬 시안) ── */
+#settingsBinder .settings-finder { padding: 0 2px 8px; }
+#settingsBinder .settings-finder-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--isl-r-sm);
+  background: var(--isl-sunk);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  outline: none;
+}
+#settingsBinder .settings-finder-input::placeholder { color: var(--isl-ink3); }
+#settingsBinder .settings-finder-input:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+#settingsBinder .settings-group {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 8px 6px 6px;
+  margin: 0 0 10px;
+}
+#settingsBinder .settings-group.is-finder-empty,
+#settingsBinder .settings-box.is-finder-hidden { display: none !important; }
+#settingsBinder .settings-group-head {
+  margin: 0 0 4px;
+  padding: 2px 8px 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+#settingsBinder .settings-box-count {
+  position: absolute;
+  right: 34px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11.5px;
+  color: var(--isl-ink3);
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+#settingsBinder .settings-box:hover > .settings-box-header .settings-box-count,
+#settingsBinder .settings-box-header:focus-within .settings-box-count { opacity: 1; }
+#settingsBinder .settings-box:hover .settings-box-title { padding-right: 36px; }
+
+/* ── 설정집 리스트: 설정집 즐겨찾기(isl-tile)와 같은 타일 디자인 ── */
+#settingsBinder .settings-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0 0 10px;
+}
+#settingsBinder .settings-group-head {
+  grid-column: 1 / -1;
+  margin: 8px 4px 2px;
+  padding: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--isl-ink3);
+}
+#settingsBinder .settings-box {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+}
+#settingsBinder .settings-box:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+#settingsBinder .settings-box.is-open { grid-column: 1 / -1; }
+#settingsBinder .settings-box-header { border-radius: 10px; }
+#settingsBinder .settings-box-title {
+  white-space: normal;
+  overflow: visible;
+  font-size: 12.5px;
+  line-height: 1.3;
+}
+/* 호버 때 나타나는 오른쪽 화살표 (lucide chevron-right) */
+#settingsBinder .settings-main-arrow {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+}
+
+/* ── 설정집 타일: 이미지 기준 (아이콘 위, 굵은 이름, 아래 개수) ── */
+#settingsBinder .settings-box { position: relative; }
+#settingsBinder .settings-box-toggle {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 12px 30px;
+  font-weight: 600 !important;
+}
+#settingsBinder .settings-box-icon { width: 20px; height: 20px; color: var(--accent); }
+#settingsBinder .settings-box-icon svg { width: 20px; height: 20px; }
+#settingsBinder .settings-box-title {
+  font-size: 13px;
+  font-weight: 600 !important;
+  text-align: left;
+  line-height: 1.25;
+}
+#settingsBinder .settings-box:hover .settings-box-title { padding-right: 0; }
+#settingsBinder .settings-drag-handle { position: absolute; top: 8px; right: 8px; min-height: 0; }
+#settingsBinder .settings-box-count {
+  left: 12px;
+  right: auto;
+  top: auto;
+  bottom: 10px;
+  transform: none;
+  font-size: 12px;
+}
+#settingsBinder .settings-box:hover > .settings-box-header .settings-box-count,
+#settingsBinder .settings-box-header:focus-within .settings-box-count { opacity: 1; }
+
+/* ── 설정집 타일 크기·호버: 설정집 즐겨찾기(isl-tile) 기준. 삼각 화살표는 유지 ── */
+#settingsBinder .settings-box-toggle { padding: 10px 10px 24px; gap: 4px; }
+#settingsBinder .settings-box-icon { width: 17px; height: 17px; }
+#settingsBinder .settings-box-icon svg { width: 17px; height: 17px; }
+#settingsBinder .settings-box-title { font-size: 13px; }
+#settingsBinder .settings-box-count { left: 10px; bottom: 8px; font-size: 11.5px; }
+#settingsBinder .settings-box:hover > .settings-box-header,
+#settingsBinder .settings-box-header:focus-within,
+#settingsBinder .settings-box.is-open > .settings-box-header,
+#settingsBinder .settings-box.is-open:hover > .settings-box-header {
+  background: var(--panel) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  outline: none !important;
+}
+
+/* ── 설정집 타일: 위젯 타일 크기 · 숫자 우상단 상시 표시 · 드래그 손잡이 우하단 ── */
+#settingsBinder .settings-box-toggle { padding: 9px 10px; gap: 4px; }
+#settingsBinder .settings-box-title { font-size: 12.5px; }
+#settingsBinder .settings-drag-handle { top: auto; bottom: 6px; right: 6px; }
+#settingsBinder .settings-box-count {
+  top: 9px;
+  right: 10px;
+  bottom: auto;
+  left: auto;
+  font-size: 11.5px;
+  color: var(--isl-ink3);
+  opacity: 1;
+}
+
+/* ── 설정집 즐겨찾기: 설정집 타일과 같은 디자인, 개수가 늘어도 줄어들지 않음 ── */
+#islTiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+#islTiles .isl-tile { grid-column: auto !important; position: relative; min-height: 0; padding: 9px 10px !important; }
+#islTiles .isl-tile strong { font-size: 12.5px; white-space: normal; max-width: none; overflow: visible; text-overflow: clip; }
+#islTiles .isl-tile span {
+  display: block !important;
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  min-height: 0;
+  font-size: 11.5px;
+  color: var(--isl-ink3);
+}
+#islTiles .isl-tile-x { top: auto; bottom: 5px; right: 5px; }
+
+/* 즐겨찾기 추가 목록: 좁은 세로 목록 대신 타일 2칸, 높이 제한 없음 */
+#islFavMenu:not([hidden]):not(.hidden) { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; max-height: none !important; overflow: visible !important; margin: 0 4px 6px; }
+#islFavMenu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  border: 1px solid var(--line) !important;
+  border-radius: 11px !important;
+  background: var(--panel) !important;
+  color: var(--text-primary) !important;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+#islFavMenu button:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)) !important; }
+#islFavMenu .isl-fav-empty { grid-column: 1 / -1; }
+
+/* ── 끌어서 옮기기: 설정집 점 손잡이 숨김(행 전체로 끌기), 위젯 타일 끌기 표시 ── */
+#settingsBinder .settings-drag-handle { display: none !important; }
+#settingsBinder .settings-box-header { cursor: grab; }
+#settingsBinder .settings-box-header .settings-box-toggle,
+#settingsBinder .settings-box-header .settings-main-open { cursor: pointer; }
+.isl-wtiles .isl-tile { cursor: grab; }
+.isl-wtiles .isl-tile.is-dragging { opacity: 0.45; }
+
+/* 설정집 타일 이름: 볼드 대신 레귤러 */
+#settingsBinder .settings-box-toggle { font-weight: 400 !important; }
+#settingsBinder .settings-box-title { font-weight: 400 !important; }
+
+/* ── 펼침: 박스(타일)는 그 자리에 두고, 펼친 내용만 그 줄 아래 전체 폭으로 띄운다 ── */
+#settingsBinder .settings-box { display: contents; }
+#settingsBinder .settings-box-header {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+}
+#settingsBinder .settings-box:hover > .settings-box-header {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+#settingsBinder .settings-box-body {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+}
+
+/* 펼침 시 오른쪽 칸이 밀려나지 않게 빈 칸을 채운다(dense). 펼친(선택된) 박스는 회색 */
+#settingsBinder .settings-group { grid-auto-flow: row dense; }
+#settingsBinder .settings-box.is-open > .settings-box-header,
+#settingsBinder .settings-box.is-open:hover > .settings-box-header { background: var(--isl-sunk) !important; }
+
+/* 박스를 조금 길게: 호버 화살표(세로 가운데)가 우상단 숫자와 겹치지 않게 */
+#settingsBinder .settings-box-toggle { min-height: 76px; box-sizing: border-box; }
+
+/* 박스 높이를 줄이고, 호버 화살표는 세로 중앙 대신 이름 줄(글자 옆)에 맞춘다 */
+#settingsBinder .settings-box-toggle { min-height: 62px; }
+#settingsBinder .settings-main-open { top: 25px; transform: none; }
+
+/* 위젯 타일 크기를 설정집 박스와 같게 (높이 62px, 안쪽 여백 9px 10px, 아이콘-이름 간격 4px) */
+.isl-wtiles .isl-tile { min-height: 62px; box-sizing: border-box; padding: 9px 10px; gap: 4px; }
+.isl-wtiles .isl-tile svg { margin-bottom: 0; }
+.isl-widget-view .isl-tile { min-height: 62px; }
+
+/* 작품소개·기획의도, 로그라인·시놉시스: 펼친 본문 안의 '메인에서 보기' 버튼 숨김 (박스 화살표는 유지) */
+#settingsBinder .settings-box[data-settings-section="intro"] .settings-inline-main,
+#settingsBinder .settings-box[data-settings-section="logsyn"] .settings-inline-main { display: none !important; }
+
+/* 본문 안 닫기 버튼 제거 (닫기는 열린 회차 탭 ×로 통일). 생각수첩 + 공개·자료 5개(떡밥·성공 프로파일·수집창고·읽기 권한·참고자료)가 쓰는 설정 모음 보드 */
+#ideaBoardCloseButton,
+#settingsCollectionCloseButton { display: none !important; }
