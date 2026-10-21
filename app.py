@@ -7286,6 +7286,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                             source_id=new_id,
                             title=title,
                         )
+                        # 응답 전에 커밋해야 클라이언트가 바로 읽을 때 새 회차·폴더가 보인다.
+                        connection.commit()
                         self.send_json(
                             {
                                 "id": new_id,
