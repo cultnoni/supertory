@@ -4150,3 +4150,100 @@ body.fb-review-open.ai-panel-collapsed main,
 body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
   grid-template-columns: var(--isl-binder-rail-w, 0px) minmax(0, 1fr) var(--ai-panel-width) !important;
 }
+
+/* ═════ 선택하기 옵션 화면(넓은 패널) — 목차 기준 포인트 색으로 통일 (docs/design-guidelines.md §2·§4) ═════
+   베이지 = 목차 폴더 줄, 회녹 = 목차 폴더 아이콘, 선택 줄 = 목차의 현재 회차 줄(--isl-desk). 색은 테마 변수에서 섞는다. */
+.is-wide-panel-card {
+  --wp-beige: color-mix(in srgb, var(--isl-desk) 60%, var(--panel));
+  --wp-sage: color-mix(in srgb, var(--accent) 22%, var(--isl-ink3));
+  --wp-sage-line: color-mix(in srgb, var(--wp-sage) 40%, var(--panel));
+  --wp-sage-soft: color-mix(in srgb, var(--wp-sage) 20%, var(--panel));
+  --wp-sage-ink: color-mix(in srgb, var(--wp-sage) 55%, var(--text-primary));
+  background: var(--panel) !important;
+}
+/* 머리글: 제목 보통 굵기 · 크기 전환/닫기는 테두리 없는 회녹 아이콘 */
+.is-wide-panel-card .modal-heading h2,
+.is-wide-panel-card .tory-helper-title { font-weight: 500 !important; }
+.is-wide-panel-card .modal-close,
+.is-wide-panel-card .wide-panel-size-btn {
+  width: 28px; height: 28px; min-width: 28px; border: 0 !important; background: transparent !important;
+  color: var(--wp-sage) !important; border-radius: var(--isl-r-sm) !important; box-shadow: none !important;
+}
+.is-wide-panel-card .modal-close:hover,
+.is-wide-panel-card .wide-panel-size-btn:hover { background: var(--isl-sunk) !important; color: var(--text-primary) !important; }
+/* 안내 박스 = 베이지 한 줄 */
+.is-wide-panel-card .guide-tip-box,
+.is-wide-panel-card .tory-helper-callout {
+  background: var(--wp-beige) !important; border: 0 !important; border-radius: 10px !important;
+  color: var(--isl-ink2) !important; box-shadow: none !important;
+}
+.is-wide-panel-card .tory-helper-lead,
+.is-wide-panel-card #aiToolModalLead,
+.is-wide-panel-card .guide-tip-box .hint { color: var(--isl-ink2) !important; font-weight: 400 !important; }
+/* 질문·구역 라벨: 작은 흐린 글자 */
+.is-wide-panel-card .tory-helper-question,
+.is-wide-panel-card .tory-helper-section-label,
+.is-wide-panel-card .wide-pick-count {
+  color: var(--isl-ink3) !important; font-weight: 400 !important;
+}
+/* 세그먼트 */
+.is-wide-panel-card .wide-seg { background: var(--wp-beige) !important; }
+.is-wide-panel-card .wide-seg .continue-length-option { color: var(--isl-ink2); border-color: transparent; }
+.is-wide-panel-card .wide-seg .continue-length-option:has(input:checked) {
+  background: var(--panel) !important; border-color: transparent !important; font-weight: 500 !important;
+  color: var(--text-primary); box-shadow: 0 0 0 1px var(--line);
+}
+/* 회차 선택 줄: 선택 = 목차의 현재 줄 색, 체크박스 = 회녹 */
+.is-wide-panel-card .wide-pick-row { border-radius: var(--isl-r-sm); color: var(--isl-ink2); }
+.is-wide-panel-card .wide-pick-row:hover { background: var(--isl-sunk); }
+.is-wide-panel-card .wide-pick-row.is-selected { background: var(--isl-desk); color: var(--text-primary); }
+.is-wide-panel-card .wide-pick-box { border-color: var(--wp-sage-line); background: var(--panel); }
+.is-wide-panel-card .wide-pick-row.is-selected .wide-pick-box {
+  background: var(--wp-sage); border-color: var(--wp-sage); box-shadow: inset 0 0 0 2px var(--panel);
+}
+.is-wide-panel-card .wide-pick-now { color: var(--isl-ink3); }
+/* 목록 아래 선택 제목: 큰 굵은 제목 대신 작은 보조 글자(선택은 목록의 선택 줄로 보인다) */
+.is-wide-panel-card .wide-pick-current { font-size: 12px !important; font-weight: 400 !important; color: var(--isl-ink2) !important; margin: 6px 0 0; }
+/* 하단 주요 버튼은 앱 공통 주요 버튼(--accent 채움, .modal-card .primary)을 그대로 쓴다 — 시작·보내기 등과 같은 모양 */
+.is-wide-panel-card .wide-panel-back { border-color: var(--line); border-radius: var(--isl-r-sm); background: var(--panel); color: var(--isl-ink2); }
+
+/* 도구 · 선택하기 리스트: 호버는 본문 회차(.scene-link:hover)와 같은 평평한 --isl-sunk(뜨는 효과·그림자·테두리 없음), 진한 초록·굵은 글씨 제거 */
+.ai-mode-picker {
+  --wp-sage: color-mix(in srgb, var(--accent) 22%, var(--isl-ink3));
+  --wp-sage-line: color-mix(in srgb, var(--wp-sage) 40%, var(--panel));
+}
+.ai-mode-picker-option:hover {
+  box-shadow: none !important; transform: none !important; outline: 0 !important;
+  background: var(--isl-sunk) !important;
+}
+.ai-mode-picker-option.is-active { background: var(--isl-desk) !important; color: var(--text-primary) !important; }
+.ai-mode-picker-option.is-success,
+.ai-mode-picker-option.is-coming { color: var(--isl-ink2) !important; font-weight: 400 !important; }
+.ai-mode-picker.is-success-mode .ai-mode-picker-btn,
+.ai-mode-picker.is-coming-mode .ai-mode-picker-btn { color: var(--text-primary); font-weight: 400; border-color: var(--line); }
+.ai-mode-picker-btn:hover,
+.ai-mode-picker.is-open .ai-mode-picker-btn { border-color: var(--wp-sage-line); }
+.ai-mode-picker-group-label { font-weight: 500; color: var(--isl-ink3); }
+
+/* 위젯(떠 있는 창)으로 띄운 넓은 패널: 위쪽 제목줄에 이미 닫기(×)가 있으므로 카드 안쪽 닫기는 숨긴다 */
+.idea-float-body > .modal-card.is-wide-panel-card .modal-heading .modal-close { display: none !important; }
+
+/* 회차 목록이 있는 옵션 화면: 창 높이를 끝까지 쓰고, 목록이 남는 자리를 채운다(넘치면 목록 안에서 스크롤).
+   목록이 없는 화면은 지금처럼 내용 높이에 맞춘다 */
+.fb-review-host > .modal-card.is-wide-panel-card:has(.wide-pick, [class*="multi-scene-list"]),
+.idea-float-body > .modal-card.is-wide-panel-card:has(.wide-pick, [class*="multi-scene-list"]) {
+  height: 100% !important; max-height: none !important; flex: 1 1 auto !important;
+  display: flex; flex-direction: column;
+}
+.is-wide-panel-card:has(.wide-pick, [class*="multi-scene-list"]) > * { flex: 0 0 auto; }
+.is-wide-panel-card:has(.wide-pick, [class*="multi-scene-list"]) > .tory-other-scene-wrap:has(.wide-pick-row),
+.is-wide-panel-card:has(.wide-pick, [class*="multi-scene-list"]) > .foreshadow-field:not(.hidden):has([class*="multi-scene-list"]:not(:empty)) {
+  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+}
+.is-wide-panel-card .wide-pick,
+.is-wide-panel-card [class*="multi-scene-list"] { flex: 1 1 0; min-height: 120px; max-height: none !important; overflow: auto; }
+.is-wide-panel-card:has(.wide-pick, [class*="multi-scene-list"]) > .modal-actions { margin-top: 12px; }
+.is-wide-panel-card .hidden,
+.is-wide-panel-card [hidden] { display: none !important; }
+/* 다중 회차 칸은 #id 규칙(styles.css)이 flex !important 로 .hidden 을 이겨서 숨겨도 자리를 차지했다 */
+#summarizeMultiSceneWrap.hidden, #analyzeMultiSceneWrap.hidden, #worldscanMultiSceneWrap.hidden { display: none !important; }

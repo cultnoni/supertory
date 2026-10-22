@@ -23014,7 +23014,9 @@ function fitWidePanelToContent() {
   const drag = win.querySelector(".idea-float-drag");
   const need = card.scrollHeight + (drag?.offsetHeight || 0) + 16;
   const max = Math.round(window.innerHeight * 0.86);
-  win.style.height = `${Math.max(220, Math.min(max, need))}px`;
+  // 회차 목록이 있는 화면은 내용 높이가 아니라 최대 높이까지 쓴다(넘치면 목록 안에서 스크롤)
+  const hasList = Boolean(card.querySelector(".wide-pick, [class*='multi-scene-list']"));
+  win.style.height = `${hasList ? max : Math.max(220, Math.min(max, need))}px`;
 }
 
 const WIDE_PANEL_ACTION_LABELS = {
