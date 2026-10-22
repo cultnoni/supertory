@@ -7,14 +7,11 @@
 // i18n.t()가 바로 값을 찾을 수 있어요.
 // ============================================================
 
-/** 저장된 언어 설정이 없을 때, OS/브라우저 언어를 보고 기본값을 정한다.
- *  한국어 계열(ko, ko-KR 등)이면 "ko", 스페인어 계열(es, es-ES, es-MX 등)이면 "es",
- *  그 외에는 전부 "en"으로 시작. */
+/** 저장된 언어 설정이 없을 때의 기본 언어.
+ *  제품 기본 언어는 한국어다 — 브라우저·OS 언어가 영어여도 한국어로 시작하고,
+ *  영어·스페인어는 관리자 모드 > 설정 옵션 > 언어에서 고른다. */
 function detectDefaultLang() {
-  const nav = (navigator.language || navigator.userLanguage || "ko").toLowerCase();
-  if (nav.startsWith("ko")) return "ko";
-  if (nav.startsWith("es")) return "es";
-  return "en";
+  return "ko";
 }
 
 const i18n = (() => {
@@ -19947,7 +19944,8 @@ function isDockTrackerOpenPref() {
   } catch (_) {
     /* private mode */
   }
-  return true;
+  // 기본은 닫힘 — 위젯은 SuperTORY 위젯 탭에서 사용자가 켠다
+  return false;
 }
 
 function setDockTrackerOpenPref(open) {
@@ -22580,10 +22578,20 @@ function applyWidePanelLayoutRestore(snap) {
   if (typeof applyAiPanelWidth === "function") applyAiPanelWidth(snap.aiPanelWidth);
 }
 
+// 넓은 패널(review) / 작은 창(float) 선택은 기기에 기억한다 — 기억하지 않으면 옵션 화면을 열 때마다
+// 오른쪽 섬이 다시 넓어져 "작은 창으로 보기"를 매번 눌러야 했다
+const WIDE_PANEL_CHROME_PREF_KEY = "supertory.widePanel.chrome";
+
 function widePanelReadPref() {
   if (typeof widePanelSession.readChromePref === "function") {
     const value = widePanelSession.readChromePref();
     if (value === "float" || value === "review") return value;
+  }
+  try {
+    const stored = localStorage.getItem(WIDE_PANEL_CHROME_PREF_KEY);
+    if (stored === "float" || stored === "review") return stored;
+  } catch (_) {
+    /* private mode */
   }
   return "review";
 }
@@ -22592,6 +22600,11 @@ function widePanelWritePref(mode) {
   if (mode !== "float" && mode !== "review") return;
   if (typeof widePanelSession.writeChromePref === "function") {
     widePanelSession.writeChromePref(mode);
+  }
+  try {
+    localStorage.setItem(WIDE_PANEL_CHROME_PREF_KEY, mode);
+  } catch (_) {
+    /* private mode */
   }
 }
 
@@ -22657,14 +22670,15 @@ function bindWidePanelResize() {
     const rail = typeof layoutRailWidth === "function" ? layoutRailWidth() : 48;
     if (widePanelNeedsFloat(vw, { manuscriptMinWidth: 360, binderRailWidth: rail })) {
       toast("화면이 좁아 작은 창으로 열었어요");
-      openWidePanelFloat();
+      openWidePanelFloat(undefined, { remember: false });
     }
   });
 }
 
-function openWidePanelFloat(sourceEl) {
+function openWidePanelFloat(sourceEl, { remember = true } = {}) {
   if (isWidePanelReviewOpen()) closeWidePanelReview({ keepContent: true });
-  widePanelWritePref("float");
+  // 화면이 좁거나 분할·집중·타자기 때문에 어쩔 수 없이 작은 창으로 연 경우는 선택으로 기억하지 않는다
+  if (remember) widePanelWritePref("float");
   const el = sourceEl || widePanelSession.sourceEl || $("analyzeMenuButton");
   const win = openDockFloat("feedback", el);
   syncWidePanelFloatTitle(win);
@@ -22788,7 +22802,7 @@ function openWidePanel(spec) {
   if (preferred === "float" || tooNarrow || conflict) {
     if (preferred !== "float" && conflict) toast(conflict);
     else if (preferred !== "float" && tooNarrow) toast("화면이 좁아 작은 창으로 열었어요");
-    openWidePanelFloat(widePanelSession.sourceEl);
+    openWidePanelFloat(widePanelSession.sourceEl, { remember: preferred === "float" });
     return;
   }
   openWidePanelReview();
