@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  web:
+    name: Web syntax & lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - run: npm ci
+
+      - name: Syntax check (node --check)
+        run: |
+          for f in web/app.js web/app-boot.js web/feedback_panel.js web/tory-check.js web/smart-punctuation.js web/typeset_metrics.js web/js/gitsi.js; do
+            node --check "$f"
+          done
+
+      - name: ESLint (no-undef)
+        run: npm run lint:web
+
+  python:
+    name: Python tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Run unittest suite
+        run: python -m unittest discover -s tests -v
