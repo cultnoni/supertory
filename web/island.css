@@ -873,7 +873,7 @@ html[data-page-layout="flat"] .scene-workspace:not(.split-active) .manuscript-pa
 .isl-menu button:hover { background: var(--isl-sunk) !important; }
 
 /* ═════ 시안 대조 4차: 아이콘·굵기·글꼴·간격을 시안 값으로 ═════ */
-/* 타이틀바: 28px 버튼 · 17px 선 아이콘 · 굵기 1.8 */
+/* 타이틀바: 28px 버튼 · 17px 선 아이콘 · 굵기 1.5 */
 main { padding-top: 6px !important; }
 .app-titlebar .titlebar-leading { gap: 2px; }
 .app-titlebar .titlebar-icon-btn,
@@ -889,7 +889,7 @@ main { padding-top: 6px !important; }
 .app-titlebar .header-theme-btn:hover { background: color-mix(in srgb, var(--panel) 80%, transparent) !important; color: var(--text-primary) !important; }
 .app-titlebar .titlebar-icon-btn svg,
 .app-titlebar .header-theme-btn svg { width: 17px !important; height: 17px !important; }
-.app-titlebar svg, .app-titlebar svg * { stroke-width: 1.8px; }
+.app-titlebar svg, .app-titlebar svg * { stroke-width: 1.5px; }
 .app-titlebar .titlebar-mascot { width: 24px !important; height: 24px !important; }
 .titlebar-search { height: 30px; width: min(560px, 40vw); font-size: 13px; }
 
