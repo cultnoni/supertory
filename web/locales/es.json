@@ -5837,5 +5837,6 @@
   "app.웰컴_수정_시각": "editado ${when}",
   "app.웰컴_권수": "${n} vol.",
   "app.웰컴_화수": "${n} ep.",
-  "app.웰컴_글자수": "${n} car."
+  "app.웰컴_글자수": "${n} car.",
+  "island.요약_진행_글자": "${m} de ${n} listos · ${w} car."
 }

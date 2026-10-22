@@ -86,6 +86,49 @@ class ProjectHomeSummaryTests(unittest.TestCase):
         status, _ = self.request("GET", "/api/projects/99999/home-summary")
         self.assertEqual(status, 404)
 
+    def test_outline_scenes_include_char_counts(self) -> None:
+        _, project = self.request("POST", "/api/projects", {"title": "글자 수 작품", "main_genre": "판타지"})
+        pid = project["id"]
+        _, chapter = self.request("POST", f"/api/projects/{pid}/chapters", {"title": "1부"})
+        _, scene = self.request("POST", f"/api/chapters/{chapter['id']}/scenes", {"title": "1화"})
+        _, detail = self.request("GET", f"/api/scenes/{scene['id']}")
+        status, _ = self.request(
+            "PUT",
+            f"/api/scenes/{scene['id']}",
+            {
+                "title": "1화",
+                "status": "draft",
+                "synopsis_md": "",
+                "notes_md": "",
+                "content_md": "<p>안녕 하세요</p><p>작가님 반가워요</p>",
+                "row_version": detail["row_version"],
+            },
+        )
+        self.assertEqual(status, 200)
+        status, outline = self.request("GET", f"/api/projects/{pid}/outline")
+        self.assertEqual(status, 200)
+        found = []
+
+        def walk(node) -> None:
+            if isinstance(node, dict):
+                if node.get("id") == scene["id"] and "char_counts" in node:
+                    found.append(node)
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(outline)
+        self.assertTrue(found, "회차에 char_counts가 있어야 해요")
+        counts = found[0]["char_counts"]
+        # 본문 표시줄과 같은 방식: 문단 사이에 줄바꿈 없이 이어 붙여 센다.
+        glued = "안녕 하세요작가님 반가워요"
+        self.assertEqual(counts["chars_with_space"], len(glued))
+        self.assertEqual(counts["chars_no_space"], len(glued.replace(" ", "")))
+        self.assertEqual(counts["words"], 3)
+        self.assertEqual(counts["letters"], len(glued.replace(" ", "")))
+
 
 if __name__ == "__main__":
     unittest.main()

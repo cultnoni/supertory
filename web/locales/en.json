@@ -5840,5 +5840,6 @@
   "app.웰컴_수정_시각": "edited ${when}",
   "app.웰컴_권수": "${n} vol.",
   "app.웰컴_화수": "${n} ep.",
-  "app.웰컴_글자수": "${n} chars"
+  "app.웰컴_글자수": "${n} chars",
+  "island.요약_진행_글자": "${m} of ${n} done · ${w} chars"
 }

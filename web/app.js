@@ -2258,6 +2258,41 @@ function saveStatDisplay(display) {
   }
 }
 
+/** 목차(바인더) 회차 오른쪽 숫자: 본문 글자 수 보기에서 마지막으로 고른 방식을 따른다. */
+const BINDER_COUNT_METRIC_KEY = "supertory.binderCountMetric";
+const BINDER_COUNT_METRICS = ["words", "letters", "chars_with_space", "chars_no_space"];
+
+function getBinderCountMetric() {
+  try {
+    const v = localStorage.getItem(BINDER_COUNT_METRIC_KEY);
+    if (BINDER_COUNT_METRICS.includes(v)) return v;
+  } catch (_) {
+    /* ignore */
+  }
+  return "words";
+}
+
+function setBinderCountMetric(metric) {
+  if (!BINDER_COUNT_METRICS.includes(metric) || metric === getBinderCountMetric()) return;
+  try {
+    localStorage.setItem(BINDER_COUNT_METRIC_KEY, metric);
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    if ($("outline") && state.outline) renderOutline(state.outline);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function binderCountOf(scene) {
+  const metric = getBinderCountMetric();
+  const counts = scene?.char_counts || {};
+  if (metric === "words") return Number(counts.words ?? scene?.word_count) || 0;
+  return Number(counts[metric]) || 0;
+}
+
 function loadStatScope() {
   try {
     const v = localStorage.getItem(STAT_SCOPE_KEY);
@@ -2317,6 +2352,7 @@ function selectSpaceMode(mode) {
   }
   applyStatDisplayVisibility();
   setGoalMetric(spaceMetricFromMode(next));
+  setBinderCountMetric(spaceMetricFromMode(next));
 }
 
 function cycleUnitMode() {
@@ -2325,6 +2361,7 @@ function cycleUnitMode() {
   saveStatDisplay(statDisplay);
   applyStatDisplayVisibility();
   updateSceneStats();
+  setBinderCountMetric(statDisplay.unit === "letters" ? "letters" : "words");
 }
 
 function applyStatDisplayVisibility() {
@@ -33748,7 +33785,7 @@ function refreshPartCard() {
   const activeTitle = active?.querySelector(".scene-title")?.textContent?.trim() || "";
   const epShort = (activeTitle.match(/^(\d+\s*화)/) || [])[1] || activeTitle;
   setText("islCrumb", [titleOf(outer) && outer !== host ? titleOf(outer) : "", titleOf(host), epShort].filter(Boolean).join(" › "));
-  setText("islPartSub", i18n.t("island.요약_진행", { n: dots.length, m: counts.complete, w: words.toLocaleString() }));
+  setText("islPartSub", i18n.t(getBinderCountMetric() === "words" ? "island.요약_진행" : "island.요약_진행_글자", { n: dots.length, m: counts.complete, w: words.toLocaleString() }));
   const bar = $("islPartBar");
   if (bar) {
     bar.innerHTML = ["complete", "revision", "draft", "idea", "outline"]
@@ -66993,8 +67030,10 @@ function renderSceneTreeHtml(scenes, {
     // 작성 상태는 고정 폭 슬롯 → 북마크 유무와 관계없이 열 정렬
     // 모든 상태 동일 텍스트 뱃지 · 완성만 is-complete 틴트 배경
     const statusInner = `<span class="scene-status${isComplete ? " is-complete" : ""}" data-status="${escapeHtml(String(scene.status || ""))}">${escapeHtml(statusText)}</span>`;
-    const wcNum = Number(scene.word_count) || 0;
-    const wcMarkup = wcNum > 0 ? `<span class="scene-wc">${wcNum.toLocaleString()}</span>` : "";
+    const wcNum = binderCountOf(scene);
+    const wcMarkup = wcNum > 0
+      ? `<span class="scene-wc" title="${escapeHtml(COUNT_METRIC_LABEL[getBinderCountMetric()] || "")}">${wcNum.toLocaleString()}</span>`
+      : "";
     const statusMarkup = `<span class="scene-status-slot">${statusInner}</span>`;
     const sid = Number(scene.id);
     // 북마크·떡밥: 작성상태 왼쪽 · 호버 박스 밖(트리/폴더 아이콘 열)
