@@ -34584,6 +34584,13 @@ function setupAiCheckHub() {
       if (played || !document.body.classList.contains("ai-panel-collapsed")) return;
       played = true;
       badge.classList.add("is-intro");
+      // 손 흔드는 애니메이션은 처음 한 번만(약 6초) 재생하고, 이후에는 정지 이미지로 유지한다
+      const img = badge.querySelector("img[data-anim-src]");
+      if (img) {
+        const still = img.getAttribute("src");
+        img.src = `${img.dataset.animSrc}?t=${Date.now()}`;
+        window.setTimeout(() => { img.src = still; }, 6200);
+      }
       const done = () => badge.classList.remove("is-intro");
       badge.addEventListener("animationend", done, { once: true });
       window.setTimeout(done, 2200);
