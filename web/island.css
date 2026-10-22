@@ -4400,3 +4400,10 @@ body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
 .feedback-panel .fb-hist-primary { background: var(--wp-beige); color: var(--isl-ink2); }
 /* 분석 중이 아닐 때 비어 있는 진행 막대가 보이던 것(hidden 이 display:flex 에 밀림) */
 .feedback-panel .fb-progress[hidden] { display: none !important; }
+
+/* 첨삭 피드백 시작 화면: 하단 버튼이 바닥에 붙지 않게 다른 옵션 화면과 같은 여백(좌우 14 · 아래 18) */
+.feedback-panel .fb-tab-panel[data-role="fb-tab-report"] { padding: 8px 14px 18px; }
+.feedback-panel .fb-start-inline { padding-bottom: 6px; }
+.feedback-panel .fb-start-pop.is-inline .fb-pop-actions { margin-bottom: 4px; }
+/* 리포트 탭이 내용보다 낮아지면 칸이 줄어들며 안쪽 여백(아래 18px)이 잘려 버튼이 바닥에 붙던 것 — 내용 높이만큼 늘리고 바깥에서 스크롤 */
+.feedback-panel .fb-tab-panel[data-role="fb-tab-report"] { flex: 0 0 auto; }
