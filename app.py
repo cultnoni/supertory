@@ -4711,6 +4711,46 @@ def serialize_project_list_row(row: sqlite3.Row | dict) -> dict:
     return item
 
 
+def project_home_summary_payload(connection: sqlite3.Connection, project_id: int) -> dict:
+    """시작 화면 '최근 작품' 카드용 요약: 권(최상위 폴더) 수 · 화(회차) 수 · 글자 수 · 상태별 개수."""
+    volumes = 0
+    try:
+        volumes = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM folder WHERE project_id = ? AND parent_id IS NULL "
+                "AND deleted_at IS NULL",
+                (project_id,),
+            ).fetchone()[0]
+        )
+    except sqlite3.OperationalError:
+        volumes = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM chapter WHERE project_id = ? AND deleted_at IS NULL",
+                (project_id,),
+            ).fetchone()[0]
+        )
+    status_counts: dict[str, int] = {}
+    episodes = 0
+    chars = 0
+    rows = connection.execute(
+        "SELECT s.status, r.content_md FROM scene s "
+        "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+        "WHERE s.project_id = ? AND s.deleted_at IS NULL",
+        (project_id,),
+    ).fetchall()
+    for row in rows:
+        status = str(row[0] or "")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        episodes += 1
+        chars += len(plain_text_from_content(row[1] or ""))
+    return {
+        "volume_count": volumes,
+        "episode_count": episodes,
+        "char_count": chars,
+        "status_counts": status_counts,
+    }
+
+
 def list_projects_payload(connection: sqlite3.Connection) -> list[dict]:
     mode = project_list_mode(connection)
     # linked_success_profile_id added in migration 026 — tolerate older DBs mid-migrate.
@@ -6319,6 +6359,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 with database() as connection:
                     payload = list_projects_payload(connection)
                 self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/home-summary", path)
+            if match:
+                with database() as connection:
+                    self.require_project(connection, int(match.group(1)))
+                    self.send_json(project_home_summary_payload(connection, int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/outline", path)

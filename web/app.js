@@ -11868,6 +11868,7 @@ function applyProjectsListPayload(projects, listMode = null) {
     state.projectListMode = state.projects[0].list_mode;
   }
   refreshProjectSelectOptions();
+  if (typeof renderWelcomeRecent === "function") renderWelcomeRecent();
 }
 
 function bumpOpenedProjectInLocalList(projectId, lastOpenedAt = null) {
@@ -12323,8 +12324,88 @@ async function restoreLastWorkspaceView() {
   showWelcome();
 }
 
+const SAMPLE_WORKS_SEEDED_KEY = "supertory.sampleWorksSeeded";
+
+/** 처음 켰을 때(작품 0개) 장르별 예시 작품 3편을 한 번만 저장한다. 한국어 앱에서만. */
+async function seedSampleWorksIfFirstRun() {
+  try {
+    if (localStorage.getItem(SAMPLE_WORKS_SEEDED_KEY)) return false;
+  } catch (_) {
+    return false;
+  }
+  const markSeeded = () => {
+    try { localStorage.setItem(SAMPLE_WORKS_SEEDED_KEY, "1"); } catch (_) { /* ignore */ }
+  };
+  if (document.documentElement.lang && document.documentElement.lang !== "ko") return false;
+  let pack;
+  try {
+    const response = await fetch("samples/ko.json", { cache: "no-store" });
+    if (!response.ok) return false;
+    pack = await response.json();
+  } catch (_) {
+    return false;
+  }
+  let created = 0;
+  for (const work of pack.works || []) {
+    try {
+      const project = await api("/api/projects", {
+        method: "POST",
+        body: JSON.stringify({
+          title: work.title,
+          purpose: work.purpose,
+          main_genre: work.main_genre,
+          sub_genre: work.sub_genre || "",
+          literary_form: work.literary_form || undefined,
+        }),
+      });
+      const projectId = Number(project?.id);
+      if (!projectId) continue;
+      if (work.settings?.description_md) {
+        await api(`/api/projects/${projectId}/settings`, {
+          method: "PUT",
+          body: JSON.stringify({ synopsis_md: work.settings.description_md }),
+        });
+      }
+      for (const chapterSeed of work.chapters || []) {
+        const chapter = await api(`/api/projects/${projectId}/chapters`, {
+          method: "POST",
+          body: JSON.stringify({ title: chapterSeed.title }),
+        });
+        for (const sceneSeed of chapterSeed.scenes || []) {
+          const scene = await api(`/api/chapters/${chapter.id}/scenes`, {
+            method: "POST",
+            body: JSON.stringify({ title: sceneSeed.title }),
+          });
+          const detail = await api(`/api/scenes/${scene.id}`);
+          await api(`/api/scenes/${scene.id}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              title: sceneSeed.title,
+              status: "draft",
+              synopsis_md: "",
+              notes_md: "",
+              content_md: sceneSeed.content_html,
+              row_version: detail.row_version,
+            }),
+          });
+        }
+      }
+      created += 1;
+    } catch (error) {
+      console.warn("sample work seed failed", work?.title, error);
+    }
+  }
+  if (created > 0) markSeeded();
+  return created > 0;
+}
+
 async function loadProjects(preferredId = null) {
-  const projects = await api("/api/projects");
+  let projects = await api("/api/projects");
+  if (!Array.isArray(projects) || !projects.length) {
+    if (await seedSampleWorksIfFirstRun()) projects = await api("/api/projects");
+  } else {
+    try { localStorage.setItem(SAMPLE_WORKS_SEEDED_KEY, "1"); } catch (_) { /* ignore */ }
+  }
   applyProjectsListPayload(projects);
   pruneStaleEpisodeTabStorage(state.projects);
   const select = $("projectSelect");
@@ -68682,8 +68763,117 @@ function showWelcome() {
     $("ideaBoard")?.classList.add("hidden");
   }
   updateWelcomeGuideUi();
+  renderWelcomeRecent();
   // Persist "project open, no scene" so relaunch can return to welcome for this work.
   if (state.projectId) saveLastWorkspace({ sceneId: null });
+}
+
+/* —— Welcome screen: 펼치는 3단계 + 최근 작품 카드 —— */
+function welcomeRelativeTime(iso) {
+  const ts = Date.parse(String(iso || "").replace(" ", "T"));
+  if (!Number.isFinite(ts)) return "";
+  const diffSec = Math.round((ts - Date.now()) / 1000);
+  const units = [["day", 86400], ["hour", 3600], ["minute", 60]];
+  let rtf;
+  try {
+    rtf = new Intl.RelativeTimeFormat(document.documentElement.lang || "ko", { numeric: "auto" });
+  } catch (_) {
+    return "";
+  }
+  for (const [unit, sec] of units) {
+    if (Math.abs(diffSec) >= sec) return rtf.format(Math.round(diffSec / sec), unit);
+  }
+  return rtf.format(0, "second");
+}
+
+function renderWelcomeRecent() {
+  const box = $("welcomeRecent");
+  if (!box) return;
+  const all = state.projects || [];
+  const list = [...all]
+    .sort((a, b) => String(b.last_opened_at || b.updated_at || "").localeCompare(String(a.last_opened_at || a.updated_at || "")))
+    .slice(0, 3);
+  const count = $("welcomeRecentCount");
+  if (count) count.textContent = all.length ? i18n.t("app.웰컴_작품_수", { count: all.length }) : "";
+  if (!list.length) {
+    box.innerHTML = `<p class="welcome-recent-empty">${escapeHtml(i18n.t("app.웰컴_아직_작품_없음"))}</p>`;
+    return;
+  }
+  box.innerHTML = list.map((project, index) => {
+    const genre = [
+      project.purpose ? (purposeLabel[project.purpose] || project.purpose) : "",
+      project.main_genre ? mainGenreLabel(project.main_genre) : "",
+    ].filter(Boolean).join(" · ");
+    const when = welcomeRelativeTime(project.last_opened_at || project.updated_at);
+    const edited = when ? i18n.t("app.웰컴_수정_시각", { when }) : "";
+    const meta = [index === 0 ? i18n.t("app.웰컴_이어_쓰기") : "", edited].filter(Boolean).join(" · ");
+    return `<button type="button" class="welcome-wcard${index === 0 ? " is-current" : ""}" data-welcome-project="${Number(project.id)}">
+      ${genre ? `<span class="welcome-wcard-genre">${escapeHtml(genre)}</span>` : ""}
+      <strong>${escapeHtml(projectOptionLabel(project))}</strong>
+      <span class="welcome-wcard-meta welcome-wcard-stats" data-welcome-stats="${Number(project.id)}"></span>
+      <div class="welcome-wcard-bar" data-welcome-bar="${Number(project.id)}"></div>
+      <span class="welcome-wcard-meta">${escapeHtml(meta)}</span>
+    </button>`;
+  }).join("");
+  list.forEach((project) => { void fillWelcomeCardSummary(project); });
+}
+
+const welcomeSummaryCache = new Map();
+
+async function fillWelcomeCardSummary(project) {
+  const id = Number(project.id);
+  const key = `${id}:${project.updated_at || ""}:${project.last_opened_at || ""}`;
+  let summary = welcomeSummaryCache.get(key);
+  if (!summary) {
+    try {
+      summary = await api(`/api/projects/${id}/home-summary`);
+    } catch (_) {
+      return;
+    }
+    welcomeSummaryCache.set(key, summary);
+  }
+  const stats = document.querySelector(`[data-welcome-stats="${id}"]`);
+  const bar = document.querySelector(`[data-welcome-bar="${id}"]`);
+  if (stats) {
+    stats.textContent = [
+      summary.volume_count > 0 ? i18n.t("app.웰컴_권수", { n: summary.volume_count }) : "",
+      i18n.t("app.웰컴_화수", { n: summary.episode_count }),
+      i18n.t("app.웰컴_글자수", { n: Number(summary.char_count || 0).toLocaleString() }),
+    ].filter(Boolean).join(" · ");
+  }
+  if (bar) {
+    const counts = summary.status_counts || {};
+    bar.innerHTML = ["complete", "revision", "draft", "idea", "outline"]
+      .filter((k) => counts[k] > 0)
+      .map((k) => `<i data-status="${k}" style="flex:${counts[k]}"></i>`)
+      .join("");
+  }
+}
+
+function setupWelcomeHome() {
+  const root = $("welcome");
+  if (!root || root.dataset.homeBound === "1") return;
+  root.dataset.homeBound = "1";
+  root.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-welcome-acc]");
+    if (tab) {
+      const wasOpen = tab.getAttribute("aria-expanded") === "true";
+      root.querySelectorAll("[data-welcome-acc]").forEach((el) => el.setAttribute("aria-expanded", "false"));
+      root.querySelectorAll("[data-welcome-acc-panel]").forEach((el) => el.classList.remove("is-open"));
+      if (!wasOpen) {
+        tab.setAttribute("aria-expanded", "true");
+        root.querySelector(`[data-welcome-acc-panel="${tab.dataset.welcomeAcc}"]`)?.classList.add("is-open");
+      }
+      return;
+    }
+    const card = event.target.closest("[data-welcome-project]");
+    if (card) {
+      selectProjectFromList(card.dataset.welcomeProject);
+      return;
+    }
+    const create = event.target.closest("[data-welcome-create]");
+    if (create) $(create.dataset.welcomeCreate)?.click();
+  });
 }
 
 /* —— Welcome screen: animated Tory + +button guide —— */
@@ -68707,11 +68897,11 @@ function welcomeFileIconHtml() {
 function welcomeSpeechLines() {
   return [
     i18n.t("app.반가워요_작가님"),
-    i18n.t("app.먼저_왼쪽_위_를_눌러봐요", { icon: welcomeFileIconHtml() }),
-    i18n.t("app.새_글_쓰기부터_시작하면_돼요"),
-    i18n.t("app.써_둔_글이_있으면_가져오기도_가능"),
+    i18n.t("app.웰컴_말풍선_시작"),
+    i18n.t("app.웰컴_말풍선_가져오기"),
+    i18n.t("app.웰컴_말풍선_토리"),
+    i18n.t("app.웰컴_말풍선_자동저장"),
     i18n.t("app.준비되면_같이_써봐요"),
-    i18n.t("app.토리와_함께"),
   ];
 }
 
@@ -88497,6 +88687,7 @@ function setupCreateMenu() {
 }
 
 setupCreateMenu();
+setupWelcomeHome();
 setupNewProjectModal();
 setupOpeningHintUi();
 setupOpeningIdeasModal();

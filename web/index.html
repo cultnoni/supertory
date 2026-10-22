@@ -1815,55 +1815,100 @@
           <button type="button" class="secondary compact-btn" id="mobileDraftBannerReview" data-i18n="app.확인하기">확인하기</button>
         </div>
         <div id="welcome" class="welcome-screen">
-          <div class="welcome-card">
-            <div class="welcome-mascot welcome-mascot-live" aria-hidden="true">
-              <div class="welcome-mascot-stage">
-                <img
-                  id="welcomeToryMascot"
-                  class="welcome-tory-mascot"
-                  src="/assets/tori-welcome-mascot.webp"
-                  width="176"
-                  height="156"
-                  alt=""
-                  decoding="async"
-                  draggable="false"
-                >
+          <div class="welcome-card welcome-card-v2">
+            <div class="welcome-hero">
+              <div class="welcome-mascot welcome-mascot-live" aria-hidden="true">
+                <div class="welcome-mascot-stage">
+                  <img
+                    id="welcomeToryMascot"
+                    class="welcome-tory-mascot"
+                    src="/assets/tori-welcome-mascot.webp"
+                    width="176"
+                    height="156"
+                    alt=""
+                    decoding="async"
+                    draggable="false"
+                  >
+                </div>
               </div>
-            </div>
-            <p class="welcome-mascot-hello" id="welcomeSpeech" data-i18n="app.반가워요_작가님">반가워요 작가님</p>
-            <div class="welcome-tory-blurb">
-              <p data-i18n="index.토리는_수퍼토리에_탑재된_AI_어시스턴트예요">토리는 슈퍼토리에 탑재된 창작 도우미예요.</p>
-              <p class="welcome-tory-blurb-body" data-i18n="index.편집자처럼_원고의_구조를_보고_비평가처럼_장">편집자처럼 원고의 구조를 보고, 비평가처럼 장르와 완성도를 판단하며, 수많은 이야기를 읽어온 독자처럼 몰입감을 살펴요. 작품의 인물과 세계관, 줄거리 흐름을 깊이 기억해 스스로 놓치기 쉬운 원고의 입체적인 모습을 다각도에서 보여드릴게요.</p>
-              <p class="welcome-tory-blurb-closing" data-i18n="index.창작의_즐거움은_작가님_몫이랍니다">창작의 즐거움은 오롯이 작가님의 몫이랍니다. ❤️</p>
+              <div class="welcome-hero-text">
+                <p class="welcome-mascot-hello" id="welcomeSpeech" data-i18n="app.반가워요_작가님">반가워요 작가님</p>
+                <div class="welcome-tory-blurb">
+                  <p data-i18n="index.토리는_수퍼토리에_탑재된_AI_어시스턴트예요">토리는 슈퍼토리에 탑재된 창작 도우미예요.</p>
+                  <p class="welcome-tory-blurb-body" data-i18n="index.편집자처럼_원고의_구조를_보고_비평가처럼_장">편집자처럼 원고의 구조를 보고, 비평가처럼 장르와 완성도를 판단하며, 수많은 이야기를 읽어온 독자처럼 몰입감을 살펴요. 작품의 인물과 세계관, 줄거리 흐름을 깊이 기억해 스스로 놓치기 쉬운 원고의 입체적인 모습을 다각도에서 보여드릴게요.</p>
+                  <p class="welcome-tory-blurb-closing" data-i18n="index.창작의_즐거움은_작가님_몫이랍니다">창작의 즐거움은 오롯이 작가님의 몫이랍니다. ❤️</p>
+                </div>
+              </div>
             </div>
             <h1 class="welcome-card-title" data-i18n-html="index.웰컴_타이틀">우리 함께 <span class="welcome-super-story">슈퍼 스토리</span> 만들어 볼까요?</h1>
           </div>
 
-          <div class="welcome-tips" aria-label="시작 안내" data-i18n-aria-label="index.시작_안내">
-            <h2 class="welcome-tips-title" data-i18n="index.이렇게_시작하면_좋아요">이렇게 시작하면 좋아요</h2>
-            <div class="welcome-tips-grid">
-              <article class="welcome-tip-card">
-                <span class="welcome-tip-num" aria-hidden="true">1</span>
-                <strong data-i18n="index.작품_시작하기">작품 시작하기</strong>
-                <p data-i18n-html="index.왼쪽_위_버튼으로_새_글을_시작하거나_기존">왼쪽 위 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-book-plus welcome-inline-file-icon" aria-hidden="true" focusable="false"><path d="M12 7v6"/><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="M9 10h6"/></svg> 버튼으로 새 글을 시작하거나, 기존 원고를 편하게 불러오세요.</p>
-              </article>
-              <article class="welcome-tip-card">
-                <span class="welcome-tip-num" aria-hidden="true">2</span>
-                <strong data-i18n="index.차근차근_회차_쓰기">차근차근 회차 쓰기</strong>
-                <p data-i18n="index.왼쪽_바인더에서_챕터와_씬을_만들고_가운데">왼쪽 바인더에서 챕터와 씬을 만들고, 가운데 본문 창에서 자유롭게 이야기를 펼쳐보세요.</p>
-              </article>
-              <article class="welcome-tip-card">
-                <span class="welcome-tip-num" aria-hidden="true">3</span>
-                <strong data-i18n="index.토리와_함께_쓰기">토리와 함께 쓰기</strong>
-                <p data-i18n="index.오른쪽_SuperTORY는_글이_막힐_때_언">오른쪽 SuperTORY는 글이 막힐 때 언제든 도와주는 AI 창작 파트너예요. 스토리 확장, 설정 스캔, 자유 대화까지 집필의 모든 순간을 함께합니다.</p>
-              </article>
-              <article class="welcome-tip-card">
-                <span class="welcome-tip-num" aria-hidden="true">✦</span>
-                <strong data-i18n="index.알아두면_유용한_팁">알아두면 유용한 팁</strong>
-                <p data-i18n="index.작성_중인_글은_이_기기에_자동으로_안심_저">작성 중인 글은 이 기기에 자동으로 안심 저장돼요. 본문에서 마우스 우클릭을 하면 이미지, 떡밥 메모 등 유용한 메뉴를 바로 쓸 수 있답니다.</p>
-              </article>
+          <section class="welcome-recent-wrap" id="welcomeRecentWrap" aria-label="최근 작품" data-i18n-aria-label="index.웰컴_최근_작품">
+            <h2 class="welcome-sec-h">
+              <span data-i18n="index.웰컴_최근_작품">최근 작품</span>
+              <span class="welcome-sec-count" id="welcomeRecentCount"></span>
+            </h2>
+            <div class="welcome-recent" id="welcomeRecent"></div>
+          </section>
+
+          <section class="welcome-acc" id="welcomeAcc" aria-label="시작 안내" data-i18n-aria-label="index.시작_안내">
+            <div class="welcome-acc-tabs">
+              <button type="button" class="welcome-acc-tab" data-welcome-acc="start" aria-expanded="true">
+                <strong><span class="welcome-acc-num">1</span><span data-i18n="index.작품_시작하기">작품 시작하기</span></strong>
+                <small data-i18n="index.웰컴_단계1_설명">새 글을 시작하거나 기존 원고를 불러와요.</small>
+              </button>
+              <button type="button" class="welcome-acc-tab" data-welcome-acc="write" aria-expanded="false">
+                <strong><span class="welcome-acc-num">2</span><span data-i18n="index.차근차근_회차_쓰기">차근차근 회차 쓰기</span></strong>
+                <small data-i18n="index.웰컴_단계2_설명">바인더에서 챕터와 씬을 만들어요.</small>
+              </button>
+              <button type="button" class="welcome-acc-tab" data-welcome-acc="tori" aria-expanded="false">
+                <strong><span class="welcome-acc-num">3</span><span data-i18n="index.토리와_함께_쓰기">토리와 함께 쓰기</span></strong>
+                <small data-i18n="index.웰컴_단계3_설명">막힐 때 오른쪽 SuperTORY가 도와줘요.</small>
+              </button>
             </div>
-          </div>
+            <div class="welcome-acc-panel is-open" data-welcome-acc-panel="start">
+              <div><div class="welcome-acc-inner">
+                <div class="welcome-acc-opts">
+                  <button type="button" class="is-primary" data-welcome-create="newProjectButton">
+                    <svg class="welcome-acc-ico" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                    <span class="welcome-acc-opt-text">
+                      <strong data-i18n="index.새_글쓰기">새 글쓰기</strong>
+                      <small data-i18n="index.웰컴_새_글쓰기_설명">제목과 종류만 정하면 바로 시작</small>
+                    </span>
+                  </button>
+                  <button type="button" data-welcome-create="importDocumentButton">
+                    <svg class="welcome-acc-ico" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="m9 15 3 3 3-3"/></svg>
+                    <span class="welcome-acc-opt-text">
+                      <strong data-i18n="index.웰컴_문서_가져오기">문서 가져오기</strong>
+                      <small data-i18n="index.웰컴_문서_가져오기_설명">써 둔 원고·초고 파일을 작품으로</small>
+                    </span>
+                  </button>
+                  <button type="button" data-welcome-create="importProofButton">
+                    <svg class="welcome-acc-ico" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/></svg>
+                    <span class="welcome-acc-opt-text">
+                      <strong data-i18n="index.웰컴_교정본_가져오기">교정본 가져오기</strong>
+                      <small data-i18n="index.웰컴_교정본_가져오기_설명">토리가 회차를 찾아 비교해요</small>
+                    </span>
+                  </button>
+                </div>
+              </div></div>
+            </div>
+            <div class="welcome-acc-panel" data-welcome-acc-panel="write">
+              <div><div class="welcome-acc-inner"><p class="welcome-acc-text" data-i18n="index.왼쪽_바인더에서_챕터와_씬을_만들고_가운데">왼쪽 바인더에서 챕터와 씬을 만들고, 가운데 본문 창에서 자유롭게 이야기를 펼쳐보세요.</p></div></div>
+            </div>
+            <div class="welcome-acc-panel" data-welcome-acc-panel="tori">
+              <div><div class="welcome-acc-inner"><p class="welcome-acc-text" data-i18n="index.오른쪽_SuperTORY는_글이_막힐_때_언">오른쪽 SuperTORY는 글이 막힐 때 언제든 도와주는 AI 창작 파트너예요. 스토리 확장, 설정 스캔, 자유 대화까지 집필의 모든 순간을 함께합니다.</p></div></div>
+            </div>
+          </section>
+
+          <section class="welcome-tips2" aria-label="알아두면 유용한 팁" data-i18n-aria-label="index.알아두면_유용한_팁">
+            <h2 class="welcome-sec-h"><span data-i18n="index.알아두면_유용한_팁">알아두면 유용한 팁</span></h2>
+            <ul>
+              <li data-i18n="index.웰컴_팁1">쓰는 글은 이 기기에 자동으로 저장돼요. 인터넷이 끊겨도 원고는 그대로예요.</li>
+              <li data-i18n="index.웰컴_팁2">본문에서 마우스 오른쪽을 누르면 사전·떡밥·메모를 바로 추가할 수 있어요.</li>
+              <li data-i18n="index.웰컴_팁3">글이 막히면 오른쪽 SuperTORY에게 다음 장면을 함께 고민해 달라고 해 보세요.</li>
+            </ul>
+          </section>
 
           <div class="welcome-sister-links" aria-label="자매 앱 바로가기" data-i18n-aria-label="index.자매_앱_바로가기">
             <article class="welcome-sister-card" aria-disabled="true">
@@ -2910,7 +2955,6 @@
               </footer>
               </div>
             </form>
-
 
           </div>
 
