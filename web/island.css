@@ -2085,10 +2085,9 @@ body.binder-panel-collapsed main { grid-template-columns: var(--isl-binder-rail-
 body.binder-panel-collapsed.ai-panel-collapsed main { grid-template-columns: var(--isl-binder-rail-w) minmax(0, 1fr) 0 !important; }
 body.binder-panel-collapsed:not(.binder-mini) #outlinePanel { overflow: hidden; padding: 0 !important; min-width: 0; }
 body.binder-panel-collapsed:not(.binder-mini) .binder-dock-rail { display: none !important; }
-body.binder-panel-collapsed:not(.binder-mini) #workArea { margin-left: calc(-1 * var(--isl-gap)); border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
-/* workArea 왼쪽 위 모서리가 각지면, 그 안의 열린 회차 탭 줄(자기 둥근 모서리를 따로 가짐)만
-   둥글게 남아 왼쪽 위에 따로 떨어진 둥근 네모 자국처럼 보인다 — 같이 각지게 맞춘다 */
-body.binder-panel-collapsed:not(.binder-mini) .episode-tab-row { border-top-left-radius: 0; }
+/* 왼쪽을 접으면 본문 섬이 왼쪽으로 밀려 나오되, 오른쪽과 같은 여백을 두고 네 모서리를 모두 둥글게 둔다(잘린 느낌 없이) */
+body.binder-panel-collapsed:not(.binder-mini) #workArea { margin-left: 0; }
+
 .isl-mini-nav { display: none; }
 body.binder-mini .binder-dock-rail { display: flex !important; flex-direction: column; align-items: center; gap: 6px; padding: 8px 4px !important; width: 100% !important; }
 body.binder-mini .isl-mini-nav { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1 1 auto; min-height: 0; width: 100%; order: 1; }
@@ -4143,3 +4142,11 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 }
 /* 작품 관리: 작품명은 보통(레귤러) 굵기 */
 #adminModal .admin-project-item-title { font-weight: 400 !important; }
+
+/* 첨삭 검토(넓은 패널) 모드: 접힌 왼쪽 자리에 48px 빈 칸이 남던 것을 없앤다 — 본문 섬이 왼쪽 여백만 두고 그만큼 더 왼쪽으로 밀려 나온다 */
+body.fb-review-open main,
+body.fb-review-open.binder-panel-collapsed main,
+body.fb-review-open.ai-panel-collapsed main,
+body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
+  grid-template-columns: var(--isl-binder-rail-w, 0px) minmax(0, 1fr) var(--ai-panel-width) !important;
+}
