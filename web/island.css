@@ -4510,3 +4510,10 @@ body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
 .tory-persona-chip-label { color: var(--isl-ink3); }
 .tory-persona-chip-value { color: var(--text-primary); font-weight: 500; }
 .tory-persona-chip svg { color: var(--isl-ink3); }
+
+/* 집필 기록 달력 하단 '기록 전체 삭제 · 기록 선택 삭제': 글자 상자가 14px로 잘려 '제' 아래가 깎이던 것 — 높이를 글자에 맞추고 넘침을 숨기지 않는다 */
+.wl-cal-right .writing-log-purge-bar { flex-wrap: nowrap; align-items: center; padding-top: 12px; }
+.wl-cal-right .writing-log-purge-bar .compact-btn {
+  flex: 0 0 auto; height: auto !important; min-height: 0 !important; line-height: 1.5 !important;
+  overflow: visible !important; white-space: nowrap;
+}
