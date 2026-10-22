@@ -1692,7 +1692,7 @@ function ensureWorldbuildingMainForm() {
     const titlePlain = String(sec.title || "").replace(/\s*\([^)]*\)\s*$/, "").replace(/^\s*\d+\.\s*/, "").trim();
     const fields = sec.fields.map((field) => `
       <label class="world-main-field">${worldToriBadgeHtml(field.id, field.label, field.labelKey)}
-        <textarea data-world-field="${escapeWorldHtml(field.id)}" rows="3" placeholder="예: ${escapeWorldHtml(field.example || "")}"></textarea>
+        <textarea data-world-field="${escapeWorldHtml(field.id)}" rows="3" placeholder="${escapeWorldHtml(i18n.t('app.예_field_example', {'field.example': field.example || ''}))}"></textarea>
       </label>`).join("");
     return `
       <article class="world-main-card" data-world-section="${escapeWorldHtml(sec.id)}">
@@ -18872,7 +18872,7 @@ function renderIdeaBoard(focusId = null) {
         data-role="idea-clip"
         data-idea-color-pick="${escapeHtml(c.key)}"
         title="${escapeHtml(c.label)}"
-        aria-label="메모 색 ${escapeHtml(c.label)}"
+        aria-label="${escapeHtml(i18n.t('app.메모_색_label', { label: c.label }))}"
         aria-pressed="${c.key === colorKey ? "true" : "false"}"
       ></button>
     `).join("");
@@ -19585,7 +19585,7 @@ function openIdeaFloat(ideaId) {
         data-role="idea-clip"
         data-idea-color-pick="${escapeHtml(c.key)}"
         title="${escapeHtml(c.label)}"
-        aria-label="메모 색 ${escapeHtml(c.label)}"
+        aria-label="${escapeHtml(i18n.t('app.메모_색_label', { label: c.label }))}"
         aria-pressed="${c.key === colorKey ? "true" : "false"}"
       ></button>
     `).join("");
@@ -33129,7 +33129,7 @@ function syncToryChatRoomChrome() {
   if (input) {
     if (inCharacter) {
       const who = names.length ? names.join(" · ") : i18n.t('app.캐릭터');
-      input.placeholder = `${who}에게 말걸기\n(Enter 전송 Shift + Enter 줄바꿈)`;
+      input.placeholder = i18n.t('app.에게_말걸기_placeholder', { who });
       input.setAttribute("aria-label", `${i18n.t('app.who_에게_보낼_메시지', {who: who})}`);
     } else {
       input.placeholder = i18n.t('app.토리에게_말걸기_Enter_전송_Shift');
@@ -36602,7 +36602,7 @@ function renderReaderChatPeer() {
   const input = $("readerChatInput");
   if (input) {
     const who = persona.name || i18n.t('app.이_독자');
-    input.placeholder = `${who}에게 말걸기\n(Enter 전송 Shift + Enter 줄바꿈)`;
+    input.placeholder = i18n.t('app.에게_말걸기_placeholder', { who });
     input.setAttribute("aria-label", `${i18n.t('app.who_에게_보낼_메시지', {who: who})}`);
   }
 }
@@ -50472,7 +50472,7 @@ function openSourceModal(options = {}) {
   const current = $("sourceFileCurrent");
   if (current) {
     if (options.fileName) {
-      current.textContent = `저장된 파일: ${options.fileName}${options.fileSize ? ` (${formatSourceFileSize(options.fileSize)})` : ""} · 새 파일을 고르면 교체됩니다`;
+      current.textContent = i18n.t('app.저장된_파일_표시', { name: options.fileName, size: options.fileSize ? ` (${formatSourceFileSize(options.fileSize)})` : "" });
       current.classList.remove("hidden");
     } else {
       current.textContent = "";
@@ -52954,7 +52954,7 @@ function renderBookmarkBar(options = {}) {
             class="bookmark-chip"
             data-bookmark-open="${idAttr}"
             title="${title} (${kind} · ${color.label}) — 클릭: 열기 · 우클릭: 메뉴"
-            aria-label="${title} 북마크 열기"
+            aria-label="${i18n.t('app.북마크_열기_title', { title })}"
           ></button>
           <button
             type="button"
@@ -52967,7 +52967,7 @@ function renderBookmarkBar(options = {}) {
             class="bookmark-item-remove"
             data-bookmark-remove="${idAttr}"
             title="${i18n.t('app.북마크_해제')}"
-            aria-label="${title} 북마크 해제"
+            aria-label="${i18n.t('app.북마크_해제_title', { title })}"
           >×</button>
         </div>
         <input
