@@ -818,7 +818,8 @@ body { --isl-paper-ink: var(--page-ink); }
   padding-left: min(var(--ms-page-margin-x, 30mm), 22%) !important;
   padding-right: min(var(--ms-page-margin-x, 30mm), 22%) !important;
 }
-/* 페이지 모양 "평면": 종이 가장자리·그림자 없이 작업 영역 전체를 본문 페이지와 같은 색으로.
+/* 페이지 모양 "평면": 종이 폭(A4처럼)은 그대로 두고, 종이 가장자리·그림자만 없애
+   종이 주변 바탕이 본문 페이지와 같은 색이 되게 한다.
    (기본 "종이"는 위 규칙 그대로 — html[data-page-layout="flat"] 일 때만 덮어씀) */
 html[data-page-layout="flat"] .scene-workspace:not(.split-active) form#sceneEditor {
   background: var(--page-editor-bg, var(--page-bg, white));
@@ -827,15 +828,9 @@ html[data-page-layout="flat"] .scene-workspace:not(.split-active) .isl-crumb,
 html[data-page-layout="flat"] .scene-workspace:not(.split-active) .episode-nav-bar,
 html[data-page-layout="flat"] .scene-workspace:not(.split-active) #sceneStatusShell,
 html[data-page-layout="flat"] .scene-workspace:not(.split-active) .manuscript-page {
-  width: 100% !important;
-  max-width: none !important;
-  margin-left: 0 !important; margin-right: 0 !important;
   border-radius: 0 !important;
   box-shadow: none !important;
 }
-html[data-page-layout="flat"] .scene-workspace:not(.split-active) .isl-crumb,
-html[data-page-layout="flat"] .scene-workspace:not(.split-active) .episode-nav-bar { margin-top: 0 !important; }
-html[data-page-layout="flat"] .scene-workspace:not(.split-active) .manuscript-page { margin-bottom: 0 !important; }
 .isl-fp-lab.isl-fp-lab-wide { width: auto; white-space: nowrap; }
 .isl-fp-chip[aria-pressed="true"] { background: var(--isl-accent-soft, var(--isl-sunk)) !important; color: var(--text-primary) !important; font-weight: 600; }
 /* 서식줄은 이제 패널색 띠 위 → 글자색은 테마 본문색 */
