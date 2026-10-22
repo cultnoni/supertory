@@ -4494,3 +4494,19 @@ body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
   background: transparent !important;
 }
 .fb-review-host .feedback-panel { border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+
+/* ═════ 토리 말투 칩: 작가 지침 줄 오른쪽(대화·도구 탭 공통) — 클릭하면 기존 토리 모드 메뉴가 팝오버로 열린다 ═════ */
+.tory-priority-box { display: flex; align-items: center; gap: 6px; }
+.tory-priority-box > .tory-priority-toggle { flex: 1 1 auto; min-width: 0; width: auto; }
+.tory-persona-chip {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  margin: 0; padding: 3px 7px 3px 8px; border: 0; border-radius: 999px;
+  background: var(--isl-sunk); color: var(--isl-ink2);
+  font: inherit; font-size: 11.5px; line-height: 1.2; cursor: pointer; white-space: nowrap;
+}
+.tory-persona-chip:hover { background: color-mix(in srgb, var(--isl-sunk) 80%, var(--text-primary)); color: var(--text-primary); }
+.tory-persona-chip:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent); outline-offset: 1px; }
+.tory-persona-chip[aria-expanded="true"] { background: var(--panel); color: var(--text-primary); box-shadow: 0 0 0 1px var(--line); }
+.tory-persona-chip-label { color: var(--isl-ink3); }
+.tory-persona-chip-value { color: var(--text-primary); font-weight: 500; }
+.tory-persona-chip svg { color: var(--isl-ink3); }

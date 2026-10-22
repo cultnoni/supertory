@@ -35877,7 +35877,20 @@ function setToryPersonaMode(mode, { silent = false } = {}) {
 
 function hideToryPersonaMenu() {
   $("toryPersonaMenu")?.classList.add("hidden");
+  $("toryPersonaChip")?.setAttribute("aria-expanded", "false");
   if (typeof activeTooltipId !== "undefined" && activeTooltipId === "persona") activeTooltipId = null;
+}
+
+function toryPersonaLabel(mode) {
+  const labels = {
+    default: i18n.t('app.친절한_조수'),
+    secretary: i18n.t('app.진지_비서'),
+    friend: i18n.t('app.친구'),
+    aegyo: i18n.t('app.애교'),
+    teacher: i18n.t('app.선생님'),
+    grumbler: i18n.t('app.투덜이'),
+  };
+  return labels[mode] || labels.default;
 }
 
 function syncToryPersonaMenuUi() {
@@ -35885,6 +35898,11 @@ function syncToryPersonaMenuUi() {
   document.querySelectorAll("#toryPersonaMenu [data-tory-persona]").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.toryPersona === current);
   });
+  // 작가 지침 줄 오른쪽 칩에 현재 말투를 보여 준다(대화·도구 탭 공통)
+  const chipValue = $("toryPersonaChipValue");
+  if (chipValue) chipValue.textContent = toryPersonaLabel(current);
+  const chip = $("toryPersonaChip");
+  if (chip) chip.setAttribute("aria-expanded", $("toryPersonaMenu")?.classList.contains("hidden") ? "false" : "true");
 }
 
 function showToryPersonaMenu(clientX, clientY) {
@@ -35907,10 +35925,23 @@ function showToryPersonaMenu(clientX, clientY) {
   }
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
+  $("toryPersonaChip")?.setAttribute("aria-expanded", "true");
 }
 
 function setupToryPersonaSelect() {
-  // Persona is chosen via right-click on 도우미 tab (no always-visible bar)
+  // 말투는 작가 지침 줄의 칩으로 고른다(도구 탭 우클릭은 단축으로 유지)
+  $("toryPersonaChip")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const menu = $("toryPersonaMenu");
+    if (menu && !menu.classList.contains("hidden")) {
+      hideToryPersonaMenu();
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuWidth = menu?.getBoundingClientRect().width || 220;
+    showToryPersonaMenu(Math.max(8, rect.right - menuWidth), rect.bottom + 4);
+  });
   $("aiTabTools")?.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -35925,7 +35956,7 @@ function setupToryPersonaSelect() {
     hideToryPersonaMenu();
   });
   document.addEventListener("click", (event) => {
-    if (!event.target.closest?.("#toryPersonaMenu, #aiTabTools")) hideToryPersonaMenu();
+    if (!event.target.closest?.("#toryPersonaMenu, #aiTabTools, #toryPersonaChip")) hideToryPersonaMenu();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") hideToryPersonaMenu();
