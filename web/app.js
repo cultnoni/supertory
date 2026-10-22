@@ -8278,9 +8278,10 @@ const CLUSTER_HIDDEN_FEATURES = {
   webnovel: [],
   genre_literature: [],
   locked: [],
+  // 문학에서도 회차 요약·떡밥·복선 탐색기·설정 붕괴 감지기는 쓴다(2026-10-22)
   general_literature: [
-    "baits", "success_profile", "summarize", "foreshadow", "plottwist",
-    "temphook", "worldscan", "successfeedback", "worlddesc", "successpattern",
+    "baits", "success_profile", "plottwist",
+    "temphook", "successfeedback", "worlddesc", "successpattern",
     "character_chat", "character_sim", "reader_debate", "reader_comments",
   ],
   fairytale: [
@@ -19495,6 +19496,7 @@ function bindIdeaFloatWindow(win, ideaId, options = {}) {
     if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
       drag = null;
       document.body.classList.remove("idea-float-dragging");
+      win.dataset.userMoved = "1";
       rememberIdeaFloatLayout(win, layoutKey);
     }
     if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
@@ -23566,6 +23568,27 @@ function openDockFloatWindow(key, spec, sourceEl) {
     ? spec.fallbackPos(sourceEl)
     : dockFloatFallbackPos(spec.side, sourceEl, spec.defaultWidth, spec.defaultHeight);
   applyIdeaFloatLayout(win, key, pos.left, pos.top);
+  if (!ideaFloatLayouts.get(key)) {
+    // 저장된 위치가 없는 위젯은 사용자가 옮기기 전까지 기본 자리(창 기준)를 따라간다 —
+    // 기동 직후·작은 창에서 계산한 위치가 왼쪽 위에 몰려 바인더 머리글을 가리던 것을 막는다
+    const followDefaultPos = () => {
+      if (!win.isConnected) {
+        window.removeEventListener("resize", followDefaultPos);
+        return;
+      }
+      if (win.dataset.userMoved === "1") {
+        window.removeEventListener("resize", followDefaultPos);
+        return;
+      }
+      const next = typeof spec.fallbackPos === "function"
+        ? spec.fallbackPos(sourceEl)
+        : dockFloatFallbackPos(spec.side, sourceEl, spec.defaultWidth, spec.defaultHeight);
+      win.style.left = `${next.left}px`;
+      win.style.top = `${next.top}px`;
+      rememberIdeaFloatLayout(win, key);
+    };
+    window.addEventListener("resize", followDefaultPos);
+  }
   if (!ideaFloatLayouts.get(key)?.width && spec.defaultWidth) {
     win.style.width = `${spec.defaultWidth}px`;
   }
@@ -86017,6 +86040,8 @@ function prepareTutorialUi() {
   $("sceneWorkspace")?.classList.add("tutorial-force-visible");
   if (typeof setAiPanelOpen === "function") setAiPanelOpen(true);
   else document.body.classList.remove("ai-panel-collapsed");
+  // 1단계(집필 기록 카드)는 체크 탭에 있다
+  try { setAiPanelTab?.("check"); } catch (_) { /* 탭이 없어도 튜토리얼은 진행 */ }
   // Feature bar may be collapsed — reopen shell if present
   $("sceneFeatureBarShell")?.classList.remove("is-collapsed");
   $("sceneFeatureBarReopenButton")?.classList.add("hidden");
@@ -86051,11 +86076,12 @@ function buildOnboardingSteps() {
   // Exact copy — do not polish.
   return [
     {
-      element: "#writingLogButton",
+      // 아이콘줄의 '기록'은 디자인 레이어에서 숨겨져 있어(체크 탭으로 이동) 체크 탭의 집필 기록 카드를 가리킨다
+      element: "#islWritingCard",
       popover: {
         title: i18n.t('app.기록'),
         description: i18n.t('app.지난_일주일_글자_수를_확인해요_우클릭하면'),
-        side: "bottom",
+        side: "left",
         align: "start",
       },
     },
@@ -86135,7 +86161,11 @@ function startOnboardingTutorial(options = {}) {
     doneBtnText: i18n.t('app.완료'),
     showButtons: ["next", "previous", "close"],
     popoverClass: "supertory-tutorial-popover",
-    steps: buildOnboardingSteps(),
+    // 화면에 없는 요소(숨긴 기능·접힌 패널)를 가리키면 팝오버가 허공에 뜨므로 보이는 단계만 남긴다
+    steps: buildOnboardingSteps().filter((step) => {
+      const target = document.querySelector(step.element);
+      return Boolean(target && target.getClientRects().length);
+    }),
     onPopoverRender: (popover) => {
       if (popover?.closeButton) {
         popover.closeButton.textContent = i18n.t('app.건너뛰기');
@@ -86150,6 +86180,10 @@ function startOnboardingTutorial(options = {}) {
       restoreTutorialUi();
     },
   });
+  if (!onboardingDriver.getConfig?.()?.steps?.length) {
+    destroyOnboardingDriver();
+    return false;
+  }
   onboardingDriver.drive(0);
   return true;
 }

@@ -4410,3 +4410,58 @@ body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
 .feedback-panel .fb-start-pop.is-inline .fb-pop-actions { margin-bottom: 4px; }
 /* 리포트 탭이 내용보다 낮아지면 칸이 줄어들며 안쪽 여백(아래 18px)이 잘려 버튼이 바닥에 붙던 것 — 내용 높이만큼 늘리고 바깥에서 스크롤 */
 .feedback-panel .fb-tab-panel[data-role="fb-tab-report"] { flex: 0 0 auto; }
+
+/* ═════ 디자인 점검 후속(2026-10-22) — docs/design-guidelines.md §1.3·§2·§4 ═════ */
+/* 옵션 화면 머리글: 제목은 한 줄. 좁은 오른쪽 섬에서 '…검사기'의 마지막 글자가 다음 줄로 떨어지지 않게 한다 */
+.is-wide-panel-card .modal-heading { flex-wrap: nowrap; gap: 6px; }
+.is-wide-panel-card .modal-heading h2,
+.is-wide-panel-card .tory-helper-title {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 14px !important; letter-spacing: -0.01em !important;
+  white-space: nowrap; word-break: keep-all;
+}
+/* 회차 선택 세그먼트: 한 줄 고정(라벨은 '현재 회차 · 다른 회차 · 여러 회차'로 짧게) */
+.is-wide-panel-card .wide-seg { flex-wrap: nowrap !important; }
+.is-wide-panel-card .wide-seg .continue-length-option { flex: 1 1 0 !important; min-width: 0; padding: 6px 6px !important; white-space: nowrap; }
+
+/* 새 글쓰기·문서 가져오기 안내 박스: 노란 크림색 대신 앱 공통 베이지(--isl-sunk) 한 줄 */
+.modal-genre-notice {
+  background: var(--isl-sunk) !important; border: 0 !important; border-radius: 10px !important;
+  color: var(--isl-ink2) !important;
+}
+.modal-genre-notice strong { color: var(--text-primary) !important; font-weight: 500 !important; }
+.modal-genre-notice span { color: var(--isl-ink2) !important; }
+
+/* 교정본 가져오기 '덮어쓰기' 카드: 갈색 대신 목차 상태 점(초안) 색을 옅게 */
+.import-proof-method-card.is-danger {
+  border-color: color-mix(in srgb, var(--isl-st-draft) 55%, var(--line)) !important;
+  background: color-mix(in srgb, var(--isl-st-draft) 8%, var(--panel)) !important;
+}
+.import-proof-method-card.is-danger:has(input:checked) {
+  border-color: var(--isl-st-draft) !important;
+  box-shadow: 0 0 0 1px var(--isl-st-draft) !important;
+  background: color-mix(in srgb, var(--isl-st-draft) 14%, var(--panel)) !important;
+}
+.import-proof-badge-danger {
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--isl-st-draft) 24%, var(--panel)) !important;
+  border-color: color-mix(in srgb, var(--isl-st-draft) 55%, var(--line)) !important;
+}
+
+/* 실시간 토리 체크: 반복 단어 행은 주황빨강 대신 목차 상태 점(수정) 색을 옅게 */
+.tory-check-item.is-flagged,
+.tory-check-stat.is-flagged {
+  border-color: color-mix(in srgb, var(--isl-st-revision) 60%, var(--line)) !important;
+  background: color-mix(in srgb, var(--isl-st-revision) 35%, var(--panel)) !important;
+  color: var(--text-primary) !important;
+}
+
+/* 글럼프 응급실: 이모지 대신 선 아이콘(16px, stroke 1.8, 회녹), 경고 배지는 베이지 */
+.glump-er-title-icon, .glump-er-dx-icon, .glump-er-tool-card .glump-er-tool-icon {
+  display: inline-flex; align-items: center; justify-content: center; color: var(--isl-ink2);
+}
+.glump-er-title-icon svg, .glump-er-dx-icon svg, .glump-er-tool-icon svg { width: 16px; height: 16px; stroke-width: 1.8; }
+.glump-er-warn-badge {
+  color: var(--isl-ink2) !important; background: var(--isl-sunk) !important;
+  border: 1px solid var(--line) !important; font-weight: 500 !important;
+}

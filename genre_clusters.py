@@ -100,14 +100,12 @@ CLUSTER_HIDDEN_FEATURES: dict[str, frozenset[str]] = {
     "webnovel": frozenset(),
     "genre_literature": frozenset(),
     "locked": frozenset(),
+    # 문학에서도 회차 요약(summarize)·떡밥·복선 탐색기(foreshadow)·설정 붕괴 감지기(worldscan)는 쓴다
     "general_literature": frozenset({
         "baits",
         "success_profile",
-        "summarize",
-        "foreshadow",
         "plottwist",
         "temphook",
-        "worldscan",
         "successfeedback",
         "worlddesc",
         "successpattern",
