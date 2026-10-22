@@ -4247,3 +4247,56 @@ body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
 .is-wide-panel-card [hidden] { display: none !important; }
 /* 다중 회차 칸은 #id 규칙(styles.css)이 flex !important 로 .hidden 을 이겨서 숨겨도 자리를 차지했다 */
 #summarizeMultiSceneWrap.hidden, #analyzeMultiSceneWrap.hidden, #worldscanMultiSceneWrap.hidden { display: none !important; }
+
+/* ═════ 첨삭 피드백 패널 — 옵션 화면 공통 틀로 껍데기 통일 (1단계: 색·머리글·탭·버튼) ═════
+   기능·위치 표시 로직은 그대로, 보이는 틀만 docs/design-guidelines.md §2·§4 와 맞춘다 */
+.feedback-panel {
+  --wp-beige: color-mix(in srgb, var(--isl-desk) 60%, var(--panel));
+  --wp-sage: color-mix(in srgb, var(--accent) 22%, var(--isl-ink3));
+  --wp-sage-line: color-mix(in srgb, var(--wp-sage) 40%, var(--panel));
+  background: var(--panel);
+}
+/* 머리글: 제목 500 · 회차명은 작은 흐린 글자 · 아이콘 버튼은 테두리 없는 회녹 */
+.feedback-panel .fb-chrome { padding: 10px 14px 6px; gap: 8px; }
+.feedback-panel .fb-app-title { font-size: 15px !important; font-weight: 500 !important; letter-spacing: 0; }
+.feedback-panel .fb-title-scene { font-size: 12px !important; font-weight: 400 !important; color: var(--isl-ink3) !important; }
+.feedback-panel .fb-icon-btn,
+.feedback-panel .fb-chrome-close,
+.fb-chrome-icons .wide-panel-size-btn {
+  width: 28px; height: 28px; min-width: 28px; border: 0 !important; background: transparent !important;
+  color: var(--wp-sage) !important; border-radius: var(--isl-r-sm) !important; box-shadow: none !important;
+}
+.feedback-panel .fb-icon-btn:hover,
+.feedback-panel .fb-chrome-close:hover,
+.fb-chrome-icons .wide-panel-size-btn:hover { background: var(--isl-sunk) !important; color: var(--text-primary) !important; }
+/* 이전 분석 기록 선택: 베이지 바탕 · 회녹 선 */
+.feedback-panel .fb-run-select select {
+  border: 1px solid var(--line); border-radius: var(--isl-r-sm); background: var(--panel); color: var(--isl-ink2);
+}
+.feedback-panel .fb-run-select select:focus,
+.feedback-panel .fb-run-select select:focus-visible { border-color: var(--wp-sage-line); }
+.feedback-panel .fb-run-tag { background: var(--wp-beige); color: var(--isl-ink2); font-weight: 400; }
+/* 새로 분석 = 앱 공통 주요 버튼(--accent 채움) */
+.feedback-panel .fb-ctrl-primary,
+.feedback-panel .primary.compact-btn { border-radius: var(--isl-r-sm); font-weight: 500; }
+/* 새 분석 팝오버: 선택 카드는 목차 현재 줄 색 + 회녹 선 */
+.feedback-panel .fb-pop { border-color: var(--line); border-radius: 14px; box-shadow: var(--isl-pop-shadow); }
+.feedback-panel .fb-pop-title { font-weight: 500; }
+.feedback-panel .fb-lens-card { border-color: var(--line); border-radius: var(--isl-r-sm); color: var(--isl-ink2); }
+.feedback-panel .fb-lens-card:hover { background: var(--isl-sunk); }
+.feedback-panel .fb-lens-card.is-on { background: var(--isl-desk); border-color: var(--wp-sage-line); color: var(--text-primary); }
+.feedback-panel .fb-lens-rec { color: var(--wp-sage); font-weight: 400; }
+.feedback-panel .fb-lens-card span { color: var(--isl-ink3); }
+/* 탭 = 앱 공통 세그먼트(베이지 바탕, 선택 탭은 패널색 + 선) */
+.feedback-panel .fb-tabs {
+  height: auto; margin: 4px 14px 8px; padding: 3px; gap: 2px; border: 0;
+  background: var(--wp-beige); border-radius: 10px;
+}
+.feedback-panel .fb-tab {
+  flex: 1 1 0; height: 30px; min-height: 30px; padding: 0 8px; border-radius: 8px;
+  color: var(--isl-ink2); font-size: 12.5px; font-weight: 400; box-shadow: none;
+}
+.feedback-panel .fb-tab:hover { color: var(--text-primary); }
+.feedback-panel .fb-tab.is-active {
+  background: var(--panel); color: var(--text-primary); font-weight: 500; box-shadow: 0 0 0 1px var(--line);
+}
