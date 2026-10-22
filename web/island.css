@@ -1738,6 +1738,10 @@ body.focus-write-open .isl-ai-badge.is-intro img { animation: islBadgeIntro 1.4s
 
 /* 타이틀바: 패널 간격은 그대로, 위 공간만 8px 늘려 검색바에 여유를 준다 */
 .app-titlebar, html.is-electron .app-titlebar { height: 40px !important; min-height: 40px !important; }
+/* 고정 메모 띠(32px)는 40px 타이틀바 안에서 세로 가운데 — 맨 위(top 0)에 붙어 4px 떠 보이던 것.
+ *  요청: 마스코트부터 이어지는 왼쪽 아이콘 묶음과 메모 띠를 함께 아래로(1.5mm 내린 뒤 0.7mm 되올림 = 0.8mm) */
+.app-titlebar .header-notice-strip, html.is-electron .app-titlebar .header-notice-strip { top: 50%; transform: translateY(calc(-50% + 0.8mm)); }
+.app-titlebar .titlebar-leading { transform: translateY(0.8mm); }
 
 /* 양끝 패널은 창 가장자리에 붙인다: 바깥쪽 여백·테두리·둥근 모서리 없음 (가운데 쪽 모서리와 패널 사이 간격은 그대로) */
 main { padding-left: 0 !important; padding-right: 0 !important; }
@@ -1777,6 +1781,12 @@ main { padding-left: 0 !important; padding-right: 0 !important; }
 /* 왼쪽이나 오른쪽 패널 중 하나라도 접혔을 때: 열린 회차 탭 줄을 가운데에 둔다 (오른쪽 spacer 대신 양쪽 auto 여백이 남는 칸을 나눈다) */
 body:is(.binder-panel-collapsed, .ai-panel-collapsed) .episode-tab-row-spacer { flex: 0 0 4px; }
 body:is(.binder-panel-collapsed, .ai-panel-collapsed) .episode-tab-bar { margin-left: auto; margin-right: auto; }
+/* 회차 탭 줄 양끝의 패널 여닫기 버튼은 그 쪽 패널이 접혔을 때만 보인다
+ *  — 펼쳐져 있으면 패널 머리의 여닫기 아이콘이 이미 있으므로 같은 기능을 둘 두지 않는다 */
+body:not(.binder-panel-collapsed) .episode-tab-row-toggle-left { display: none !important; }
+body:not(.ai-panel-collapsed) .episode-tab-row-toggle-right { display: none !important; }
+/* 아이콘은 패널 머리의 것과 같은 굵기(1.5px) */
+.episode-tab-row-toggle svg.panel-collapse-icon { stroke-width: 1.5; }
 
 /* ═════ 기록·타이머 위젯 (알약 한 줄 + 공용 설정 팝오버) — 시안 timer-widget-v6 ═════ */
 .idea-float.dock-float.dock-float-writing-timer {
@@ -4091,8 +4101,6 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 }
 .idea-float-close::after { transform: translate(-50%, -50%) rotate(-45deg); }
 
-/* 열린 회차 탭 줄의 좌·우 패널 열고 닫기 화살표(‹ ›): 선을 얇게 */
-.episode-tab-row-toggle svg, .episode-tab-row-toggle svg * { stroke-width: 1.5px !important; }
 
 /* ═════ 관리자 모드 — 왼쪽 구역 목록 + 오른쪽 내용 (시안 B) ═════
    색은 시안의 고정색이 아니라 테마 변수(--panel / --isl-sunk / --line / --isl-ink*)만 쓴다 */

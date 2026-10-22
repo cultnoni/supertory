@@ -261,7 +261,7 @@
 
     <link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
     <link rel="stylesheet" href="/styles.css?v=1.4.262">
-    <link rel="stylesheet" href="/island.css?v=111">
+    <link rel="stylesheet" href="/island.css?v=118">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -2172,10 +2172,11 @@
             <!-- 열린문서 탭: 제목 카드 위(밖) · 좌우는 카드와 동일 거터 -->
             <div class="episode-chrome" id="episodeChrome" aria-label="회차 이동" data-i18n-aria-label="index.회차_이동">
               <div class="episode-tab-row">
-                <button type="button" class="episode-tab-row-toggle episode-tab-row-toggle-left" id="episodeTabLeftPanelToggle" title="왼쪽 패널 열고 닫기" data-i18n-title="index.왼쪽_패널_열고_닫기" aria-label="왼쪽 패널 열고 닫기" data-i18n-aria-label="index.왼쪽_패널_열고_닫기"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"/></svg></button>
+                <!-- 패널이 접혔을 때만 보인다 — 패널 머리의 여닫기 아이콘(네모+세로선)이 이 자리로 옮겨온 것 -->
+                <button type="button" class="episode-tab-row-toggle episode-tab-row-toggle-left" id="episodeTabLeftPanelToggle" title="바인더 열기" data-i18n-title="index.바인더_열기" aria-label="바인더 열기" data-i18n-aria-label="index.바인더_열기"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="panel-collapse-icon lucide lucide-panel-left" aria-hidden="true" focusable="false"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button>
                 <div class="episode-tab-bar" id="episodeTabBar" role="tablist" aria-label="열린 회차 탭" data-i18n-aria-label="index.열린_회차_탭"></div>
                 <div class="episode-tab-row-spacer"></div>
-                <button type="button" class="episode-tab-row-toggle episode-tab-row-toggle-right" id="episodeTabRightPanelToggle" title="오른쪽 패널 열고 닫기" data-i18n-title="index.오른쪽_패널_열고_닫기" aria-label="오른쪽 패널 열고 닫기" data-i18n-aria-label="index.오른쪽_패널_열고_닫기"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 18 6-6-6-6"/></svg></button>
+                <button type="button" class="episode-tab-row-toggle episode-tab-row-toggle-right" id="episodeTabRightPanelToggle" title="SuperTORY 펼치기" data-i18n-title="island.패널_펼치기" aria-label="SuperTORY 펼치기" data-i18n-aria-label="island.패널_펼치기"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="panel-collapse-icon lucide lucide-panel-right" aria-hidden="true" focusable="false"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg></button>
               </div>
             </div>
             <form id="sceneEditor" class="editor">
