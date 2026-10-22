@@ -12383,6 +12383,14 @@ async function seedSampleWorksIfFirstRun() {
     return false;
   }
   let created = 0;
+  const attempt = async (label, fn) => {
+    try {
+      return await fn();
+    } catch (error) {
+      console.warn("sample work seed step failed:", label, error);
+      return null;
+    }
+  };
   for (const work of pack.works || []) {
     try {
       const project = await api("/api/projects", {
@@ -12397,18 +12405,37 @@ async function seedSampleWorksIfFirstRun() {
       });
       const projectId = Number(project?.id);
       if (!projectId) continue;
-      if (work.settings?.description_md) {
-        await api(`/api/projects/${projectId}/settings`, {
-          method: "PUT",
-          body: JSON.stringify({ synopsis_md: work.settings.description_md }),
-        });
-      }
-      for (const chapterSeed of work.chapters || []) {
+
+      // 설정집: 시놉시스·로그라인·작품소개·기획의도·키워드·세계관·문체
+      await attempt("settings", async () => {
+        const st = work.settings || {};
+        const body = {};
+        for (const key of ["synopsis_md", "logline_md", "intro_md", "intent_md", "tory_priority_md"]) {
+          if (st[key]) body[key] = st[key];
+        }
+        if (Array.isArray(st.keywords) && st.keywords.length) body.keywords = st.keywords;
+        if (st.world) {
+          const values = emptyWorldBuildingValues();
+          Object.assign(values, st.world);
+          values.extras = Array.isArray(st.extras) ? st.extras : [];
+          body.worldbuilding_md = composeWorldbuildingMd(values);
+        }
+        if (st.style) Object.assign(body, st.style);
+        if (Object.keys(body).length) {
+          await api(`/api/projects/${projectId}/settings`, { method: "PUT", body: JSON.stringify(body) });
+        }
+      });
+
+      // 회차
+      const sceneIds = {};
+      for (let ci = 0; ci < (work.chapters || []).length; ci += 1) {
+        const chapterSeed = work.chapters[ci];
         const chapter = await api(`/api/projects/${projectId}/chapters`, {
           method: "POST",
           body: JSON.stringify({ title: chapterSeed.title }),
         });
-        for (const sceneSeed of chapterSeed.scenes || []) {
+        for (let si = 0; si < (chapterSeed.scenes || []).length; si += 1) {
+          const sceneSeed = chapterSeed.scenes[si];
           const scene = await api(`/api/chapters/${chapter.id}/scenes`, {
             method: "POST",
             body: JSON.stringify({ title: sceneSeed.title }),
@@ -12418,14 +12445,105 @@ async function seedSampleWorksIfFirstRun() {
             method: "PUT",
             body: JSON.stringify({
               title: sceneSeed.title,
-              status: "draft",
+              status: sceneSeed.status || "draft",
               synopsis_md: "",
               notes_md: "",
               content_md: sceneSeed.content_html,
               row_version: detail.row_version,
             }),
           });
+          sceneIds[`${ci}:${si}`] = Number(scene.id);
         }
+      }
+
+      // 인물
+      const characterIds = {};
+      for (const ch of work.characters || []) {
+        await attempt(`character ${ch.name}`, async () => {
+          const made = await api(`/api/projects/${projectId}/characters`, {
+            method: "POST",
+            body: JSON.stringify({ name: ch.name }),
+          });
+          const id = Number(made?.id);
+          if (!id) return;
+          characterIds[ch.key] = id;
+          await api(`/api/characters/${id}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              name: ch.name,
+              role: ch.role || "",
+              short_description: ch.short_description || "",
+              profile_md: ch.profile_md || "",
+              strengths_md: ch.strengths_md || "",
+              weaknesses_md: ch.weaknesses_md || "",
+              author_notes_md: ch.author_notes_md || "",
+              aliases: ch.aliases || [],
+            }),
+          });
+        });
+      }
+      // 인물 관계
+      for (const rel of work.relations || []) {
+        const a = characterIds[rel.a];
+        const b = characterIds[rel.b];
+        if (!a || !b) continue;
+        await attempt(`relation ${rel.label}`, () => api(`/api/projects/${projectId}/character-relations`, {
+          method: "POST",
+          body: JSON.stringify({ character_a_id: a, character_b_id: b, label: rel.label }),
+        }));
+      }
+      // 회차별 등장인물·시점
+      for (const [key, info] of Object.entries(work.scene_members || {})) {
+        const sceneId = sceneIds[key];
+        if (!sceneId) continue;
+        const members = (info.members || [])
+          .filter(([ck]) => characterIds[ck])
+          .map(([ck, role]) => ({ character_id: characterIds[ck], appearance_role: role }));
+        await attempt(`scene members ${key}`, () => api(`/api/scenes/${sceneId}/characters`, {
+          method: "PUT",
+          body: JSON.stringify({ pov_id: info.pov ? characterIds[info.pov] || null : null, members }),
+        }));
+      }
+      // 아이템
+      for (const item of work.items || []) {
+        await attempt(`item ${item.name}`, () => api(`/api/projects/${projectId}/items`, {
+          method: "POST",
+          body: JSON.stringify({
+            name: item.name,
+            description: item.description || "",
+            owner_character_id: item.owner ? characterIds[item.owner] || null : null,
+            aliases: item.aliases || [],
+          }),
+        }));
+      }
+      // 사전
+      for (const term of work.dictionary || []) {
+        await attempt(`dictionary ${term.term}`, () => api(`/api/projects/${projectId}/dictionary-terms`, {
+          method: "POST",
+          body: JSON.stringify({ term: term.term, definition: term.definition || "", memo: term.memo || "" }),
+        }));
+      }
+      // 생각수첩
+      for (const idea of work.ideas || []) {
+        await attempt(`idea ${idea.title}`, () => api(`/api/projects/${projectId}/ideas`, {
+          method: "POST",
+          body: JSON.stringify({ title: idea.title, body_md: idea.body_md || "", color: idea.color || "yellow" }),
+        }));
+      }
+      // 떡밥
+      for (const bait of work.baits || []) {
+        await attempt(`bait ${bait.summary}`, () => {
+          const body = {
+            kind: bait.kind || "plant",
+            quote: bait.quote,
+            summary: bait.summary || "",
+            recover_at: bait.recover_at || "",
+            recover_content: bait.recover_content || "",
+          };
+          if (bait.plant_scene) body.plant_scene_id = sceneIds[bait.plant_scene.join(":")] || null;
+          if (bait.recover_scene) body.recover_scene_id = sceneIds[bait.recover_scene.join(":")] || null;
+          return api(`/api/projects/${projectId}/baits`, { method: "POST", body: JSON.stringify(body) });
+        });
       }
       created += 1;
     } catch (error) {
