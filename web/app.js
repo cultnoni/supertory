@@ -34046,11 +34046,12 @@ function islWidgetIcon(svg, size) {
  *  양쪽 패널을 모두 접으면 좌·우 두 레일로 나뉘어 위젯이 번갈아 채워진다. */
 const ISL_RAIL_GAP = 8;
 let islRailSide = "";
-/** 위젯 탭의 "열 때 자동 정렬" 토글 — 켜면 새 위젯이 항상 레일에 붙고, 끄면(기본) 떠 있는 창으로 열린다.
- *  끈 상태에서도 위젯을 레일에 끌어다 놓은 뒤로는 기존처럼 이어서 붙는다. */
+/** 위젯 탭의 "열 때 자동 정렬" 토글 — 켜면(기본) 새 위젯이 항상 레일에 붙고, 끄면 떠 있는 창으로 열린다.
+ *  끈 상태에서도 위젯을 레일에 끌어다 놓은 뒤로는 기존처럼 이어서 붙는다.
+ *  저장된 값이 없으면(처음 켠 사용자) 켜진 것으로 본다. "0"으로 저장된 경우에만 꺼진다. */
 const ISL_WIDGET_AUTOALIGN_KEY = "supertory.widgetAutoAlign";
 function islWidgetAutoAlignOn() {
-  try { return localStorage.getItem(ISL_WIDGET_AUTOALIGN_KEY) === "1"; } catch (_) { return false; }
+  try { return localStorage.getItem(ISL_WIDGET_AUTOALIGN_KEY) !== "0"; } catch (_) { return true; }
 }
 function setIslWidgetAutoAlign(on) {
   try { localStorage.setItem(ISL_WIDGET_AUTOALIGN_KEY, on ? "1" : "0"); } catch (_) { /* ignore */ }

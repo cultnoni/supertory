@@ -2214,6 +2214,9 @@ body.isl-snap-right::before { right: var(--isl-snap-right, 12px); }
 #formatToolbar .format-toolbar-row,
 #formatIconsToolbar .format-toolbar-row,
 #formatToolbarShell .format-toolbar-row { justify-content: center !important; }
+/* 가운데 맞춘 뒤 양끝 여백이 같도록: 본체의 왼쪽 안쪽 여백(6px)은 되돌리기 앞에만 더해지고
+ *  ⋯ 더보기는 본체 밖에 있어 오른쪽에는 그 여백이 없다 → 왼쪽만 줄여 아이콘·글자 기준으로 좌우를 맞춘다 */
+#formatToolbar .format-toolbar-row > .format-toolbar-row-body.format-toolbar-row-body-split { padding-left: 1px !important; }
 #formatIconsToolbar .format-toolbar-row-body,
 #formatIconsToolbar .format-toolbar-row-body.format-toolbar-row-body-split,
 .format-toolbar-row-icons .format-toolbar-row-body.format-toolbar-row-body-split { justify-content: center !important; }
