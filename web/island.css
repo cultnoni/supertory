@@ -4315,3 +4315,88 @@ body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
 }
 .idea-float-drag .wide-panel-size-btn:hover { background: var(--isl-sunk) !important; }
 .idea-float-drag .wide-panel-size-btn + [data-role="close-idea-float"] { margin-left: 0; }
+
+/* 첨삭 피드백 시작 화면: 분석 기록이 없으면 "새 분석" 내용을 팝오버가 아니라 리포트 탭 첫 화면에 펼쳐 둔다 */
+.feedback-panel .fb-start-inline:empty { display: none; }
+.feedback-panel .fb-start-pop.is-inline {
+  position: static; width: auto; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none;
+}
+.feedback-panel .fb-start-pop.is-inline .fb-pop-title { font-size: 12px; font-weight: 400; color: var(--isl-ink3); margin: 0 0 6px; }
+.feedback-panel .fb-start-pop.is-inline [data-role="fb-start-cancel"] { display: none; }
+.feedback-panel .fb-start-pop.is-inline .fb-pop-actions { justify-content: flex-end; margin-top: 14px; }
+.feedback-panel .fb-start-pop.is-inline [data-role="fb-start-go"] { height: 32px; padding: 0 16px; }
+/* 시작 화면이 보이는 동안은 아래의 "기록이 없어요" 안내를 숨긴다 */
+.feedback-panel .fb-start-inline:not(:empty) ~ .fb-result-status { display: none; }
+
+/* ═════ 첨삭 피드백 3단계 — 카드·리포트·히스토리 세부를 공통 틀에 맞춤 (색은 목차 상태 점/베이지/회녹) ═════ */
+/* 카드: 반경 12 · 선 · 중요도 색은 목차 상태 점 색(채도 낮춤) */
+.feedback-panel .fb-card { border-color: var(--line); border-radius: 12px; background: var(--panel); }
+.feedback-panel .fb-card.tier-high::before { background: var(--isl-st-revision); }
+.feedback-panel .fb-card.tier-medium::before { background: var(--isl-st-draft); }
+.feedback-panel .fb-card.tier-low::before { background: color-mix(in srgb, var(--isl-ink3) 55%, var(--panel)); }
+.feedback-panel .fb-card.is-active { border-color: var(--wp-sage-line); box-shadow: 0 0 0 2px color-mix(in srgb, var(--wp-sage) 22%, transparent); }
+.feedback-panel .fb-card.is-ignored { background: var(--wp-beige); }
+.feedback-panel .fb-card-num { background: var(--wp-beige); color: var(--isl-ink3); }
+.feedback-panel .fb-kind { font-weight: 500; }
+.feedback-panel .fb-card-title { font-weight: 500; }
+.feedback-panel .fb-reason { color: var(--isl-ink2); }
+.feedback-panel .fb-loc,
+.feedback-panel .fb-diff-summary,
+.feedback-panel .fb-compare-label { color: var(--isl-ink3); }
+/* 배지: 베이지 기본, 중요도만 목차 점 색을 옅게 */
+.feedback-panel .fb-badge { background: var(--wp-beige); color: var(--isl-ink2); font-weight: 400; }
+.feedback-panel .fb-badge.pri-high { background: color-mix(in srgb, var(--isl-st-revision) 40%, var(--panel)); }
+.feedback-panel .fb-badge.pri-medium { background: color-mix(in srgb, var(--isl-st-draft) 24%, var(--panel)); }
+.feedback-panel .fb-badge.pri-low,
+.feedback-panel .fb-badge.pri-ref,
+.feedback-panel .fb-badge.pri-analyzing { background: var(--wp-beige); }
+/* 원문/수정안 비교: 베이지 바탕, 삭제·추가 표시는 옅게 */
+.feedback-panel .fb-compare-text { background: var(--wp-beige); border-radius: var(--isl-r-sm); color: var(--text-primary); }
+.feedback-panel .fb-del { background: color-mix(in srgb, var(--isl-st-revision) 45%, var(--panel)); }
+.feedback-panel .fb-add { background: color-mix(in srgb, var(--isl-st-complete) 24%, var(--panel)); }
+.feedback-panel .fb-nl-del { background: color-mix(in srgb, var(--isl-st-revision) 40%, var(--panel)); color: var(--isl-ink2); }
+.feedback-panel .fb-warn-toggle { background: var(--wp-beige); color: var(--isl-ink2); border-radius: var(--isl-r-sm); }
+.feedback-panel .fb-maybe { color: var(--isl-ink2); }
+/* 카드 버튼: 주요 = 앱 공통 주요 버튼(--accent 채움), 나머지 = 베이지 */
+.feedback-panel .fb-card-actions .fb-primary,
+.feedback-panel .fb-inline-box .fb-primary {
+  background: var(--accent); color: var(--panel); border-radius: var(--isl-r-sm); font-weight: 500;
+}
+.feedback-panel .secondary.compact-btn,
+.feedback-panel .fb-card-actions .secondary {
+  border: 0; background: var(--isl-sunk); color: var(--text-primary); border-radius: var(--isl-r-sm); font-weight: 400;
+}
+.feedback-panel .secondary.compact-btn:hover { background: color-mix(in srgb, var(--isl-sunk) 80%, var(--text-primary)); }
+.feedback-panel .fb-talk-chip { border-color: var(--line); color: var(--isl-ink3); }
+.feedback-panel .fb-talk-msg { border-color: var(--line); }
+.feedback-panel .fb-talk-msg.is-user { background: var(--isl-desk); }
+.feedback-panel .fb-talk-msg.is-ai { background: var(--wp-beige); }
+.feedback-panel .fb-talk-who { font-weight: 500; }
+/* 카드 탭 도구줄: 선 · 정렬 세그먼트 = 공통 세그먼트(선택은 패널색 + 선) */
+.feedback-panel .fb-cards-toolbar { border-bottom-color: var(--line); }
+.feedback-panel .fb-cards-summary { color: var(--isl-ink3); font-size: 12.5px; }
+.feedback-panel .fb-cards-summary strong { color: var(--text-primary); font-weight: 500; }
+.feedback-panel .fb-seg { border: 0; border-radius: 10px; background: var(--wp-beige); }
+.feedback-panel .fb-seg-btn { color: var(--isl-ink2); font-weight: 400; border-radius: 8px; }
+.feedback-panel .fb-seg-btn.is-on { background: var(--panel); color: var(--text-primary); font-weight: 500; box-shadow: 0 0 0 1px var(--line); }
+.feedback-panel .fb-toggle { background: color-mix(in srgb, var(--isl-ink3) 40%, var(--panel)); }
+.feedback-panel .fb-toggle[aria-checked="true"] { background: var(--wp-sage); }
+.feedback-panel .fb-group-h { font-weight: 500; color: var(--isl-ink3); border-bottom-color: var(--line); }
+.feedback-panel .fb-dot.is-high::before { background: var(--isl-st-revision); }
+.feedback-panel .fb-dot.is-medium::before { background: var(--isl-st-draft); }
+.feedback-panel .fb-dot.is-low::before { background: color-mix(in srgb, var(--isl-ink3) 55%, var(--panel)); }
+/* 리포트: 요약은 베이지 박스, 점수표 머리는 작은 흐린 글자, 구역 제목은 라벨 톤 */
+.feedback-panel .fb-fold { font-weight: 500; }
+.feedback-panel .fb-summary { background: var(--wp-beige); border-radius: 10px; padding: 8px 10px; color: var(--isl-ink2); }
+.feedback-panel .fb-scores th { font-weight: 400; color: var(--isl-ink3); }
+.feedback-panel .fb-scores th, .feedback-panel .fb-scores td { border-bottom-color: var(--line); }
+.feedback-panel .fb-report h4 { font-size: 12px; font-weight: 400; color: var(--isl-ink3); margin: 12px 0 4px; }
+.feedback-panel .fb-banner { background: var(--wp-beige); color: var(--isl-ink2); border-radius: var(--isl-r-sm); }
+.feedback-panel .fb-progress-bar span { background: var(--wp-sage); }
+/* 히스토리: 행 = 카드 톤, 대표 표시는 베이지 */
+.feedback-panel .fb-hist-row { border-color: var(--line); border-radius: 12px; }
+.feedback-panel .fb-hist-when { font-weight: 500; }
+.feedback-panel .fb-hist-status, .feedback-panel .fb-hist-counts, .feedback-panel .fb-hist-lens { color: var(--isl-ink3); }
+.feedback-panel .fb-hist-primary { background: var(--wp-beige); color: var(--isl-ink2); }
+/* 분석 중이 아닐 때 비어 있는 진행 막대가 보이던 것(hidden 이 display:flex 에 밀림) */
+.feedback-panel .fb-progress[hidden] { display: none !important; }

@@ -290,16 +290,33 @@
     return Boolean(stateBox.startPopOpen || stateBox.filterPopOpen || stateBox.displayPopOpen);
   }
 
+  /** 이 회차에 분석 기록이 없으면 "새 분석" 내용(강도·처음부터 다시 보기)을 팝오버가 아니라
+   *  리포트 탭의 시작 화면으로 바로 보여 준다. 같은 노드를 옮겨 쓰므로 버튼 동작은 그대로다 */
+  function placeStartPop(panel, startPop, startBtn) {
+    if (!startPop) return false;
+    const inlineHost = panel.querySelector("[data-role='fb-start-inline']");
+    const wrap = panel.querySelector(".fb-start-wrap");
+    const inline = Boolean(
+      inlineHost && stateBox.configured && stateBox.projectId && !stateBox.run && !stateBox.busy
+    );
+    const target = inline ? inlineHost : wrap;
+    if (target && startPop.parentNode !== target) target.appendChild(startPop);
+    startPop.classList.toggle("is-inline", inline);
+    if (startBtn) startBtn.hidden = inline;
+    return inline;
+  }
+
   function syncPopovers() {
     const panel = panelEl();
     if (!panel) return;
     const startPop = panel.querySelector("[data-role='fb-start-pop']");
     const startBtn = panel.querySelector("[data-role='fb-start']");
+    const startInline = placeStartPop(panel, startPop, startBtn);
     const filterPop = panel.querySelector("[data-role='fb-filter-pop']");
     const filterBtn = panel.querySelector("[data-role='fb-filter-menu']");
     const displayPop = panel.querySelector("[data-role='fb-display-pop']");
     const displayBtn = panel.querySelector("[data-role='fb-display-menu']");
-    if (startPop) startPop.hidden = !stateBox.startPopOpen;
+    if (startPop) startPop.hidden = startInline ? false : !stateBox.startPopOpen;
     if (startBtn) startBtn.setAttribute("aria-expanded", stateBox.startPopOpen ? "true" : "false");
     if (filterPop) filterPop.hidden = !stateBox.filterPopOpen;
     if (filterBtn) filterBtn.setAttribute("aria-expanded", stateBox.filterPopOpen ? "true" : "false");
