@@ -22845,6 +22845,11 @@ function widePanelHeadingSlot() {
       return { parent: drag, close: drag?.querySelector("[data-role='close-idea-float']") || null };
     }
   }
+  // 위젯(떠 있는 창)으로 띄운 옵션 화면: 카드 머리글(마스코트·제목)은 숨기고, 크기 전환 버튼은 위쪽 제목줄의 닫기(×) 옆으로
+  if (isWidePanelFloatOpen() && widePanelSession.id !== "markupfeedback") {
+    const drag = floatWin?.querySelector(".idea-float-drag");
+    if (drag) return { parent: drag, close: drag.querySelector("[data-role='close-idea-float']") || null };
+  }
   if (widePanelSession.id === "markupfeedback") {
     const icons = document.querySelector("#feedbackPanel .fb-chrome-icons");
     return { parent: icons, close: icons?.querySelector("[data-role='fb-close-chrome']") || null };
