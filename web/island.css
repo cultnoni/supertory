@@ -1677,7 +1677,8 @@ body.focus-write-open .isl-ai-badge.is-intro img { animation: islBadgeIntro 1.4s
 /* 탭 줄 아래 선: 줄 하나(바 안쪽 그림자)만 두고 현재 탭이 그 선을 덮는다 */
 .episode-tab-row { border-bottom: 0 !important; }
 .episode-chrome { border-bottom: 0 !important; }
-.episode-tab-bar { box-shadow: inset 0 -1px 0 var(--line); }
+/* 선은 탭 줄 전체(여닫기 버튼 아래까지)에 이어서 긋는다 */
+.episode-tab-row { box-shadow: inset 0 -1px 0 var(--line) !important; }
 .episode-tab { margin-bottom: 0 !important; }
 
 /* 개수 배지: 아이콘 위가 아니라 이름 글자 끝 오른쪽 위로 */
@@ -2152,7 +2153,7 @@ body.focus-write-open .isl-wdock {
 }
 body.focus-write-open .isl-wdock { justify-content: center; }
 /* 박스 높이는 아이콘 길이만큼만(위에 빈 공간 없이) — 아래는 패널 아래선에 맞춘 채 위로 자란다 */
-body.isl-wdock-open:not(.focus-write-open) .isl-wdock { transform: translateY(-9mm); top: auto !important; max-height: calc(100vh - 56px); overflow-y: auto; scrollbar-width: none; }
+body.isl-wdock-open:not(.focus-write-open) .isl-wdock { transform: none; top: auto !important; max-height: calc(100vh - 56px); overflow-y: auto; scrollbar-width: none; }
 .isl-wdock > *, .isl-wdock .isl-wd { pointer-events: auto; }
 .isl-wdock .isl-wdock-grid { gap: calc(6px - 1mm); }
 .isl-wdock-sep { display: none !important; }
@@ -2164,6 +2165,18 @@ body.isl-wdock-open:not(.focus-write-open) .isl-wdock { transform: translateY(-9
 .isl-wdock .isl-wd:hover { background: var(--isl-sunk) !important; color: var(--text-primary) !important; }
 .isl-wdock .isl-wd.is-open { background: var(--accent) !important; color: var(--accent-ink, white) !important; border-color: transparent !important; }
 .isl-wdock .isl-wdock-panel { font-size: 0; }
+/* 패널 여는 버튼(시안 A): 위젯 원형 버튼과 달리 테두리 없는 아이콘 + 아래 구분선 한 줄 */
+.isl-wdock .isl-wd.isl-wdock-panel {
+  background: transparent !important; border: 0 !important; box-shadow: none !important;
+  color: var(--isl-ink2) !important; border-radius: 10px !important;
+}
+.isl-wdock .isl-wd.isl-wdock-panel:hover { background: var(--isl-sunk) !important; color: var(--text-primary) !important; }
+.isl-wdock .isl-wdock-panel + .isl-wdock-sep { display: block !important; width: 26px; height: 1px; margin: 0 0 calc(6px - 1mm); background: var(--line); flex: 0 0 auto; }
+/* 끌어서 세로 위치 옮기기: 마스코트가 놓인 높이의 중심에 독이 뜬다 */
+body.isl-wdock-open:not(.focus-write-open) .isl-wdock.is-custom-y { transform: none; justify-content: flex-start; }
+body.ai-panel-collapsed:not(.focus-write-open) .isl-ai-badge,
+body.isl-wdock-open:not(.focus-write-open) .isl-wdock { touch-action: none; }
+body.isl-wdock-dragging, body.isl-wdock-dragging * { cursor: grabbing !important; user-select: none !important; }
 /* 독이 열려 있는 동안은 마스코트를 숨긴다(독 안에 마스코트가 같이 보이지 않도록) */
 body.isl-wdock-open:not(.focus-write-open) .isl-ai-badge { display: none !important; }
 

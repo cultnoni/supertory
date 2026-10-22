@@ -34313,6 +34313,98 @@ function renderIslWidgetTiles() {
   $("islWidgetEmpty")?.classList.toggle("hidden", groups.length > 0);
 }
 
+/** 마스코트·아이콘 독의 위치(창 크기 대비 중심 비율 {x, y}). 둘은 같은 중심을 공유한다 */
+const ISL_WDOCK_POS_KEY = "supertory.widgetDockPos";
+const ISL_WDOCK_DRAG_THRESHOLD = 5;
+let islWdockPos = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(ISL_WDOCK_POS_KEY) || "null");
+    const ok = (n) => Number.isFinite(n) && n > 0 && n < 1;
+    return v && ok(v.x) && ok(v.y) ? { x: v.x, y: v.y } : null;
+  } catch (_) { return null; }
+})();
+function islWdockDraggable() {
+  const cls = document.body.classList;
+  return cls.contains("ai-panel-collapsed") && !cls.contains("focus-write-open");
+}
+/** 중심 좌표(px)를 화면 안(타이틀바 아래~상태줄 위)으로 가둔다 */
+function clampIslWdockCenter(x, y, halfW, halfH) {
+  const minX = 8 + halfW;
+  const maxX = window.innerWidth - 8 - halfW;
+  const minY = 48 + halfH;
+  const maxY = window.innerHeight - 40 - halfH;
+  return {
+    x: Math.min(Math.max(x, minX), Math.max(minX, maxX)),
+    y: Math.min(Math.max(y, minY), Math.max(minY, maxY)),
+  };
+}
+function applyIslBadgePos() {
+  const badge = $("islAiBadge");
+  if (!badge) return;
+  if (!islWdockPos || !islWdockDraggable()) {
+    ["top", "bottom", "left", "right"].forEach((k) => badge.style.removeProperty(k));
+    return;
+  }
+  const halfW = (badge.offsetWidth || 68) / 2;
+  const halfH = (badge.offsetHeight || 68) / 2;
+  const c = clampIslWdockCenter(islWdockPos.x * window.innerWidth, islWdockPos.y * window.innerHeight, halfW, halfH);
+  badge.style.left = `${Math.round(c.x - halfW)}px`;
+  badge.style.top = `${Math.round(c.y - halfH)}px`;
+  badge.style.right = "auto";
+  badge.style.bottom = "auto";
+}
+function setIslWidgetDockCenter(x, y) {
+  if (!(window.innerHeight > 0 && window.innerWidth > 0)) return;
+  islWdockPos = { x: x / window.innerWidth, y: y / window.innerHeight };
+  applyIslBadgePos();
+  if (isIslWidgetDockOpen()) layoutIslWidgetDock();
+}
+/** 끌면 이동, 거의 안 움직였으면 클릭 — 손잡이 없이 마스코트와 독 어디든 잡고 끈다 */
+function bindIslWdockDrag(el) {
+  if (!el || el.dataset.islDragBound) return;
+  el.dataset.islDragBound = "1";
+  let drag = null;
+  let swallowClick = false;
+  el.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !islWdockDraggable()) return;
+    const rect = el.getBoundingClientRect();
+    drag = {
+      id: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false,
+      offX: event.clientX - (rect.left + rect.width / 2), offY: event.clientY - (rect.top + rect.height / 2),
+    };
+  });
+  el.addEventListener("pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    if (!drag.moved) {
+      if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < ISL_WDOCK_DRAG_THRESHOLD) return;
+      drag.moved = true;
+      try { el.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
+      document.body.classList.add("isl-wdock-dragging");
+    }
+    event.preventDefault();
+    setIslWidgetDockCenter(event.clientX - drag.offX, event.clientY - drag.offY);
+  });
+  const finish = (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    const moved = drag.moved;
+    drag = null;
+    if (!moved) return;
+    document.body.classList.remove("isl-wdock-dragging");
+    try { el.releasePointerCapture(event.pointerId); } catch (_) { /* ignore */ }
+    try { localStorage.setItem(ISL_WDOCK_POS_KEY, JSON.stringify(islWdockPos)); } catch (_) { /* ignore */ }
+    swallowClick = true;
+    window.setTimeout(() => { swallowClick = false; }, 60);
+  };
+  el.addEventListener("pointerup", finish);
+  el.addEventListener("pointercancel", finish);
+  el.addEventListener("click", (event) => {
+    if (!swallowClick) return;
+    swallowClick = false;
+    event.stopPropagation();
+    event.preventDefault();
+  }, true);
+}
+
 /** 아이콘 독: 패널을 접었을 때(마스코트)와 확장(집중 모드) 중의 위젯 입구 */
 function ensureIslWidgetDock() {
   let dock = $("islWidgetDock");
@@ -34323,6 +34415,7 @@ function ensureIslWidgetDock() {
   dock.setAttribute("role", "menu");
   dock.hidden = true;
   document.body.appendChild(dock);
+  bindIslWdockDrag(dock);
   dock.addEventListener("click", (event) => {
     const btn = event.target.closest?.("[data-isl-widget]");
     if (btn) {
@@ -34398,16 +34491,34 @@ function layoutIslWidgetDock() {
     dock.style.top = "";
     dock.style.bottom = "";
     dock.style.right = "";
+    dock.style.removeProperty("left");
     dock.classList.remove("is-compact");
     return;
   }
   const host = $("aiPanel") || document.querySelector("main") || document.body;
   const rect = host.getBoundingClientRect();
-  dock.style.top = `${Math.round(rect.top)}px`;
-  dock.style.bottom = `${Math.round(window.innerHeight - rect.bottom)}px`;
-  dock.style.right = `${Math.round(window.innerWidth - rect.right)}px`;
   dock.classList.remove("is-compact");
-  const available = rect.height;
+  if (islWdockPos) {
+    // 마스코트를 놓은 자리의 중심에 독을 맞춘다(화면 밖으로 나가지 않게 가둔다)
+    dock.classList.add("is-custom-y");
+    const w = dock.offsetWidth;
+    const h = dock.offsetHeight;
+    const c = clampIslWdockCenter(islWdockPos.x * window.innerWidth, islWdockPos.y * window.innerHeight, w / 2, h / 2);
+    dock.style.setProperty("top", `${Math.round(c.y - h / 2)}px`, "important");
+    dock.style.left = `${Math.round(c.x - w / 2)}px`;
+    dock.style.right = "auto";
+    dock.style.bottom = "auto";
+    return;
+  }
+  dock.classList.remove("is-custom-y");
+  dock.style.removeProperty("left");
+  // 기본 자리: 본문 영역의 오른쪽 안쪽 벽 · 아래쪽 선에 붙인다(화면 바깥 가장자리가 아니라)
+  const anchor = ($("workArea") || host).getBoundingClientRect();
+  dock.style.right = `${Math.round(window.innerWidth - anchor.right)}px`;
+  dock.style.removeProperty("top");
+  dock.style.top = `${Math.round(anchor.top)}px`;
+  dock.style.bottom = `${Math.round(window.innerHeight - anchor.bottom)}px`;
+  const available = anchor.height;
   if (dock.scrollHeight > available) dock.classList.add("is-compact");
 }
 function closeIslWidgetDock() {
@@ -34434,6 +34545,12 @@ function toggleIslWidgetDock() {
 function setupIslWidgetDock() {
   if (setupIslWidgetDock._bound) return;
   setupIslWidgetDock._bound = true;
+  bindIslWdockDrag($("islAiBadge"));
+  applyIslBadgePos();
+  window.addEventListener("resize", applyIslBadgePos);
+  if (typeof MutationObserver === "function") {
+    new MutationObserver(applyIslBadgePos).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  }
   $("islAiBadge")?.addEventListener("click", (event) => { event.stopPropagation(); toggleIslWidgetDock(); });
   $("islDockHandle")?.addEventListener("click", (event) => { event.stopPropagation(); toggleIslWidgetDock(); });
   document.addEventListener("click", (event) => {
