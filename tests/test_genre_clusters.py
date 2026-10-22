@@ -69,7 +69,11 @@ class GenreClusterLogicTests(unittest.TestCase):
         self.assertEqual(genre_clusters.infer_cluster_id("essay", "other", "tbd"), "general_literature")
         self.assertEqual(genre_clusters.infer_cluster_id("fairy_tale", "preschool", ""), "fairytale")
         self.assertFalse(genre_clusters.is_feature_visible("baits", "general_literature"))
-        self.assertFalse(genre_clusters.is_feature_visible("summarize", "general_literature"))
+        # 문학에서도 회차 요약·떡밥·복선 탐색기·설정 붕괴 감지기는 쓴다
+        self.assertTrue(genre_clusters.is_feature_visible("summarize", "general_literature"))
+        self.assertTrue(genre_clusters.is_feature_visible("foreshadow", "general_literature"))
+        self.assertTrue(genre_clusters.is_feature_visible("worldscan", "general_literature"))
+        self.assertFalse(genre_clusters.is_feature_visible("plottwist", "general_literature"))
         self.assertFalse(genre_clusters.is_feature_visible("reader_comments", "general_literature"))
         self.assertTrue(genre_clusters.is_feature_visible("baits", "fairytale"))
         self.assertFalse(genre_clusters.is_feature_visible("foreshadow", "fairytale"))

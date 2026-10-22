@@ -873,7 +873,7 @@ html[data-page-layout="flat"] .scene-workspace:not(.split-active) .manuscript-pa
 .isl-menu button:hover { background: var(--isl-sunk) !important; }
 
 /* ═════ 시안 대조 4차: 아이콘·굵기·글꼴·간격을 시안 값으로 ═════ */
-/* 타이틀바: 28px 버튼 · 17px 선 아이콘 · 굵기 1.8 */
+/* 타이틀바: 28px 버튼 · 17px 선 아이콘 · 굵기 1.5 */
 main { padding-top: 6px !important; }
 .app-titlebar .titlebar-leading { gap: 2px; }
 .app-titlebar .titlebar-icon-btn,
@@ -889,7 +889,7 @@ main { padding-top: 6px !important; }
 .app-titlebar .header-theme-btn:hover { background: color-mix(in srgb, var(--panel) 80%, transparent) !important; color: var(--text-primary) !important; }
 .app-titlebar .titlebar-icon-btn svg,
 .app-titlebar .header-theme-btn svg { width: 17px !important; height: 17px !important; }
-.app-titlebar svg, .app-titlebar svg * { stroke-width: 1.8px; }
+.app-titlebar svg, .app-titlebar svg * { stroke-width: 1.5px; }
 .app-titlebar .titlebar-mascot { width: 24px !important; height: 24px !important; }
 .titlebar-search { height: 30px; width: min(560px, 40vw); font-size: 13px; }
 
@@ -1551,10 +1551,13 @@ body.focus-write-open .isl-ai-badge:hover { border-color: color-mix(in srgb, var
 /* 서식줄은 어떤 폭에서도 한 줄: 좁아지면 간격 → 되돌리기 순으로 줄인다 */
 #formatToolbar .format-toolbar-row-body { flex-wrap: nowrap !important; overflow: hidden; }
 #formatToolbar.is-mini .format-toolbar-row-body { gap: 0 !important; }
-#formatToolbar.is-mini .format-btn, #formatToolbar.is-mini .format-btn-solo { min-width: 22px !important; padding-left: 3px !important; padding-right: 3px !important; }
+#formatToolbar.is-mini .format-btn, #formatToolbar.is-mini .format-btn-solo { min-width: 20px !important; padding-left: 3px !important; padding-right: 3px !important; }
+/* 경계 폭에서 본문 스타일·줄 간격 칸이 먼저 접히지 않도록 줄 안쪽 여백도 줄인다 */
+#formatToolbar.is-mini .format-toolbar-row { padding-left: 2px !important; padding-right: 2px !important; }
 #formatToolbar.is-mini select { font-size: 12.5px !important; padding-left: 2px !important; padding-right: 14px !important; }
 #formatToolbar.is-mini .format-seg, #formatToolbar.is-mini .format-field-chips { gap: 0 !important; margin-left: 0 !important; margin-right: 0 !important; }
-#formatToolbar.is-micro .format-seg-history { display: none !important; }
+/* 되돌리기·다시 실행은 폭이 모자라도 접지 않는다(줄 맨 앞이라 뒤쪽 도구부터 잘린다) */
+#formatToolbar .format-seg-history { display: inline-flex !important; flex: 0 0 auto; }
 #formatToolbar .format-toolbar-row-body { flex: 1 1 0 !important; min-width: 0 !important; }
 #formatToolbar.is-nano .format-field-chip:has(#formatParagraphStyle), #formatToolbar.is-nano .format-field-chip:has(#formatLineHeight), #formatToolbar.is-nano .toolbar-field:has(#formatLineHeight), #formatToolbar.is-nano .toolbar-field:has(#formatParagraphStyle) { display: none !important; }
 /* 그래도 폭이 모자라면 정렬·색 묶음도 접는다 — 같은 기능이 서식 더보기 팝오버(#islFmtPop)에 있다 */
@@ -1677,7 +1680,8 @@ body.focus-write-open .isl-ai-badge.is-intro img { animation: islBadgeIntro 1.4s
 /* 탭 줄 아래 선: 줄 하나(바 안쪽 그림자)만 두고 현재 탭이 그 선을 덮는다 */
 .episode-tab-row { border-bottom: 0 !important; }
 .episode-chrome { border-bottom: 0 !important; }
-.episode-tab-bar { box-shadow: inset 0 -1px 0 var(--line); }
+/* 선은 탭 줄 전체(여닫기 버튼 아래까지)에 이어서 긋는다 */
+.episode-tab-row { box-shadow: inset 0 -1px 0 var(--line) !important; }
 .episode-tab { margin-bottom: 0 !important; }
 
 /* 개수 배지: 아이콘 위가 아니라 이름 글자 끝 오른쪽 위로 */
@@ -1734,6 +1738,10 @@ body.focus-write-open .isl-ai-badge.is-intro img { animation: islBadgeIntro 1.4s
 
 /* 타이틀바: 패널 간격은 그대로, 위 공간만 8px 늘려 검색바에 여유를 준다 */
 .app-titlebar, html.is-electron .app-titlebar { height: 40px !important; min-height: 40px !important; }
+/* 고정 메모 띠(32px)는 40px 타이틀바 안에서 세로 가운데 — 맨 위(top 0)에 붙어 4px 떠 보이던 것.
+ *  요청: 마스코트부터 이어지는 왼쪽 아이콘 묶음과 메모 띠를 함께 아래로(1.5mm 내린 뒤 0.7mm 되올림 = 0.8mm) */
+.app-titlebar .header-notice-strip, html.is-electron .app-titlebar .header-notice-strip { top: 50%; transform: translateY(calc(-50% + 0.8mm)); }
+.app-titlebar .titlebar-leading { transform: translateY(0.8mm); }
 
 /* 양끝 패널은 창 가장자리에 붙인다: 바깥쪽 여백·테두리·둥근 모서리 없음 (가운데 쪽 모서리와 패널 사이 간격은 그대로) */
 main { padding-left: 0 !important; padding-right: 0 !important; }
@@ -1773,6 +1781,12 @@ main { padding-left: 0 !important; padding-right: 0 !important; }
 /* 왼쪽이나 오른쪽 패널 중 하나라도 접혔을 때: 열린 회차 탭 줄을 가운데에 둔다 (오른쪽 spacer 대신 양쪽 auto 여백이 남는 칸을 나눈다) */
 body:is(.binder-panel-collapsed, .ai-panel-collapsed) .episode-tab-row-spacer { flex: 0 0 4px; }
 body:is(.binder-panel-collapsed, .ai-panel-collapsed) .episode-tab-bar { margin-left: auto; margin-right: auto; }
+/* 회차 탭 줄 양끝의 패널 여닫기 버튼은 그 쪽 패널이 접혔을 때만 보인다
+ *  — 펼쳐져 있으면 패널 머리의 여닫기 아이콘이 이미 있으므로 같은 기능을 둘 두지 않는다 */
+body:not(.binder-panel-collapsed) .episode-tab-row-toggle-left { display: none !important; }
+body:not(.ai-panel-collapsed) .episode-tab-row-toggle-right { display: none !important; }
+/* 아이콘은 패널 머리의 것과 같은 굵기(1.5px) */
+.episode-tab-row-toggle svg.panel-collapse-icon { stroke-width: 1.5; }
 
 /* ═════ 기록·타이머 위젯 (알약 한 줄 + 공용 설정 팝오버) — 시안 timer-widget-v6 ═════ */
 .idea-float.dock-float.dock-float-writing-timer {
@@ -2084,10 +2098,9 @@ body.binder-panel-collapsed main { grid-template-columns: var(--isl-binder-rail-
 body.binder-panel-collapsed.ai-panel-collapsed main { grid-template-columns: var(--isl-binder-rail-w) minmax(0, 1fr) 0 !important; }
 body.binder-panel-collapsed:not(.binder-mini) #outlinePanel { overflow: hidden; padding: 0 !important; min-width: 0; }
 body.binder-panel-collapsed:not(.binder-mini) .binder-dock-rail { display: none !important; }
-body.binder-panel-collapsed:not(.binder-mini) #workArea { margin-left: calc(-1 * var(--isl-gap)); border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
-/* workArea 왼쪽 위 모서리가 각지면, 그 안의 열린 회차 탭 줄(자기 둥근 모서리를 따로 가짐)만
-   둥글게 남아 왼쪽 위에 따로 떨어진 둥근 네모 자국처럼 보인다 — 같이 각지게 맞춘다 */
-body.binder-panel-collapsed:not(.binder-mini) .episode-tab-row { border-top-left-radius: 0; }
+/* 왼쪽을 접으면 본문 섬이 왼쪽으로 밀려 나오되, 오른쪽과 같은 여백을 두고 네 모서리를 모두 둥글게 둔다(잘린 느낌 없이) */
+body.binder-panel-collapsed:not(.binder-mini) #workArea { margin-left: 0; }
+
 .isl-mini-nav { display: none; }
 body.binder-mini .binder-dock-rail { display: flex !important; flex-direction: column; align-items: center; gap: 6px; padding: 8px 4px !important; width: 100% !important; }
 body.binder-mini .isl-mini-nav { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1 1 auto; min-height: 0; width: 100%; order: 1; }
@@ -2152,7 +2165,7 @@ body.focus-write-open .isl-wdock {
 }
 body.focus-write-open .isl-wdock { justify-content: center; }
 /* 박스 높이는 아이콘 길이만큼만(위에 빈 공간 없이) — 아래는 패널 아래선에 맞춘 채 위로 자란다 */
-body.isl-wdock-open:not(.focus-write-open) .isl-wdock { transform: translateY(-9mm); top: auto !important; max-height: calc(100vh - 56px); overflow-y: auto; scrollbar-width: none; }
+body.isl-wdock-open:not(.focus-write-open) .isl-wdock { transform: none; top: auto !important; max-height: calc(100vh - 56px); overflow-y: auto; scrollbar-width: none; }
 .isl-wdock > *, .isl-wdock .isl-wd { pointer-events: auto; }
 .isl-wdock .isl-wdock-grid { gap: calc(6px - 1mm); }
 .isl-wdock-sep { display: none !important; }
@@ -2164,6 +2177,18 @@ body.isl-wdock-open:not(.focus-write-open) .isl-wdock { transform: translateY(-9
 .isl-wdock .isl-wd:hover { background: var(--isl-sunk) !important; color: var(--text-primary) !important; }
 .isl-wdock .isl-wd.is-open { background: var(--accent) !important; color: var(--accent-ink, white) !important; border-color: transparent !important; }
 .isl-wdock .isl-wdock-panel { font-size: 0; }
+/* 패널 여는 버튼(시안 A): 위젯 원형 버튼과 달리 테두리 없는 아이콘 + 아래 구분선 한 줄 */
+.isl-wdock .isl-wd.isl-wdock-panel {
+  background: transparent !important; border: 0 !important; box-shadow: none !important;
+  color: var(--isl-ink2) !important; border-radius: 10px !important;
+}
+.isl-wdock .isl-wd.isl-wdock-panel:hover { background: var(--isl-sunk) !important; color: var(--text-primary) !important; }
+.isl-wdock .isl-wdock-panel + .isl-wdock-sep { display: block !important; width: 26px; height: 1px; margin: 0 0 calc(6px - 1mm); background: var(--line); flex: 0 0 auto; }
+/* 끌어서 세로 위치 옮기기: 마스코트가 놓인 높이의 중심에 독이 뜬다 */
+body.isl-wdock-open:not(.focus-write-open) .isl-wdock.is-custom-y { transform: none; justify-content: flex-start; }
+body.ai-panel-collapsed:not(.focus-write-open) .isl-ai-badge,
+body.isl-wdock-open:not(.focus-write-open) .isl-wdock { touch-action: none; }
+body.isl-wdock-dragging, body.isl-wdock-dragging * { cursor: grabbing !important; user-select: none !important; }
 /* 독이 열려 있는 동안은 마스코트를 숨긴다(독 안에 마스코트가 같이 보이지 않도록) */
 body.isl-wdock-open:not(.focus-write-open) .isl-ai-badge { display: none !important; }
 
@@ -2199,6 +2224,9 @@ body.isl-snap-right::before { right: var(--isl-snap-right, 12px); }
 #formatToolbar .format-toolbar-row,
 #formatIconsToolbar .format-toolbar-row,
 #formatToolbarShell .format-toolbar-row { justify-content: center !important; }
+/* 가운데 맞춘 뒤 양끝 여백이 같도록: 본체의 왼쪽 안쪽 여백(6px)은 되돌리기 앞에만 더해지고
+ *  ⋯ 더보기는 본체 밖에 있어 오른쪽에는 그 여백이 없다 → 왼쪽만 줄여 아이콘·글자 기준으로 좌우를 맞춘다 */
+#formatToolbar .format-toolbar-row > .format-toolbar-row-body.format-toolbar-row-body-split { padding-left: 1px !important; }
 #formatIconsToolbar .format-toolbar-row-body,
 #formatIconsToolbar .format-toolbar-row-body.format-toolbar-row-body-split,
 .format-toolbar-row-icons .format-toolbar-row-body.format-toolbar-row-body-split { justify-content: center !important; }
@@ -4073,5 +4101,419 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 }
 .idea-float-close::after { transform: translate(-50%, -50%) rotate(-45deg); }
 
-/* 열린 회차 탭 줄의 좌·우 패널 열고 닫기 화살표(‹ ›): 선을 얇게 */
-.episode-tab-row-toggle svg, .episode-tab-row-toggle svg * { stroke-width: 1.5px !important; }
+
+/* ═════ 관리자 모드 — 왼쪽 구역 목록 + 오른쪽 내용 (시안 B) ═════
+   색은 시안의 고정색이 아니라 테마 변수(--panel / --isl-sunk / --line / --isl-ink*)만 쓴다 */
+#adminModal .admin-modal-card {
+  width: min(800px, calc(100vw - 28px)) !important;
+  height: min(86vh, 700px);
+  max-height: none;
+  padding: 0 !important;
+  overflow: hidden !important;
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+#adminModal .admin-tabs {
+  grid-column: 1; grid-row: 1 / -1;
+  display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px;
+  margin: 0; padding: 16px 8px;
+  background: var(--isl-sunk);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+#adminModal .admin-tab {
+  border: 0 !important; border-radius: var(--isl-r-sm) !important;
+  background: transparent !important; box-shadow: none !important; outline: none !important; transform: none !important;
+  color: var(--isl-ink2) !important;
+  padding: 8px 12px; text-align: left; font-size: 13px; font-weight: 500;
+}
+#adminModal .admin-tab:hover { background: color-mix(in srgb, var(--panel) 65%, transparent) !important; color: var(--text-primary) !important; }
+#adminModal .admin-tab.is-active,
+#adminModal .admin-tab.is-active:hover {
+  background: var(--panel) !important; color: var(--text-primary) !important;
+  box-shadow: 0 0 0 1px var(--line) !important;
+}
+#adminModal .modal-heading { grid-column: 2; grid-row: 1; padding: 16px 18px 0 22px; }
+#adminModal .modal-hint { grid-column: 2; grid-row: 2; margin: 2px 22px 10px; font-size: 12.5px; color: var(--isl-ink3); }
+#adminModal .admin-panel { grid-column: 2; grid-row: 3; min-height: 0; overflow-y: auto; padding: 4px 18px 18px 22px; }
+/* 내용 카드: 패널색 바탕 + 선 + 반경 12 */
+#adminModal .admin-section-box,
+#adminModal .admin-account-card,
+#adminModal .admin-help-article,
+#adminModal .admin-qa-item {
+  background: var(--panel) !important; border: 1px solid var(--line) !important; border-radius: 12px !important;
+  color: var(--text-primary);
+}
+#adminModal .admin-section-title { font-family: var(--font-ui) !important; font-size: 15px; font-weight: 700; }
+#adminModal .admin-info-row { border-color: var(--line); }
+@media (max-width: 640px) {
+  #adminModal .admin-modal-card { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr); }
+  #adminModal .admin-tabs { grid-column: 1; grid-row: 2; flex-direction: row; flex-wrap: wrap; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--line); }
+  #adminModal .modal-heading { grid-column: 1; grid-row: 1; }
+  #adminModal .modal-hint { display: none; }
+  #adminModal .admin-panel { grid-column: 1; grid-row: 4; padding-left: 16px; }
+}
+/* 작품 관리: 작품명은 보통(레귤러) 굵기 */
+#adminModal .admin-project-item-title { font-weight: 400 !important; }
+
+/* 첨삭 검토(넓은 패널) 모드: 접힌 왼쪽 자리에 48px 빈 칸이 남던 것을 없앤다 — 본문 섬이 왼쪽 여백만 두고 그만큼 더 왼쪽으로 밀려 나온다 */
+body.fb-review-open main,
+body.fb-review-open.binder-panel-collapsed main,
+body.fb-review-open.ai-panel-collapsed main,
+body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
+  grid-template-columns: var(--isl-binder-rail-w, 0px) minmax(0, 1fr) var(--ai-panel-width) !important;
+}
+
+/* ═════ 선택하기 옵션 화면(넓은 패널) — 목차 기준 포인트 색으로 통일 (docs/design-guidelines.md §2·§4) ═════
+   베이지 = 목차 폴더 줄, 회녹 = 목차 폴더 아이콘, 선택 줄 = 목차의 현재 회차 줄(--isl-desk). 색은 테마 변수에서 섞는다. */
+.is-wide-panel-card {
+  --wp-beige: color-mix(in srgb, var(--isl-desk) 60%, var(--panel));
+  --wp-sage: color-mix(in srgb, var(--accent) 22%, var(--isl-ink3));
+  --wp-sage-line: color-mix(in srgb, var(--wp-sage) 40%, var(--panel));
+  --wp-sage-soft: color-mix(in srgb, var(--wp-sage) 20%, var(--panel));
+  --wp-sage-ink: color-mix(in srgb, var(--wp-sage) 55%, var(--text-primary));
+  background: var(--panel) !important;
+}
+/* 머리글: 제목 보통 굵기 · 크기 전환/닫기는 테두리 없는 회녹 아이콘 */
+.is-wide-panel-card .modal-heading h2,
+.is-wide-panel-card .tory-helper-title { font-weight: 500 !important; }
+.is-wide-panel-card .modal-close,
+.is-wide-panel-card .wide-panel-size-btn {
+  width: 28px; height: 28px; min-width: 28px; border: 0 !important; background: transparent !important;
+  color: var(--wp-sage) !important; border-radius: var(--isl-r-sm) !important; box-shadow: none !important;
+}
+.is-wide-panel-card .modal-close:hover,
+.is-wide-panel-card .wide-panel-size-btn:hover { background: var(--isl-sunk) !important; color: var(--text-primary) !important; }
+/* 안내 박스 = 베이지 한 줄 */
+.is-wide-panel-card .guide-tip-box,
+.is-wide-panel-card .tory-helper-callout {
+  background: var(--wp-beige) !important; border: 0 !important; border-radius: 10px !important;
+  color: var(--isl-ink2) !important; box-shadow: none !important;
+}
+.is-wide-panel-card .tory-helper-lead,
+.is-wide-panel-card #aiToolModalLead,
+.is-wide-panel-card .guide-tip-box .hint { color: var(--isl-ink2) !important; font-weight: 400 !important; }
+/* 질문·구역 라벨: 작은 흐린 글자 */
+.is-wide-panel-card .tory-helper-question,
+.is-wide-panel-card .tory-helper-section-label,
+.is-wide-panel-card .wide-pick-count {
+  color: var(--isl-ink3) !important; font-weight: 400 !important;
+}
+/* 세그먼트 */
+.is-wide-panel-card .wide-seg { background: var(--wp-beige) !important; }
+.is-wide-panel-card .wide-seg .continue-length-option { color: var(--isl-ink2); border-color: transparent; }
+.is-wide-panel-card .wide-seg .continue-length-option:has(input:checked) {
+  background: var(--panel) !important; border-color: transparent !important; font-weight: 500 !important;
+  color: var(--text-primary); box-shadow: 0 0 0 1px var(--line);
+}
+/* 회차 선택 줄: 선택 = 목차의 현재 줄 색, 체크박스 = 회녹 */
+.is-wide-panel-card .wide-pick-row { border-radius: var(--isl-r-sm); color: var(--isl-ink2); }
+.is-wide-panel-card .wide-pick-row:hover { background: var(--isl-sunk); }
+.is-wide-panel-card .wide-pick-row.is-selected { background: var(--isl-desk); color: var(--text-primary); }
+.is-wide-panel-card .wide-pick-box { border-color: var(--wp-sage-line); background: var(--panel); }
+.is-wide-panel-card .wide-pick-row.is-selected .wide-pick-box {
+  background: var(--wp-sage); border-color: var(--wp-sage); box-shadow: inset 0 0 0 2px var(--panel);
+}
+.is-wide-panel-card .wide-pick-now { color: var(--isl-ink3); }
+/* 목록 아래 선택 제목: 큰 굵은 제목 대신 작은 보조 글자(선택은 목록의 선택 줄로 보인다) */
+.is-wide-panel-card .wide-pick-current { font-size: 12px !important; font-weight: 400 !important; color: var(--isl-ink2) !important; margin: 6px 0 0; }
+/* 하단 주요 버튼은 앱 공통 주요 버튼(--accent 채움, .modal-card .primary)을 그대로 쓴다 — 시작·보내기 등과 같은 모양 */
+.is-wide-panel-card .wide-panel-back { border-color: var(--line); border-radius: var(--isl-r-sm); background: var(--panel); color: var(--isl-ink2); }
+
+/* 도구 · 선택하기 리스트: 호버는 본문 회차(.scene-link:hover)와 같은 평평한 --isl-sunk(뜨는 효과·그림자·테두리 없음), 진한 초록·굵은 글씨 제거 */
+.ai-mode-picker {
+  --wp-sage: color-mix(in srgb, var(--accent) 22%, var(--isl-ink3));
+  --wp-sage-line: color-mix(in srgb, var(--wp-sage) 40%, var(--panel));
+}
+.ai-mode-picker-option:hover {
+  box-shadow: none !important; transform: none !important; outline: 0 !important;
+  background: var(--isl-sunk) !important;
+}
+.ai-mode-picker-option.is-active { background: var(--isl-desk) !important; color: var(--text-primary) !important; }
+.ai-mode-picker-option.is-success,
+.ai-mode-picker-option.is-coming { color: var(--isl-ink2) !important; font-weight: 400 !important; }
+.ai-mode-picker.is-success-mode .ai-mode-picker-btn,
+.ai-mode-picker.is-coming-mode .ai-mode-picker-btn { color: var(--text-primary); font-weight: 400; border-color: var(--line); }
+.ai-mode-picker-btn:hover,
+.ai-mode-picker.is-open .ai-mode-picker-btn { border-color: var(--wp-sage-line); }
+.ai-mode-picker-group-label { font-weight: 500; color: var(--isl-ink3); }
+
+/* 위젯(떠 있는 창)으로 띄운 넓은 패널: 위쪽 제목줄에 이미 닫기(×)가 있으므로 카드 안쪽 닫기는 숨긴다 */
+.idea-float-body > .modal-card.is-wide-panel-card .modal-heading .modal-close { display: none !important; }
+
+/* 회차 목록이 있는 옵션 화면: 창 높이를 끝까지 쓰고, 목록이 남는 자리를 채운다(넘치면 목록 안에서 스크롤).
+   목록이 없는 화면은 지금처럼 내용 높이에 맞춘다 */
+.fb-review-host > .modal-card.is-wide-panel-card:has(.wide-pick, [class*="multi-scene-list"]),
+.idea-float-body > .modal-card.is-wide-panel-card:has(.wide-pick, [class*="multi-scene-list"]) {
+  height: 100% !important; max-height: none !important; flex: 1 1 auto !important;
+  display: flex; flex-direction: column;
+}
+.is-wide-panel-card:has(.wide-pick, [class*="multi-scene-list"]) > * { flex: 0 0 auto; }
+.is-wide-panel-card:has(.wide-pick, [class*="multi-scene-list"]) > .tory-other-scene-wrap:has(.wide-pick-row),
+.is-wide-panel-card:has(.wide-pick, [class*="multi-scene-list"]) > .foreshadow-field:not(.hidden):has([class*="multi-scene-list"]:not(:empty)) {
+  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+}
+.is-wide-panel-card .wide-pick,
+.is-wide-panel-card [class*="multi-scene-list"] { flex: 1 1 0; min-height: 120px; max-height: none !important; overflow: auto; }
+.is-wide-panel-card:has(.wide-pick, [class*="multi-scene-list"]) > .modal-actions { margin-top: 12px; }
+.is-wide-panel-card .hidden,
+.is-wide-panel-card [hidden] { display: none !important; }
+/* 다중 회차 칸은 #id 규칙(styles.css)이 flex !important 로 .hidden 을 이겨서 숨겨도 자리를 차지했다 */
+#summarizeMultiSceneWrap.hidden, #analyzeMultiSceneWrap.hidden, #worldscanMultiSceneWrap.hidden { display: none !important; }
+
+/* ═════ 첨삭 피드백 패널 — 옵션 화면 공통 틀로 껍데기 통일 (1단계: 색·머리글·탭·버튼) ═════
+   기능·위치 표시 로직은 그대로, 보이는 틀만 docs/design-guidelines.md §2·§4 와 맞춘다 */
+.feedback-panel {
+  --wp-beige: color-mix(in srgb, var(--isl-desk) 60%, var(--panel));
+  --wp-sage: color-mix(in srgb, var(--accent) 22%, var(--isl-ink3));
+  --wp-sage-line: color-mix(in srgb, var(--wp-sage) 40%, var(--panel));
+  background: var(--panel);
+}
+/* 머리글: 제목 500 · 회차명은 작은 흐린 글자 · 아이콘 버튼은 테두리 없는 회녹 */
+.feedback-panel .fb-chrome { padding: 10px 14px 6px; gap: 8px; }
+.feedback-panel .fb-app-title { font-size: 15px !important; font-weight: 500 !important; letter-spacing: 0; }
+.feedback-panel .fb-title-scene { font-size: 12px !important; font-weight: 400 !important; color: var(--isl-ink3) !important; }
+.feedback-panel .fb-icon-btn,
+.feedback-panel .fb-chrome-close,
+.fb-chrome-icons .wide-panel-size-btn {
+  width: 28px; height: 28px; min-width: 28px; border: 0 !important; background: transparent !important;
+  color: var(--wp-sage) !important; border-radius: var(--isl-r-sm) !important; box-shadow: none !important;
+}
+.feedback-panel .fb-icon-btn:hover,
+.feedback-panel .fb-chrome-close:hover,
+.fb-chrome-icons .wide-panel-size-btn:hover { background: var(--isl-sunk) !important; color: var(--text-primary) !important; }
+/* 이전 분석 기록 선택: 베이지 바탕 · 회녹 선 */
+.feedback-panel .fb-run-select select {
+  border: 1px solid var(--line); border-radius: var(--isl-r-sm); background: var(--panel); color: var(--isl-ink2);
+}
+.feedback-panel .fb-run-select select:focus,
+.feedback-panel .fb-run-select select:focus-visible { border-color: var(--wp-sage-line); }
+.feedback-panel .fb-run-tag { background: var(--wp-beige); color: var(--isl-ink2); font-weight: 400; }
+/* 새로 분석 = 앱 공통 주요 버튼(--accent 채움) */
+.feedback-panel .fb-ctrl-primary,
+.feedback-panel .primary.compact-btn { border-radius: var(--isl-r-sm); font-weight: 500; }
+/* 새 분석 팝오버: 선택 카드는 목차 현재 줄 색 + 회녹 선 */
+.feedback-panel .fb-pop { border-color: var(--line); border-radius: 14px; box-shadow: var(--isl-pop-shadow); }
+.feedback-panel .fb-pop-title { font-weight: 500; }
+.feedback-panel .fb-lens-card { border-color: var(--line); border-radius: var(--isl-r-sm); color: var(--isl-ink2); }
+.feedback-panel .fb-lens-card:hover { background: var(--isl-sunk); }
+.feedback-panel .fb-lens-card.is-on { background: var(--isl-desk); border-color: var(--wp-sage-line); color: var(--text-primary); }
+.feedback-panel .fb-lens-rec { color: var(--wp-sage); font-weight: 400; }
+.feedback-panel .fb-lens-card span { color: var(--isl-ink3); }
+/* 탭 = 앱 공통 세그먼트(베이지 바탕, 선택 탭은 패널색 + 선) */
+.feedback-panel .fb-tabs {
+  height: auto; margin: 4px 14px 8px; padding: 3px; gap: 2px; border: 0;
+  background: var(--wp-beige); border-radius: 10px;
+}
+.feedback-panel .fb-tab {
+  flex: 1 1 0; height: 30px; min-height: 30px; padding: 0 8px; border-radius: 8px;
+  color: var(--isl-ink2); font-size: 12.5px; font-weight: 400; box-shadow: none;
+}
+.feedback-panel .fb-tab:hover { color: var(--text-primary); }
+.feedback-panel .fb-tab.is-active {
+  background: var(--panel); color: var(--text-primary); font-weight: 500; box-shadow: 0 0 0 1px var(--line);
+}
+
+/* 옵션 화면(작은 위젯 포함): 구역 라벨과 선택지 사이가 너무 벌어져 있던 것을 줄인다 */
+.is-wide-panel-card .foreshadow-panel { row-gap: 6px !important; }
+.is-wide-panel-card p.tory-helper-section-label { margin: 6px 0 0 !important; }
+.is-wide-panel-card fieldset.wide-seg { margin: 0 !important; }
+
+/* 위젯(떠 있는 창)으로 띄운 옵션 화면: 제목줄에 이미 마스코트 없이 제목이 있으므로 카드 안쪽 머리글은 숨긴다 */
+.idea-float-body > .modal-card.is-wide-panel-card > .modal-heading { display: none !important; }
+/* 제목줄로 옮겨 온 크기 전환 버튼: 닫기(×) 옆의 테두리 없는 아이콘 */
+.idea-float-drag .wide-panel-size-btn {
+  width: 24px; height: 24px; min-width: 24px; padding: 0; border: 0 !important; background: transparent !important;
+  color: inherit; border-radius: var(--isl-r-sm) !important; box-shadow: none !important; margin-left: auto; flex: 0 0 auto;
+}
+.idea-float-drag .wide-panel-size-btn:hover { background: var(--isl-sunk) !important; }
+.idea-float-drag .wide-panel-size-btn + [data-role="close-idea-float"] { margin-left: 0; }
+
+/* 첨삭 피드백 시작 화면: 분석 기록이 없으면 "새 분석" 내용을 팝오버가 아니라 리포트 탭 첫 화면에 펼쳐 둔다 */
+.feedback-panel .fb-start-inline:empty { display: none; }
+.feedback-panel .fb-start-pop.is-inline {
+  position: static; width: auto; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none;
+}
+.feedback-panel .fb-start-pop.is-inline .fb-pop-title { font-size: 12px; font-weight: 400; color: var(--isl-ink3); margin: 0 0 6px; }
+.feedback-panel .fb-start-pop.is-inline [data-role="fb-start-cancel"] { display: none; }
+.feedback-panel .fb-start-pop.is-inline .fb-pop-actions { justify-content: flex-end; margin-top: 14px; }
+.feedback-panel .fb-start-pop.is-inline [data-role="fb-start-go"] { height: 32px; padding: 0 16px; }
+/* 시작 화면이 보이는 동안은 아래의 "기록이 없어요" 안내를 숨긴다 */
+.feedback-panel .fb-start-inline:not(:empty) ~ .fb-result-status { display: none; }
+
+/* ═════ 첨삭 피드백 3단계 — 카드·리포트·히스토리 세부를 공통 틀에 맞춤 (색은 목차 상태 점/베이지/회녹) ═════ */
+/* 카드: 반경 12 · 선 · 중요도 색은 목차 상태 점 색(채도 낮춤) */
+.feedback-panel .fb-card { border-color: var(--line); border-radius: 12px; background: var(--panel); }
+.feedback-panel .fb-card.tier-high::before { background: var(--isl-st-revision); }
+.feedback-panel .fb-card.tier-medium::before { background: var(--isl-st-draft); }
+.feedback-panel .fb-card.tier-low::before { background: color-mix(in srgb, var(--isl-ink3) 55%, var(--panel)); }
+.feedback-panel .fb-card.is-active { border-color: var(--wp-sage-line); box-shadow: 0 0 0 2px color-mix(in srgb, var(--wp-sage) 22%, transparent); }
+.feedback-panel .fb-card.is-ignored { background: var(--wp-beige); }
+.feedback-panel .fb-card-num { background: var(--wp-beige); color: var(--isl-ink3); }
+.feedback-panel .fb-kind { font-weight: 500; }
+.feedback-panel .fb-card-title { font-weight: 500; }
+.feedback-panel .fb-reason { color: var(--isl-ink2); }
+.feedback-panel .fb-loc,
+.feedback-panel .fb-diff-summary,
+.feedback-panel .fb-compare-label { color: var(--isl-ink3); }
+/* 배지: 베이지 기본, 중요도만 목차 점 색을 옅게 */
+.feedback-panel .fb-badge { background: var(--wp-beige); color: var(--isl-ink2); font-weight: 400; }
+.feedback-panel .fb-badge.pri-high { background: color-mix(in srgb, var(--isl-st-revision) 40%, var(--panel)); }
+.feedback-panel .fb-badge.pri-medium { background: color-mix(in srgb, var(--isl-st-draft) 24%, var(--panel)); }
+.feedback-panel .fb-badge.pri-low,
+.feedback-panel .fb-badge.pri-ref,
+.feedback-panel .fb-badge.pri-analyzing { background: var(--wp-beige); }
+/* 원문/수정안 비교: 베이지 바탕, 삭제·추가 표시는 옅게 */
+.feedback-panel .fb-compare-text { background: var(--wp-beige); border-radius: var(--isl-r-sm); color: var(--text-primary); }
+.feedback-panel .fb-del { background: color-mix(in srgb, var(--isl-st-revision) 45%, var(--panel)); }
+.feedback-panel .fb-add { background: color-mix(in srgb, var(--isl-st-complete) 24%, var(--panel)); }
+.feedback-panel .fb-nl-del { background: color-mix(in srgb, var(--isl-st-revision) 40%, var(--panel)); color: var(--isl-ink2); }
+.feedback-panel .fb-warn-toggle { background: var(--wp-beige); color: var(--isl-ink2); border-radius: var(--isl-r-sm); }
+.feedback-panel .fb-maybe { color: var(--isl-ink2); }
+/* 카드 버튼: 주요 = 앱 공통 주요 버튼(--accent 채움), 나머지 = 베이지 */
+.feedback-panel .fb-card-actions .fb-primary,
+.feedback-panel .fb-inline-box .fb-primary {
+  background: var(--accent); color: var(--panel); border-radius: var(--isl-r-sm); font-weight: 500;
+}
+.feedback-panel .secondary.compact-btn,
+.feedback-panel .fb-card-actions .secondary {
+  border: 0; background: var(--isl-sunk); color: var(--text-primary); border-radius: var(--isl-r-sm); font-weight: 400;
+}
+.feedback-panel .secondary.compact-btn:hover { background: color-mix(in srgb, var(--isl-sunk) 80%, var(--text-primary)); }
+.feedback-panel .fb-talk-chip { border-color: var(--line); color: var(--isl-ink3); }
+.feedback-panel .fb-talk-msg { border-color: var(--line); }
+.feedback-panel .fb-talk-msg.is-user { background: var(--isl-desk); }
+.feedback-panel .fb-talk-msg.is-ai { background: var(--wp-beige); }
+.feedback-panel .fb-talk-who { font-weight: 500; }
+/* 카드 탭 도구줄: 선 · 정렬 세그먼트 = 공통 세그먼트(선택은 패널색 + 선) */
+.feedback-panel .fb-cards-toolbar { border-bottom-color: var(--line); }
+.feedback-panel .fb-cards-summary { color: var(--isl-ink3); font-size: 12.5px; }
+.feedback-panel .fb-cards-summary strong { color: var(--text-primary); font-weight: 500; }
+.feedback-panel .fb-seg { border: 0; border-radius: 10px; background: var(--wp-beige); }
+.feedback-panel .fb-seg-btn { color: var(--isl-ink2); font-weight: 400; border-radius: 8px; }
+.feedback-panel .fb-seg-btn.is-on { background: var(--panel); color: var(--text-primary); font-weight: 500; box-shadow: 0 0 0 1px var(--line); }
+.feedback-panel .fb-toggle { background: color-mix(in srgb, var(--isl-ink3) 40%, var(--panel)); }
+.feedback-panel .fb-toggle[aria-checked="true"] { background: var(--wp-sage); }
+.feedback-panel .fb-group-h { font-weight: 500; color: var(--isl-ink3); border-bottom-color: var(--line); }
+.feedback-panel .fb-dot.is-high::before { background: var(--isl-st-revision); }
+.feedback-panel .fb-dot.is-medium::before { background: var(--isl-st-draft); }
+.feedback-panel .fb-dot.is-low::before { background: color-mix(in srgb, var(--isl-ink3) 55%, var(--panel)); }
+/* 리포트: 요약은 베이지 박스, 점수표 머리는 작은 흐린 글자, 구역 제목은 라벨 톤 */
+.feedback-panel .fb-fold { font-weight: 500; }
+.feedback-panel .fb-summary { background: var(--wp-beige); border-radius: 10px; padding: 8px 10px; color: var(--isl-ink2); }
+.feedback-panel .fb-scores th { font-weight: 400; color: var(--isl-ink3); }
+.feedback-panel .fb-scores th, .feedback-panel .fb-scores td { border-bottom-color: var(--line); }
+.feedback-panel .fb-report h4 { font-size: 12px; font-weight: 400; color: var(--isl-ink3); margin: 12px 0 4px; }
+.feedback-panel .fb-banner { background: var(--wp-beige); color: var(--isl-ink2); border-radius: var(--isl-r-sm); }
+.feedback-panel .fb-progress-bar span { background: var(--wp-sage); }
+/* 히스토리: 행 = 카드 톤, 대표 표시는 베이지 */
+.feedback-panel .fb-hist-row { border-color: var(--line); border-radius: 12px; }
+.feedback-panel .fb-hist-when { font-weight: 500; }
+.feedback-panel .fb-hist-status, .feedback-panel .fb-hist-counts, .feedback-panel .fb-hist-lens { color: var(--isl-ink3); }
+.feedback-panel .fb-hist-primary { background: var(--wp-beige); color: var(--isl-ink2); }
+/* 분석 중이 아닐 때 비어 있는 진행 막대가 보이던 것(hidden 이 display:flex 에 밀림) */
+.feedback-panel .fb-progress[hidden] { display: none !important; }
+
+/* 첨삭 피드백 시작 화면: 하단 버튼이 바닥에 붙지 않게 다른 옵션 화면과 같은 여백(좌우 14 · 아래 18) */
+.feedback-panel .fb-tab-panel[data-role="fb-tab-report"] { padding: 8px 14px 18px; }
+.feedback-panel .fb-start-inline { padding-bottom: 6px; }
+.feedback-panel .fb-start-pop.is-inline .fb-pop-actions { margin-bottom: 4px; }
+/* 리포트 탭이 내용보다 낮아지면 칸이 줄어들며 안쪽 여백(아래 18px)이 잘려 버튼이 바닥에 붙던 것 — 내용 높이만큼 늘리고 바깥에서 스크롤 */
+.feedback-panel .fb-tab-panel[data-role="fb-tab-report"] { flex: 0 0 auto; }
+
+/* ═════ 디자인 점검 후속(2026-10-22) — docs/design-guidelines.md §1.3·§2·§4 ═════ */
+/* 옵션 화면 머리글: 제목은 한 줄. 좁은 오른쪽 섬에서 '…검사기'의 마지막 글자가 다음 줄로 떨어지지 않게 한다 */
+.is-wide-panel-card .modal-heading { flex-wrap: nowrap; gap: 6px; }
+.is-wide-panel-card .modal-heading h2,
+.is-wide-panel-card .tory-helper-title {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 14px !important; letter-spacing: -0.01em !important;
+  white-space: nowrap; word-break: keep-all;
+}
+/* 회차 선택 세그먼트: 한 줄 고정(라벨은 '현재 회차 · 다른 회차 · 여러 회차'로 짧게) */
+.is-wide-panel-card .wide-seg { flex-wrap: nowrap !important; }
+.is-wide-panel-card .wide-seg .continue-length-option { flex: 1 1 0 !important; min-width: 0; padding: 6px 6px !important; white-space: nowrap; }
+
+/* 새 글쓰기·문서 가져오기 안내 박스: 노란 크림색 대신 앱 공통 베이지(--isl-sunk) 한 줄 */
+.modal-genre-notice {
+  background: var(--isl-sunk) !important; border: 0 !important; border-radius: 10px !important;
+  color: var(--isl-ink2) !important;
+}
+.modal-genre-notice strong { color: var(--text-primary) !important; font-weight: 500 !important; }
+.modal-genre-notice span { color: var(--isl-ink2) !important; }
+
+/* 교정본 가져오기 '덮어쓰기' 카드: 갈색 대신 목차 상태 점(초안) 색을 옅게 */
+.import-proof-method-card.is-danger {
+  border-color: color-mix(in srgb, var(--isl-st-draft) 55%, var(--line)) !important;
+  background: color-mix(in srgb, var(--isl-st-draft) 8%, var(--panel)) !important;
+}
+.import-proof-method-card.is-danger:has(input:checked) {
+  border-color: var(--isl-st-draft) !important;
+  box-shadow: 0 0 0 1px var(--isl-st-draft) !important;
+  background: color-mix(in srgb, var(--isl-st-draft) 14%, var(--panel)) !important;
+}
+.import-proof-badge-danger {
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--isl-st-draft) 24%, var(--panel)) !important;
+  border-color: color-mix(in srgb, var(--isl-st-draft) 55%, var(--line)) !important;
+}
+
+/* 실시간 토리 체크: 반복 단어 행은 주황빨강 대신 목차 상태 점(수정) 색을 옅게 */
+.tory-check-item.is-flagged,
+.tory-check-stat.is-flagged {
+  border-color: color-mix(in srgb, var(--isl-st-revision) 60%, var(--line)) !important;
+  background: color-mix(in srgb, var(--isl-st-revision) 35%, var(--panel)) !important;
+  color: var(--text-primary) !important;
+}
+
+/* 글럼프 응급실: 이모지 대신 선 아이콘(16px, stroke 1.8, 회녹), 경고 배지는 베이지 */
+.glump-er-title-icon, .glump-er-dx-icon, .glump-er-tool-card .glump-er-tool-icon {
+  display: inline-flex; align-items: center; justify-content: center; color: var(--isl-ink2);
+}
+.glump-er-title-icon svg, .glump-er-dx-icon svg, .glump-er-tool-icon svg { width: 16px; height: 16px; stroke-width: 1.8; }
+.glump-er-warn-badge {
+  color: var(--isl-ink2) !important; background: var(--isl-sunk) !important;
+  border: 1px solid var(--line) !important; font-weight: 500 !important;
+}
+
+/* ═════ 넓은 패널(옵션 화면·첨삭 검토): 2중 박스 없이 오른쪽 섬이 그대로 넓어진 모양 ═════
+   호스트가 곧 섬이다 — 오른쪽은 창 벽에 붙고(main 오른쪽 여백은 이미 0) 왼쪽만 둥글다. 안쪽 카드는 테두리·그림자·반경 없이 내용만 */
+.fb-review-host {
+  padding: 0 !important;
+  border: 1px solid var(--line) !important;
+  border-right: 0 !important;
+  border-radius: var(--isl-r) 0 0 var(--isl-r) !important;
+  background: var(--panel) !important;
+  box-shadow: var(--isl-shadow) !important;
+}
+.fb-review-host > .modal-card.is-wide-panel-card {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+.fb-review-host .feedback-panel { border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+
+/* ═════ 토리 말투 칩: 작가 지침 줄 오른쪽(대화·도구 탭 공통) — 클릭하면 기존 토리 모드 메뉴가 팝오버로 열린다 ═════ */
+.tory-priority-box { display: flex; align-items: center; gap: 6px; }
+.tory-priority-box > .tory-priority-toggle { flex: 1 1 auto; min-width: 0; width: auto; }
+.tory-persona-chip {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  margin: 0; padding: 3px 7px 3px 8px; border: 0; border-radius: 999px;
+  background: var(--isl-sunk); color: var(--isl-ink2);
+  font: inherit; font-size: 11.5px; line-height: 1.2; cursor: pointer; white-space: nowrap;
+}
+.tory-persona-chip:hover { background: color-mix(in srgb, var(--isl-sunk) 80%, var(--text-primary)); color: var(--text-primary); }
+.tory-persona-chip:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent); outline-offset: 1px; }
+.tory-persona-chip[aria-expanded="true"] { background: var(--panel); color: var(--text-primary); box-shadow: 0 0 0 1px var(--line); }
+.tory-persona-chip-label { color: var(--isl-ink3); }
+.tory-persona-chip-value { color: var(--text-primary); font-weight: 500; }
+.tory-persona-chip svg { color: var(--isl-ink3); }
+
+/* 집필 기록 달력 하단 '기록 전체 삭제 · 기록 선택 삭제': 글자 상자가 14px로 잘려 '제' 아래가 깎이던 것 — 높이를 글자에 맞추고 넘침을 숨기지 않는다 */
+.wl-cal-right .writing-log-purge-bar { flex-wrap: nowrap; align-items: center; padding-top: 12px; }
+.wl-cal-right .writing-log-purge-bar .compact-btn {
+  flex: 0 0 auto; height: auto !important; min-height: 0 !important; line-height: 1.5 !important;
+  overflow: visible !important; white-space: nowrap;
+}

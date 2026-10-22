@@ -261,7 +261,7 @@
 
     <link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
     <link rel="stylesheet" href="/styles.css?v=1.4.262">
-    <link rel="stylesheet" href="/island.css?v=89">
+    <link rel="stylesheet" href="/island.css?v=118">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -2172,10 +2172,11 @@
             <!-- 열린문서 탭: 제목 카드 위(밖) · 좌우는 카드와 동일 거터 -->
             <div class="episode-chrome" id="episodeChrome" aria-label="회차 이동" data-i18n-aria-label="index.회차_이동">
               <div class="episode-tab-row">
-                <button type="button" class="episode-tab-row-toggle episode-tab-row-toggle-left" id="episodeTabLeftPanelToggle" title="왼쪽 패널 열고 닫기" data-i18n-title="index.왼쪽_패널_열고_닫기" aria-label="왼쪽 패널 열고 닫기" data-i18n-aria-label="index.왼쪽_패널_열고_닫기"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"/></svg></button>
+                <!-- 패널이 접혔을 때만 보인다 — 패널 머리의 여닫기 아이콘(네모+세로선)이 이 자리로 옮겨온 것 -->
+                <button type="button" class="episode-tab-row-toggle episode-tab-row-toggle-left" id="episodeTabLeftPanelToggle" title="바인더 열기" data-i18n-title="index.바인더_열기" aria-label="바인더 열기" data-i18n-aria-label="index.바인더_열기"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="panel-collapse-icon lucide lucide-panel-left" aria-hidden="true" focusable="false"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button>
                 <div class="episode-tab-bar" id="episodeTabBar" role="tablist" aria-label="열린 회차 탭" data-i18n-aria-label="index.열린_회차_탭"></div>
                 <div class="episode-tab-row-spacer"></div>
-                <button type="button" class="episode-tab-row-toggle episode-tab-row-toggle-right" id="episodeTabRightPanelToggle" title="오른쪽 패널 열고 닫기" data-i18n-title="index.오른쪽_패널_열고_닫기" aria-label="오른쪽 패널 열고 닫기" data-i18n-aria-label="index.오른쪽_패널_열고_닫기"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 18 6-6-6-6"/></svg></button>
+                <button type="button" class="episode-tab-row-toggle episode-tab-row-toggle-right" id="episodeTabRightPanelToggle" title="SuperTORY 펼치기" data-i18n-title="island.패널_펼치기" aria-label="SuperTORY 펼치기" data-i18n-aria-label="island.패널_펼치기"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="panel-collapse-icon lucide lucide-panel-right" aria-hidden="true" focusable="false"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg></button>
               </div>
             </div>
             <form id="sceneEditor" class="editor">
@@ -3874,12 +3875,17 @@
               <span class="tory-priority-toggle-label" data-i18n="index.작가_지침">작가 지침</span>
               <span class="tory-priority-preview" id="toryPriorityPreview" data-i18n="app.클릭하여_작성">클릭하여 작성</span>
             </button>
+            <button type="button" class="tory-persona-chip" id="toryPersonaChip" aria-haspopup="menu" aria-expanded="false" aria-controls="toryPersonaMenu" title="토리 말투 고르기" data-i18n-title="island.토리_말투_고르기">
+              <span class="tory-persona-chip-label" data-i18n="island.말투">말투</span>
+              <span class="tory-persona-chip-value" id="toryPersonaChipValue"></span>
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
           </div>
         </div>
 
         <div class="ai-panel-body">
           <div id="aiCheckView" class="ai-panel-view isl-check-view hidden" role="tabpanel" aria-labelledby="aiTabCheck" hidden>
-            <section class="isl-card" aria-labelledby="islWritingTitle">
+            <section class="isl-card" id="islWritingCard" aria-labelledby="islWritingTitle">
               <header class="isl-card-head">
                 <h3 id="islWritingTitle" data-i18n="island.집필_기록">집필 기록</h3>
                 <button type="button" class="isl-gear" id="islTimerGear" data-isl-dock="writingTimer" data-isl-settings="1" title="타이머 설정" data-i18n-title="island.타이머_설정" aria-label="타이머 설정" data-i18n-aria-label="island.타이머_설정"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
@@ -4670,7 +4676,7 @@
 
         </nav>
         <button type="button" id="islDockHandle" class="isl-dock-handle" title="위젯 열기 (Ctrl+Shift+W)" data-i18n-title="island.위젯_독_열기" aria-label="위젯 열기" data-i18n-aria-label="island.위젯_독_열기" aria-expanded="false"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
-        <button type="button" id="islAiBadge" class="isl-ai-badge" title="SuperTORY 펼치기" data-i18n-title="island.패널_펼치기" aria-label="SuperTORY 펼치기" data-i18n-aria-label="island.패널_펼치기"><img src="/final_mascots/supertory-badge-clean.webp" alt="" width="44" height="44" draggable="false"></button>
+        <button type="button" id="islAiBadge" class="isl-ai-badge" title="SuperTORY 펼치기" data-i18n-title="island.패널_펼치기" aria-label="SuperTORY 펼치기" data-i18n-aria-label="island.패널_펼치기"><img src="/final_mascots/supertory-badge-clean-still.webp" data-anim-src="/final_mascots/supertory-badge-clean.webp" alt="" width="44" height="44" draggable="false"></button>
       </aside>
     </main>
 
@@ -4961,6 +4967,7 @@
             <p class="fb-banner" data-role="fb-key" hidden></p>
             <p class="fb-para-info" data-role="fb-para-info" hidden></p>
             <p class="fb-banner is-warn" data-role="fb-para-warn" hidden></p>
+            <div class="fb-start-inline" data-role="fb-start-inline"></div>
             <div class="fb-progress" data-role="fb-progress" hidden></div>
             <div class="fb-result-status" data-role="fb-result-status"></div>
             <div class="fb-report" data-role="fb-report" hidden></div>
@@ -5449,7 +5456,7 @@
               </label>
               <label class="continue-length-option">
                 <input type="radio" name="continueSourceMode" value="other">
-                <span data-i18n="index.다른_회차_지정">다른 회차 지정</span>
+                <span data-i18n="index.다른_회차_지정">다른 회차</span>
               </label>
             </fieldset>
             <label class="foreshadow-field continue-other-scene-wrap tory-other-scene-wrap tory-helper-section-label" id="continueOtherSceneWrap" for="continueOtherSceneSelect">
@@ -5690,7 +5697,7 @@
       <div class="modal-backdrop" data-close-glump-er></div>
       <div class="modal-card success-pattern-modal-card glump-er-modal-card">
         <div class="modal-heading">
-          <h2 id="glumpErModalTitle"><span class="glump-er-title-icon" aria-hidden="true">⛑️</span>글럼프 응급실</h2>
+          <h2 id="glumpErModalTitle"><span class="glump-er-title-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/><circle cx="12" cy="12" r="4"/></svg></span>글럼프 응급실</h2>
           <button type="button" class="modal-close" data-close-glump-er title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
         </div>
         <div id="glumpErWizard" class="success-pattern-wizard glump-er-wizard" aria-label="글럼프 응급실" data-i18n-aria-label="app.글럼프_응급실">
@@ -5703,12 +5710,12 @@
               </div>
             </div>
             <button type="button" class="glump-er-dx-banner" id="glumpErStartDiagnosis" data-glump-start-diagnosis>
-              <strong><span class="glump-er-dx-icon" aria-hidden="true">🩺</span>뭐부터 할지 모르겠다면, 진단부터</strong>
+              <strong><span class="glump-er-dx-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6 6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6 6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg></span>뭐부터 할지 모르겠다면, 진단부터</strong>
               <span data-i18n="index.토리가_문진표_들고_등장_증상_말하면_처방전">토리가 문진표 들고 등장, 증상 말하면 처방전 발급</span>
             </button>
             <div class="glump-er-tool-grid" role="group" aria-label="글럼프 도구" data-i18n-aria-label="index.글럼프_도구">
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="wildcard_spark">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">⚡</span>와일드카드 스파크 <em class="glump-er-warn-badge" data-i18n="index.막장주의">⚠ 막장주의</em></strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>와일드카드 스파크 <em class="glump-er-warn-badge" data-i18n="index.막장주의">막장주의</em></strong>
                 <span data-i18n="index.막힌_전개에_사이다_대신_벼락_투척_감당은">막힌 전개에 사이다 대신 벼락 투척, 감당은 작가님 몫</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="ten_min_sprint">
@@ -5716,27 +5723,27 @@
                 <span data-i18n="index.수정_금지_일단_뇌_끄고_손가락만_굴리기">수정 금지! 일단 뇌 끄고 손가락만 굴리기</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="pingpong_relay">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">🏓</span>핑퐁 릴레이</strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg></span>핑퐁 릴레이</strong>
                 <span data-i18n="index.엔터치면_핑_토리가_퐁_어느새_초안_뚝딱">엔터치면 핑, 토리가 퐁, 어느새 초안 뚝딱</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="fill_blank_game">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">🧩</span>빈칸 채우기 게임</strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg></span>빈칸 채우기 게임</strong>
                 <span data-i18n="index.뼈대는_토리가_디테일은_작가님이_퀘스트_깨듯">뼈대는 토리가, 디테일은 작가님이 — 퀘스트 깨듯 쓱쓱</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="lucky_sentence">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">🍀</span>럭키 문장 뽑기</strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/></svg></span>럭키 문장 뽑기</strong>
                 <span data-i18n="index.마음에_안_들면_또_뽑기_3번_넘으면_그냥">마음에 안 들면 또 뽑기, 3번 넘으면 그냥 운명</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="character_interrogation">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">🎤</span>캐릭터 1:1 청문회</strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg></span>캐릭터 1:1 청문회</strong>
                 <span data-i18n="index.주인공_소환해서_너_진짜_어디로_갈_건데_추">주인공 소환해서 '너 진짜 어디로 갈 건데' 추궁하기</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="brain_park">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">🖐️</span>손가락 놀이터</strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0v1"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg></span>손가락 놀이터</strong>
                 <span data-i18n="index.타이핑_말고_클릭만_캐릭터랑_잠깐_놀아요">타이핑 말고 클릭만, 캐릭터랑 잠깐 놀아요</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="mental_vitamin">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">💊</span>멘탈 비타민</strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 20.5 3.5 13.5a4.95 4.95 0 0 1 7-7l7 7a4.95 4.95 0 0 1-7 7Z"/><path d="m8.5 8.5 7 7"/></svg></span>멘탈 비타민</strong>
                 <span data-i18n="index.내가_쓴_명대사_복습하고_캐릭터한테_응원_받">내가 쓴 명대사 복습하고 캐릭터한테 응원 받기</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="speedy_tory">
@@ -5947,31 +5954,31 @@
             <p class="hint" data-i18n="index.원고에는_안_들어가요_보고만_있어도_돼요">원고에는 안 들어가요. 보고만 있어도 돼요.</p>
             <div class="glump-er-tool-grid" role="group" aria-label="손가락 놀이터" data-i18n-aria-label="app.손가락_놀이터">
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="mood_color">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">🎨</span>캐릭터 퍼스널컬러 찾기</strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg></span>캐릭터 퍼스널컬러 찾기</strong>
                 <span data-i18n="index.내_캐릭터한테_어울리는_색_AI가_골라드려요">내 캐릭터한테 어울리는 색, AI가 골라드려요</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="mood_playlist">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">🎵</span>가상 플레이리스트 뽑기</strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>가상 플레이리스트 뽑기</strong>
                 <span data-i18n="index.없는_노래를_만들어서_분위기만_느껴_볼게요">없는 노래를 만들어서 분위기만 느껴 볼게요</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="mood_board">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">🖼</span>무드보드 둘러보기</strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span>무드보드 둘러보기</strong>
                 <span data-i18n="index.사진만_슬쩍_보다가_나와도_돼요">사진만 슬쩍 보다가 나와도 돼요</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="word_list">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">📝</span>단어집 둘러보기</strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/><path d="M8 7h6"/><path d="M8 11h8"/></svg></span>단어집 둘러보기</strong>
                 <span data-i18n="index.장르_단어를_입안에서만_굴려_볼게요">장르 단어를 입안에서만 굴려 볼게요</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="sentence_list">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">📖</span>문장집 둘러보기</strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span>문장집 둘러보기</strong>
                 <span data-i18n="index.명언_위트_놀라운_사실을_한_줄씩_굴려_볼게요">명언, 위트, 놀라운 사실을 한 줄씩 굴려 볼게요</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="character_tarot">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">🔮</span>캐릭터 타로 풀이</strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 21 9-9"/><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M17.8 6.2 19 5"/><path d="M12.2 6.2 11 5"/></svg></span>캐릭터 타로 풀이</strong>
                 <span data-i18n="index.내_캐릭터_운명_타로로_한_번_봐드릴게요">내 캐릭터 운명, 타로로 한 번 봐드릴게요</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="naming_shop">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">🪶</span>작명소</strong>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" x2="2" y1="8" y2="22"/><line x1="17.5" x2="9" y1="15" y2="15"/></svg></span>작명소</strong>
                 <span data-i18n="index.이름이_안_떠오를_때_동양_서양_현대_한_번">이름이 안 떠오를 때, 동양·서양·현대 한 번에 쭉 보기</span>
               </button>
             </div>
@@ -5987,9 +5994,9 @@
               <div id="glumpErDiversionBody" class="glump-er-diversion-body glump-er-chat-pane"></div>
             </div>
             <div id="glumpErDiversionExit" class="glump-er-choices glump-er-exit-equal hidden" role="group" aria-label="딴짓 끝내기" data-i18n-aria-label="index.딴짓_끝내기">
-              <button type="button" class="glump-er-choice" data-glump-diversion-exit="more" data-i18n="index.다른_딴짓도_볼래요">🎲 다른 딴짓도 볼래요</button>
-              <button type="button" class="glump-er-choice" data-glump-diversion-exit="write" data-i18n="index.이제_좀_써볼까요">✍️ 이제 좀 써볼까요</button>
-              <button type="button" class="glump-er-choice" data-glump-diversion-exit="leave" data-i18n="index.그냥_나갈래요">🚪 그냥 나갈래요</button>
+              <button type="button" class="glump-er-choice" data-glump-diversion-exit="more" data-i18n="index.다른_딴짓도_볼래요">다른 딴짓도 볼래요</button>
+              <button type="button" class="glump-er-choice" data-glump-diversion-exit="write" data-i18n="index.이제_좀_써볼까요">이제 좀 써볼까요</button>
+              <button type="button" class="glump-er-choice" data-glump-diversion-exit="leave" data-i18n="index.그냥_나갈래요">그냥 나갈래요</button>
             </div>
           </div>
 
@@ -7899,9 +7906,6 @@
           </div>
         </section>
 
-        <div class="modal-actions">
-          <button type="button" class="primary" data-close-admin data-i18n="app.닫기">닫기</button>
-        </div>
       </div>
     </div>
 
@@ -8889,11 +8893,11 @@
           <legend class="sr-only" data-i18n="index.기준_회차">기준 회차</legend>
           <label class="continue-length-option" id="dupcheckTargetCurrentLabel">
             <input type="radio" name="dupcheckTargetMode" value="current" checked id="dupcheckTargetCurrent">
-            <span data-i18n="index.현재_작성_중인_회차">현재 작성 중인 회차</span>
+            <span data-i18n="index.현재_작성_중인_회차">현재 회차</span>
           </label>
           <label class="continue-length-option">
             <input type="radio" name="dupcheckTargetMode" value="other" id="dupcheckTargetOther">
-            <span data-i18n="index.다른_회차_지정">다른 회차 지정</span>
+            <span data-i18n="index.다른_회차_지정">다른 회차</span>
           </label>
         </fieldset>
         <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="dupcheckOtherSceneWrap" for="dupcheckOtherSceneSelect">
@@ -8925,11 +8929,11 @@
           <legend class="sr-only" data-i18n="index.기준_회차">기준 회차</legend>
           <label class="continue-length-option" id="tempoHookTargetCurrentLabel">
             <input type="radio" name="tempoHookTargetMode" value="current" checked id="tempoHookTargetCurrent">
-            <span data-i18n="index.현재_작성_중인_회차">현재 작성 중인 회차</span>
+            <span data-i18n="index.현재_작성_중인_회차">현재 회차</span>
           </label>
           <label class="continue-length-option">
             <input type="radio" name="tempoHookTargetMode" value="other" id="tempoHookTargetOther">
-            <span data-i18n="index.다른_회차_지정">다른 회차 지정</span>
+            <span data-i18n="index.다른_회차_지정">다른 회차</span>
           </label>
         </fieldset>
         <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="tempoHookOtherSceneWrap" for="tempoHookOtherSceneSelect">
@@ -9003,11 +9007,11 @@
           <legend class="sr-only" data-i18n="index.기준_회차">기준 회차</legend>
           <label class="continue-length-option" id="ideasTargetCurrentLabel">
             <input type="radio" name="ideasTargetMode" value="current" checked id="ideasTargetCurrent">
-            <span data-i18n="index.현재_작성_중인_회차">현재 작성 중인 회차</span>
+            <span data-i18n="index.현재_작성_중인_회차">현재 회차</span>
           </label>
           <label class="continue-length-option">
             <input type="radio" name="ideasTargetMode" value="other" id="ideasTargetOther">
-            <span data-i18n="index.다른_회차_지정">다른 회차 지정</span>
+            <span data-i18n="index.다른_회차_지정">다른 회차</span>
           </label>
         </fieldset>
         <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="ideasOtherSceneWrap" for="ideasOtherSceneSelect">
@@ -9039,11 +9043,11 @@
           <legend class="sr-only" data-i18n="index.회차_선택">회차 선택</legend>
           <label class="continue-length-option" id="brainstormTargetCurrentLabel">
             <input type="radio" name="brainstormTargetMode" value="current" checked id="brainstormTargetCurrent">
-            <span data-i18n="index.현재_작성_중인_회차">현재 작성 중인 회차</span>
+            <span data-i18n="index.현재_작성_중인_회차">현재 회차</span>
           </label>
           <label class="continue-length-option">
             <input type="radio" name="brainstormTargetMode" value="other" id="brainstormTargetOther">
-            <span data-i18n="index.다른_회차_지정">다른 회차 지정</span>
+            <span data-i18n="index.다른_회차_지정">다른 회차</span>
           </label>
         </fieldset>
         <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="brainstormOtherSceneWrap" for="brainstormOtherSceneSelect">
@@ -9081,15 +9085,15 @@
           <legend class="sr-only" data-i18n="index.기준_회차">기준 회차</legend>
           <label class="continue-length-option" id="analyzeTargetCurrentLabel">
             <input type="radio" name="analyzeTargetMode" value="current" checked id="analyzeTargetCurrent">
-            <span data-i18n="index.현재_작성_중인_회차">현재 작성 중인 회차</span>
+            <span data-i18n="index.현재_작성_중인_회차">현재 회차</span>
           </label>
           <label class="continue-length-option">
             <input type="radio" name="analyzeTargetMode" value="other" id="analyzeTargetOther">
-            <span data-i18n="index.다른_회차_지정">다른 회차 지정</span>
+            <span data-i18n="index.다른_회차_지정">다른 회차</span>
           </label>
           <label class="continue-length-option">
             <input type="radio" name="analyzeTargetMode" value="multi" id="analyzeTargetMulti">
-            <span data-i18n="index.다중_회차_지정">다중 회차 지정</span>
+            <span data-i18n="index.다중_회차_지정">여러 회차</span>
           </label>
         </fieldset>
         <p class="hint foreshadow-hint tory-helper-hint hidden" id="analyzeMultiHint">
@@ -9128,15 +9132,15 @@
           <legend class="sr-only" data-i18n="index.기준_회차">기준 회차</legend>
           <label class="continue-length-option" id="summarizeMultiTargetCurrentLabel">
             <input type="radio" name="summarizeMultiTargetMode" value="current" checked id="summarizeMultiTargetCurrent">
-            <span data-i18n="index.현재_작성_중인_회차">현재 작성 중인 회차</span>
+            <span data-i18n="index.현재_작성_중인_회차">현재 회차</span>
           </label>
           <label class="continue-length-option">
             <input type="radio" name="summarizeMultiTargetMode" value="other" id="summarizeMultiTargetOther">
-            <span data-i18n="index.다른_회차_지정">다른 회차 지정</span>
+            <span data-i18n="index.다른_회차_지정">다른 회차</span>
           </label>
           <label class="continue-length-option">
             <input type="radio" name="summarizeMultiTargetMode" value="multi" id="summarizeMultiTargetMulti">
-            <span data-i18n="index.다중_회차_지정">다중 회차 지정</span>
+            <span data-i18n="index.다중_회차_지정">여러 회차</span>
           </label>
         </fieldset>
         <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="summarizeMultiOtherSceneWrap" for="summarizeMultiOtherSceneSelect">
@@ -9172,15 +9176,15 @@
           <legend class="sr-only" data-i18n="index.기준_회차">기준 회차</legend>
           <label class="continue-length-option" id="worldscanTargetCurrentLabel">
             <input type="radio" name="worldscanTargetMode" value="current" checked id="worldscanTargetCurrent">
-            <span data-i18n="index.현재_작성_중인_회차">현재 작성 중인 회차</span>
+            <span data-i18n="index.현재_작성_중인_회차">현재 회차</span>
           </label>
           <label class="continue-length-option">
             <input type="radio" name="worldscanTargetMode" value="other" id="worldscanTargetOther">
-            <span data-i18n="index.다른_회차_지정">다른 회차 지정</span>
+            <span data-i18n="index.다른_회차_지정">다른 회차</span>
           </label>
           <label class="continue-length-option">
             <input type="radio" name="worldscanTargetMode" value="multi" id="worldscanTargetMulti">
-            <span data-i18n="index.다중_회차_지정">다중 회차 지정</span>
+            <span data-i18n="index.다중_회차_지정">여러 회차</span>
           </label>
         </fieldset>
         <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="worldscanOtherSceneWrap" for="worldscanOtherSceneSelect">
@@ -10011,7 +10015,7 @@
     <script src="/smart-punctuation.js?v=1"></script>
     <script src="/app.js?v=1.4.255-c12"></script>
     <script src="/js/gitsi.js?v=1"></script>
-    <script src="/feedback_panel.js?v=30"></script>
+    <script src="/feedback_panel.js?v=31"></script>
     <script src="/app-boot.js?v=1"></script>
   </body>
 </html>

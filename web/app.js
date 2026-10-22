@@ -7,14 +7,11 @@
 // i18n.t()가 바로 값을 찾을 수 있어요.
 // ============================================================
 
-/** 저장된 언어 설정이 없을 때, OS/브라우저 언어를 보고 기본값을 정한다.
- *  한국어 계열(ko, ko-KR 등)이면 "ko", 스페인어 계열(es, es-ES, es-MX 등)이면 "es",
- *  그 외에는 전부 "en"으로 시작. */
+/** 저장된 언어 설정이 없을 때의 기본 언어.
+ *  제품 기본 언어는 한국어다 — 브라우저·OS 언어가 영어여도 한국어로 시작하고,
+ *  영어·스페인어는 관리자 모드 > 설정 옵션 > 언어에서 고른다. */
 function detectDefaultLang() {
-  const nav = (navigator.language || navigator.userLanguage || "ko").toLowerCase();
-  if (nav.startsWith("ko")) return "ko";
-  if (nav.startsWith("es")) return "es";
-  return "en";
+  return "ko";
 }
 
 const i18n = (() => {
@@ -1695,7 +1692,7 @@ function ensureWorldbuildingMainForm() {
     const titlePlain = String(sec.title || "").replace(/\s*\([^)]*\)\s*$/, "").replace(/^\s*\d+\.\s*/, "").trim();
     const fields = sec.fields.map((field) => `
       <label class="world-main-field">${worldToriBadgeHtml(field.id, field.label, field.labelKey)}
-        <textarea data-world-field="${escapeWorldHtml(field.id)}" rows="3" placeholder="예: ${escapeWorldHtml(field.example || "")}"></textarea>
+        <textarea data-world-field="${escapeWorldHtml(field.id)}" rows="3" placeholder="${escapeWorldHtml(i18n.t('app.예_field_example', {'field.example': field.example || ''}))}"></textarea>
       </label>`).join("");
     return `
       <article class="world-main-card" data-world-section="${escapeWorldHtml(sec.id)}">
@@ -8278,9 +8275,10 @@ const CLUSTER_HIDDEN_FEATURES = {
   webnovel: [],
   genre_literature: [],
   locked: [],
+  // 문학에서도 회차 요약·떡밥·복선 탐색기·설정 붕괴 감지기는 쓴다(2026-10-22)
   general_literature: [
-    "baits", "success_profile", "summarize", "foreshadow", "plottwist",
-    "temphook", "worldscan", "successfeedback", "worlddesc", "successpattern",
+    "baits", "success_profile", "plottwist",
+    "temphook", "successfeedback", "worlddesc", "successpattern",
     "character_chat", "character_sim", "reader_debate", "reader_comments",
   ],
   fairytale: [
@@ -18874,7 +18872,7 @@ function renderIdeaBoard(focusId = null) {
         data-role="idea-clip"
         data-idea-color-pick="${escapeHtml(c.key)}"
         title="${escapeHtml(c.label)}"
-        aria-label="메모 색 ${escapeHtml(c.label)}"
+        aria-label="${escapeHtml(i18n.t('app.메모_색_label', { label: c.label }))}"
         aria-pressed="${c.key === colorKey ? "true" : "false"}"
       ></button>
     `).join("");
@@ -19495,6 +19493,7 @@ function bindIdeaFloatWindow(win, ideaId, options = {}) {
     if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
       drag = null;
       document.body.classList.remove("idea-float-dragging");
+      win.dataset.userMoved = "1";
       rememberIdeaFloatLayout(win, layoutKey);
     }
     if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
@@ -19586,7 +19585,7 @@ function openIdeaFloat(ideaId) {
         data-role="idea-clip"
         data-idea-color-pick="${escapeHtml(c.key)}"
         title="${escapeHtml(c.label)}"
-        aria-label="메모 색 ${escapeHtml(c.label)}"
+        aria-label="${escapeHtml(i18n.t('app.메모_색_label', { label: c.label }))}"
         aria-pressed="${c.key === colorKey ? "true" : "false"}"
       ></button>
     `).join("");
@@ -19945,7 +19944,8 @@ function isDockTrackerOpenPref() {
   } catch (_) {
     /* private mode */
   }
-  return true;
+  // 기본은 닫힘 — 위젯은 SuperTORY 위젯 탭에서 사용자가 켠다
+  return false;
 }
 
 function setDockTrackerOpenPref(open) {
@@ -22578,10 +22578,20 @@ function applyWidePanelLayoutRestore(snap) {
   if (typeof applyAiPanelWidth === "function") applyAiPanelWidth(snap.aiPanelWidth);
 }
 
+// 넓은 패널(review) / 작은 창(float) 선택은 기기에 기억한다 — 기억하지 않으면 옵션 화면을 열 때마다
+// 오른쪽 섬이 다시 넓어져 "작은 창으로 보기"를 매번 눌러야 했다
+const WIDE_PANEL_CHROME_PREF_KEY = "supertory.widePanel.chrome";
+
 function widePanelReadPref() {
   if (typeof widePanelSession.readChromePref === "function") {
     const value = widePanelSession.readChromePref();
     if (value === "float" || value === "review") return value;
+  }
+  try {
+    const stored = localStorage.getItem(WIDE_PANEL_CHROME_PREF_KEY);
+    if (stored === "float" || stored === "review") return stored;
+  } catch (_) {
+    /* private mode */
   }
   return "review";
 }
@@ -22590,6 +22600,11 @@ function widePanelWritePref(mode) {
   if (mode !== "float" && mode !== "review") return;
   if (typeof widePanelSession.writeChromePref === "function") {
     widePanelSession.writeChromePref(mode);
+  }
+  try {
+    localStorage.setItem(WIDE_PANEL_CHROME_PREF_KEY, mode);
+  } catch (_) {
+    /* private mode */
   }
 }
 
@@ -22655,14 +22670,15 @@ function bindWidePanelResize() {
     const rail = typeof layoutRailWidth === "function" ? layoutRailWidth() : 48;
     if (widePanelNeedsFloat(vw, { manuscriptMinWidth: 360, binderRailWidth: rail })) {
       toast("화면이 좁아 작은 창으로 열었어요");
-      openWidePanelFloat();
+      openWidePanelFloat(undefined, { remember: false });
     }
   });
 }
 
-function openWidePanelFloat(sourceEl) {
+function openWidePanelFloat(sourceEl, { remember = true } = {}) {
   if (isWidePanelReviewOpen()) closeWidePanelReview({ keepContent: true });
-  widePanelWritePref("float");
+  // 화면이 좁거나 분할·집중·타자기 때문에 어쩔 수 없이 작은 창으로 연 경우는 선택으로 기억하지 않는다
+  if (remember) widePanelWritePref("float");
   const el = sourceEl || widePanelSession.sourceEl || $("analyzeMenuButton");
   const win = openDockFloat("feedback", el);
   syncWidePanelFloatTitle(win);
@@ -22786,7 +22802,7 @@ function openWidePanel(spec) {
   if (preferred === "float" || tooNarrow || conflict) {
     if (preferred !== "float" && conflict) toast(conflict);
     else if (preferred !== "float" && tooNarrow) toast("화면이 좁아 작은 창으로 열었어요");
-    openWidePanelFloat(widePanelSession.sourceEl);
+    openWidePanelFloat(widePanelSession.sourceEl, { remember: preferred === "float" });
     return;
   }
   openWidePanelReview();
@@ -22844,6 +22860,11 @@ function widePanelHeadingSlot() {
       const drag = floatWin?.querySelector(".idea-float-drag");
       return { parent: drag, close: drag?.querySelector("[data-role='close-idea-float']") || null };
     }
+  }
+  // 위젯(떠 있는 창)으로 띄운 옵션 화면: 카드 머리글(마스코트·제목)은 숨기고, 크기 전환 버튼은 위쪽 제목줄의 닫기(×) 옆으로
+  if (isWidePanelFloatOpen() && widePanelSession.id !== "markupfeedback") {
+    const drag = floatWin?.querySelector(".idea-float-drag");
+    if (drag) return { parent: drag, close: drag.querySelector("[data-role='close-idea-float']") || null };
   }
   if (widePanelSession.id === "markupfeedback") {
     const icons = document.querySelector("#feedbackPanel .fb-chrome-icons");
@@ -23014,7 +23035,9 @@ function fitWidePanelToContent() {
   const drag = win.querySelector(".idea-float-drag");
   const need = card.scrollHeight + (drag?.offsetHeight || 0) + 16;
   const max = Math.round(window.innerHeight * 0.86);
-  win.style.height = `${Math.max(220, Math.min(max, need))}px`;
+  // 회차 목록이 있는 화면은 내용 높이가 아니라 최대 높이까지 쓴다(넘치면 목록 안에서 스크롤)
+  const hasList = Boolean(card.querySelector(".wide-pick, [class*='multi-scene-list']"));
+  win.style.height = `${hasList ? max : Math.max(220, Math.min(max, need))}px`;
 }
 
 const WIDE_PANEL_ACTION_LABELS = {
@@ -23559,6 +23582,27 @@ function openDockFloatWindow(key, spec, sourceEl) {
     ? spec.fallbackPos(sourceEl)
     : dockFloatFallbackPos(spec.side, sourceEl, spec.defaultWidth, spec.defaultHeight);
   applyIdeaFloatLayout(win, key, pos.left, pos.top);
+  if (!ideaFloatLayouts.get(key)) {
+    // 저장된 위치가 없는 위젯은 사용자가 옮기기 전까지 기본 자리(창 기준)를 따라간다 —
+    // 기동 직후·작은 창에서 계산한 위치가 왼쪽 위에 몰려 바인더 머리글을 가리던 것을 막는다
+    const followDefaultPos = () => {
+      if (!win.isConnected) {
+        window.removeEventListener("resize", followDefaultPos);
+        return;
+      }
+      if (win.dataset.userMoved === "1") {
+        window.removeEventListener("resize", followDefaultPos);
+        return;
+      }
+      const next = typeof spec.fallbackPos === "function"
+        ? spec.fallbackPos(sourceEl)
+        : dockFloatFallbackPos(spec.side, sourceEl, spec.defaultWidth, spec.defaultHeight);
+      win.style.left = `${next.left}px`;
+      win.style.top = `${next.top}px`;
+      rememberIdeaFloatLayout(win, key);
+    };
+    window.addEventListener("resize", followDefaultPos);
+  }
   if (!ideaFloatLayouts.get(key)?.width && spec.defaultWidth) {
     win.style.width = `${spec.defaultWidth}px`;
   }
@@ -33085,7 +33129,7 @@ function syncToryChatRoomChrome() {
   if (input) {
     if (inCharacter) {
       const who = names.length ? names.join(" · ") : i18n.t('app.캐릭터');
-      input.placeholder = `${who}에게 말걸기\n(Enter 전송 Shift + Enter 줄바꿈)`;
+      input.placeholder = i18n.t('app.에게_말걸기_placeholder', { who });
       input.setAttribute("aria-label", `${i18n.t('app.who_에게_보낼_메시지', {who: who})}`);
     } else {
       input.placeholder = i18n.t('app.토리에게_말걸기_Enter_전송_Shift');
@@ -34002,11 +34046,12 @@ function islWidgetIcon(svg, size) {
  *  양쪽 패널을 모두 접으면 좌·우 두 레일로 나뉘어 위젯이 번갈아 채워진다. */
 const ISL_RAIL_GAP = 8;
 let islRailSide = "";
-/** 위젯 탭의 "열 때 자동 정렬" 토글 — 켜면 새 위젯이 항상 레일에 붙고, 끄면(기본) 떠 있는 창으로 열린다.
- *  끈 상태에서도 위젯을 레일에 끌어다 놓은 뒤로는 기존처럼 이어서 붙는다. */
+/** 위젯 탭의 "열 때 자동 정렬" 토글 — 켜면(기본) 새 위젯이 항상 레일에 붙고, 끄면 떠 있는 창으로 열린다.
+ *  끈 상태에서도 위젯을 레일에 끌어다 놓은 뒤로는 기존처럼 이어서 붙는다.
+ *  저장된 값이 없으면(처음 켠 사용자) 켜진 것으로 본다. "0"으로 저장된 경우에만 꺼진다. */
 const ISL_WIDGET_AUTOALIGN_KEY = "supertory.widgetAutoAlign";
 function islWidgetAutoAlignOn() {
-  try { return localStorage.getItem(ISL_WIDGET_AUTOALIGN_KEY) === "1"; } catch (_) { return false; }
+  try { return localStorage.getItem(ISL_WIDGET_AUTOALIGN_KEY) !== "0"; } catch (_) { return true; }
 }
 function setIslWidgetAutoAlign(on) {
   try { localStorage.setItem(ISL_WIDGET_AUTOALIGN_KEY, on ? "1" : "0"); } catch (_) { /* ignore */ }
@@ -34313,6 +34358,98 @@ function renderIslWidgetTiles() {
   $("islWidgetEmpty")?.classList.toggle("hidden", groups.length > 0);
 }
 
+/** 마스코트·아이콘 독의 위치(창 크기 대비 중심 비율 {x, y}). 둘은 같은 중심을 공유한다 */
+const ISL_WDOCK_POS_KEY = "supertory.widgetDockPos";
+const ISL_WDOCK_DRAG_THRESHOLD = 5;
+let islWdockPos = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(ISL_WDOCK_POS_KEY) || "null");
+    const ok = (n) => Number.isFinite(n) && n > 0 && n < 1;
+    return v && ok(v.x) && ok(v.y) ? { x: v.x, y: v.y } : null;
+  } catch (_) { return null; }
+})();
+function islWdockDraggable() {
+  const cls = document.body.classList;
+  return cls.contains("ai-panel-collapsed") && !cls.contains("focus-write-open");
+}
+/** 중심 좌표(px)를 화면 안(타이틀바 아래~상태줄 위)으로 가둔다 */
+function clampIslWdockCenter(x, y, halfW, halfH) {
+  const minX = 8 + halfW;
+  const maxX = window.innerWidth - 8 - halfW;
+  const minY = 48 + halfH;
+  const maxY = window.innerHeight - 40 - halfH;
+  return {
+    x: Math.min(Math.max(x, minX), Math.max(minX, maxX)),
+    y: Math.min(Math.max(y, minY), Math.max(minY, maxY)),
+  };
+}
+function applyIslBadgePos() {
+  const badge = $("islAiBadge");
+  if (!badge) return;
+  if (!islWdockPos || !islWdockDraggable()) {
+    ["top", "bottom", "left", "right"].forEach((k) => badge.style.removeProperty(k));
+    return;
+  }
+  const halfW = (badge.offsetWidth || 68) / 2;
+  const halfH = (badge.offsetHeight || 68) / 2;
+  const c = clampIslWdockCenter(islWdockPos.x * window.innerWidth, islWdockPos.y * window.innerHeight, halfW, halfH);
+  badge.style.left = `${Math.round(c.x - halfW)}px`;
+  badge.style.top = `${Math.round(c.y - halfH)}px`;
+  badge.style.right = "auto";
+  badge.style.bottom = "auto";
+}
+function setIslWidgetDockCenter(x, y) {
+  if (!(window.innerHeight > 0 && window.innerWidth > 0)) return;
+  islWdockPos = { x: x / window.innerWidth, y: y / window.innerHeight };
+  applyIslBadgePos();
+  if (isIslWidgetDockOpen()) layoutIslWidgetDock();
+}
+/** 끌면 이동, 거의 안 움직였으면 클릭 — 손잡이 없이 마스코트와 독 어디든 잡고 끈다 */
+function bindIslWdockDrag(el) {
+  if (!el || el.dataset.islDragBound) return;
+  el.dataset.islDragBound = "1";
+  let drag = null;
+  let swallowClick = false;
+  el.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !islWdockDraggable()) return;
+    const rect = el.getBoundingClientRect();
+    drag = {
+      id: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false,
+      offX: event.clientX - (rect.left + rect.width / 2), offY: event.clientY - (rect.top + rect.height / 2),
+    };
+  });
+  el.addEventListener("pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    if (!drag.moved) {
+      if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < ISL_WDOCK_DRAG_THRESHOLD) return;
+      drag.moved = true;
+      try { el.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
+      document.body.classList.add("isl-wdock-dragging");
+    }
+    event.preventDefault();
+    setIslWidgetDockCenter(event.clientX - drag.offX, event.clientY - drag.offY);
+  });
+  const finish = (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    const moved = drag.moved;
+    drag = null;
+    if (!moved) return;
+    document.body.classList.remove("isl-wdock-dragging");
+    try { el.releasePointerCapture(event.pointerId); } catch (_) { /* ignore */ }
+    try { localStorage.setItem(ISL_WDOCK_POS_KEY, JSON.stringify(islWdockPos)); } catch (_) { /* ignore */ }
+    swallowClick = true;
+    window.setTimeout(() => { swallowClick = false; }, 60);
+  };
+  el.addEventListener("pointerup", finish);
+  el.addEventListener("pointercancel", finish);
+  el.addEventListener("click", (event) => {
+    if (!swallowClick) return;
+    swallowClick = false;
+    event.stopPropagation();
+    event.preventDefault();
+  }, true);
+}
+
 /** 아이콘 독: 패널을 접었을 때(마스코트)와 확장(집중 모드) 중의 위젯 입구 */
 function ensureIslWidgetDock() {
   let dock = $("islWidgetDock");
@@ -34323,6 +34460,7 @@ function ensureIslWidgetDock() {
   dock.setAttribute("role", "menu");
   dock.hidden = true;
   document.body.appendChild(dock);
+  bindIslWdockDrag(dock);
   dock.addEventListener("click", (event) => {
     const btn = event.target.closest?.("[data-isl-widget]");
     if (btn) {
@@ -34398,16 +34536,34 @@ function layoutIslWidgetDock() {
     dock.style.top = "";
     dock.style.bottom = "";
     dock.style.right = "";
+    dock.style.removeProperty("left");
     dock.classList.remove("is-compact");
     return;
   }
   const host = $("aiPanel") || document.querySelector("main") || document.body;
   const rect = host.getBoundingClientRect();
-  dock.style.top = `${Math.round(rect.top)}px`;
-  dock.style.bottom = `${Math.round(window.innerHeight - rect.bottom)}px`;
-  dock.style.right = `${Math.round(window.innerWidth - rect.right)}px`;
   dock.classList.remove("is-compact");
-  const available = rect.height;
+  if (islWdockPos) {
+    // 마스코트를 놓은 자리의 중심에 독을 맞춘다(화면 밖으로 나가지 않게 가둔다)
+    dock.classList.add("is-custom-y");
+    const w = dock.offsetWidth;
+    const h = dock.offsetHeight;
+    const c = clampIslWdockCenter(islWdockPos.x * window.innerWidth, islWdockPos.y * window.innerHeight, w / 2, h / 2);
+    dock.style.setProperty("top", `${Math.round(c.y - h / 2)}px`, "important");
+    dock.style.left = `${Math.round(c.x - w / 2)}px`;
+    dock.style.right = "auto";
+    dock.style.bottom = "auto";
+    return;
+  }
+  dock.classList.remove("is-custom-y");
+  dock.style.removeProperty("left");
+  // 기본 자리: 본문 영역의 오른쪽 안쪽 벽 · 아래쪽 선에 붙인다(화면 바깥 가장자리가 아니라)
+  const anchor = ($("workArea") || host).getBoundingClientRect();
+  dock.style.right = `${Math.round(window.innerWidth - anchor.right)}px`;
+  dock.style.removeProperty("top");
+  dock.style.top = `${Math.round(anchor.top)}px`;
+  dock.style.bottom = `${Math.round(window.innerHeight - anchor.bottom)}px`;
+  const available = anchor.height;
   if (dock.scrollHeight > available) dock.classList.add("is-compact");
 }
 function closeIslWidgetDock() {
@@ -34434,6 +34590,12 @@ function toggleIslWidgetDock() {
 function setupIslWidgetDock() {
   if (setupIslWidgetDock._bound) return;
   setupIslWidgetDock._bound = true;
+  bindIslWdockDrag($("islAiBadge"));
+  applyIslBadgePos();
+  window.addEventListener("resize", applyIslBadgePos);
+  if (typeof MutationObserver === "function") {
+    new MutationObserver(applyIslBadgePos).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  }
   $("islAiBadge")?.addEventListener("click", (event) => { event.stopPropagation(); toggleIslWidgetDock(); });
   $("islDockHandle")?.addEventListener("click", (event) => { event.stopPropagation(); toggleIslWidgetDock(); });
   document.addEventListener("click", (event) => {
@@ -34467,6 +34629,13 @@ function setupAiCheckHub() {
       if (played || !document.body.classList.contains("ai-panel-collapsed")) return;
       played = true;
       badge.classList.add("is-intro");
+      // 손 흔드는 애니메이션은 처음 한 번만(약 6초) 재생하고, 이후에는 정지 이미지로 유지한다
+      const img = badge.querySelector("img[data-anim-src]");
+      if (img) {
+        const still = img.getAttribute("src");
+        img.src = `${img.dataset.animSrc}?t=${Date.now()}`;
+        window.setTimeout(() => { img.src = still; }, 6200);
+      }
       const done = () => badge.classList.remove("is-intro");
       badge.addEventListener("animationend", done, { once: true });
       window.setTimeout(done, 2200);
@@ -35708,7 +35877,20 @@ function setToryPersonaMode(mode, { silent = false } = {}) {
 
 function hideToryPersonaMenu() {
   $("toryPersonaMenu")?.classList.add("hidden");
+  $("toryPersonaChip")?.setAttribute("aria-expanded", "false");
   if (typeof activeTooltipId !== "undefined" && activeTooltipId === "persona") activeTooltipId = null;
+}
+
+function toryPersonaLabel(mode) {
+  const labels = {
+    default: i18n.t('app.친절한_조수'),
+    secretary: i18n.t('app.진지_비서'),
+    friend: i18n.t('app.친구'),
+    aegyo: i18n.t('app.애교'),
+    teacher: i18n.t('app.선생님'),
+    grumbler: i18n.t('app.투덜이'),
+  };
+  return labels[mode] || labels.default;
 }
 
 function syncToryPersonaMenuUi() {
@@ -35716,6 +35898,11 @@ function syncToryPersonaMenuUi() {
   document.querySelectorAll("#toryPersonaMenu [data-tory-persona]").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.toryPersona === current);
   });
+  // 작가 지침 줄 오른쪽 칩에 현재 말투를 보여 준다(대화·도구 탭 공통)
+  const chipValue = $("toryPersonaChipValue");
+  if (chipValue) chipValue.textContent = toryPersonaLabel(current);
+  const chip = $("toryPersonaChip");
+  if (chip) chip.setAttribute("aria-expanded", $("toryPersonaMenu")?.classList.contains("hidden") ? "false" : "true");
 }
 
 function showToryPersonaMenu(clientX, clientY) {
@@ -35738,10 +35925,23 @@ function showToryPersonaMenu(clientX, clientY) {
   }
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
+  $("toryPersonaChip")?.setAttribute("aria-expanded", "true");
 }
 
 function setupToryPersonaSelect() {
-  // Persona is chosen via right-click on 도우미 tab (no always-visible bar)
+  // 말투는 작가 지침 줄의 칩으로 고른다(도구 탭 우클릭은 단축으로 유지)
+  $("toryPersonaChip")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const menu = $("toryPersonaMenu");
+    if (menu && !menu.classList.contains("hidden")) {
+      hideToryPersonaMenu();
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuWidth = menu?.getBoundingClientRect().width || 220;
+    showToryPersonaMenu(Math.max(8, rect.right - menuWidth), rect.bottom + 4);
+  });
   $("aiTabTools")?.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -35756,7 +35956,7 @@ function setupToryPersonaSelect() {
     hideToryPersonaMenu();
   });
   document.addEventListener("click", (event) => {
-    if (!event.target.closest?.("#toryPersonaMenu, #aiTabTools")) hideToryPersonaMenu();
+    if (!event.target.closest?.("#toryPersonaMenu, #aiTabTools, #toryPersonaChip")) hideToryPersonaMenu();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") hideToryPersonaMenu();
@@ -36433,7 +36633,7 @@ function renderReaderChatPeer() {
   const input = $("readerChatInput");
   if (input) {
     const who = persona.name || i18n.t('app.이_독자');
-    input.placeholder = `${who}에게 말걸기\n(Enter 전송 Shift + Enter 줄바꿈)`;
+    input.placeholder = i18n.t('app.에게_말걸기_placeholder', { who });
     input.setAttribute("aria-label", `${i18n.t('app.who_에게_보낼_메시지', {who: who})}`);
   }
 }
@@ -50303,7 +50503,7 @@ function openSourceModal(options = {}) {
   const current = $("sourceFileCurrent");
   if (current) {
     if (options.fileName) {
-      current.textContent = `저장된 파일: ${options.fileName}${options.fileSize ? ` (${formatSourceFileSize(options.fileSize)})` : ""} · 새 파일을 고르면 교체됩니다`;
+      current.textContent = i18n.t('app.저장된_파일_표시', { name: options.fileName, size: options.fileSize ? ` (${formatSourceFileSize(options.fileSize)})` : "" });
       current.classList.remove("hidden");
     } else {
       current.textContent = "";
@@ -52785,7 +52985,7 @@ function renderBookmarkBar(options = {}) {
             class="bookmark-chip"
             data-bookmark-open="${idAttr}"
             title="${title} (${kind} · ${color.label}) — 클릭: 열기 · 우클릭: 메뉴"
-            aria-label="${title} 북마크 열기"
+            aria-label="${i18n.t('app.북마크_열기_title', { title })}"
           ></button>
           <button
             type="button"
@@ -52798,7 +52998,7 @@ function renderBookmarkBar(options = {}) {
             class="bookmark-item-remove"
             data-bookmark-remove="${idAttr}"
             title="${i18n.t('app.북마크_해제')}"
-            aria-label="${title} 북마크 해제"
+            aria-label="${i18n.t('app.북마크_해제_title', { title })}"
           >×</button>
         </div>
         <input
@@ -85886,6 +86086,8 @@ function prepareTutorialUi() {
   $("sceneWorkspace")?.classList.add("tutorial-force-visible");
   if (typeof setAiPanelOpen === "function") setAiPanelOpen(true);
   else document.body.classList.remove("ai-panel-collapsed");
+  // 1단계(집필 기록 카드)는 체크 탭에 있다
+  try { setAiPanelTab?.("check"); } catch (_) { /* 탭이 없어도 튜토리얼은 진행 */ }
   // Feature bar may be collapsed — reopen shell if present
   $("sceneFeatureBarShell")?.classList.remove("is-collapsed");
   $("sceneFeatureBarReopenButton")?.classList.add("hidden");
@@ -85920,11 +86122,12 @@ function buildOnboardingSteps() {
   // Exact copy — do not polish.
   return [
     {
-      element: "#writingLogButton",
+      // 아이콘줄의 '기록'은 디자인 레이어에서 숨겨져 있어(체크 탭으로 이동) 체크 탭의 집필 기록 카드를 가리킨다
+      element: "#islWritingCard",
       popover: {
         title: i18n.t('app.기록'),
         description: i18n.t('app.지난_일주일_글자_수를_확인해요_우클릭하면'),
-        side: "bottom",
+        side: "left",
         align: "start",
       },
     },
@@ -86004,7 +86207,11 @@ function startOnboardingTutorial(options = {}) {
     doneBtnText: i18n.t('app.완료'),
     showButtons: ["next", "previous", "close"],
     popoverClass: "supertory-tutorial-popover",
-    steps: buildOnboardingSteps(),
+    // 화면에 없는 요소(숨긴 기능·접힌 패널)를 가리키면 팝오버가 허공에 뜨므로 보이는 단계만 남긴다
+    steps: buildOnboardingSteps().filter((step) => {
+      const target = document.querySelector(step.element);
+      return Boolean(target && target.getClientRects().length);
+    }),
     onPopoverRender: (popover) => {
       if (popover?.closeButton) {
         popover.closeButton.textContent = i18n.t('app.건너뛰기');
@@ -86019,6 +86226,10 @@ function startOnboardingTutorial(options = {}) {
       restoreTutorialUi();
     },
   });
+  if (!onboardingDriver.getConfig?.()?.steps?.length) {
+    destroyOnboardingDriver();
+    return false;
+  }
   onboardingDriver.drive(0);
   return true;
 }
