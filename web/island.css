@@ -4088,3 +4088,58 @@ html #relationCanvas .relation-canvas-stage::before { display: none; }
 
 /* 열린 회차 탭 줄의 좌·우 패널 열고 닫기 화살표(‹ ›): 선을 얇게 */
 .episode-tab-row-toggle svg, .episode-tab-row-toggle svg * { stroke-width: 1.5px !important; }
+
+/* ═════ 관리자 모드 — 왼쪽 구역 목록 + 오른쪽 내용 (시안 B) ═════
+   색은 시안의 고정색이 아니라 테마 변수(--panel / --isl-sunk / --line / --isl-ink*)만 쓴다 */
+#adminModal .admin-modal-card {
+  width: min(800px, calc(100vw - 28px)) !important;
+  height: min(86vh, 700px);
+  max-height: none;
+  padding: 0 !important;
+  overflow: hidden !important;
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+#adminModal .admin-tabs {
+  grid-column: 1; grid-row: 1 / -1;
+  display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px;
+  margin: 0; padding: 16px 8px;
+  background: var(--isl-sunk);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+#adminModal .admin-tab {
+  border: 0 !important; border-radius: var(--isl-r-sm) !important;
+  background: transparent !important; box-shadow: none !important; outline: none !important; transform: none !important;
+  color: var(--isl-ink2) !important;
+  padding: 8px 12px; text-align: left; font-size: 13px; font-weight: 500;
+}
+#adminModal .admin-tab:hover { background: color-mix(in srgb, var(--panel) 65%, transparent) !important; color: var(--text-primary) !important; }
+#adminModal .admin-tab.is-active,
+#adminModal .admin-tab.is-active:hover {
+  background: var(--panel) !important; color: var(--text-primary) !important;
+  box-shadow: 0 0 0 1px var(--line) !important;
+}
+#adminModal .modal-heading { grid-column: 2; grid-row: 1; padding: 16px 18px 0 22px; }
+#adminModal .modal-hint { grid-column: 2; grid-row: 2; margin: 2px 22px 10px; font-size: 12.5px; color: var(--isl-ink3); }
+#adminModal .admin-panel { grid-column: 2; grid-row: 3; min-height: 0; overflow-y: auto; padding: 4px 18px 18px 22px; }
+/* 내용 카드: 패널색 바탕 + 선 + 반경 12 */
+#adminModal .admin-section-box,
+#adminModal .admin-account-card,
+#adminModal .admin-help-article,
+#adminModal .admin-qa-item {
+  background: var(--panel) !important; border: 1px solid var(--line) !important; border-radius: 12px !important;
+  color: var(--text-primary);
+}
+#adminModal .admin-section-title { font-family: var(--font-ui) !important; font-size: 15px; font-weight: 700; }
+#adminModal .admin-info-row { border-color: var(--line); }
+@media (max-width: 640px) {
+  #adminModal .admin-modal-card { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr); }
+  #adminModal .admin-tabs { grid-column: 1; grid-row: 2; flex-direction: row; flex-wrap: wrap; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--line); }
+  #adminModal .modal-heading { grid-column: 1; grid-row: 1; }
+  #adminModal .modal-hint { display: none; }
+  #adminModal .admin-panel { grid-column: 1; grid-row: 4; padding-left: 16px; }
+}
+/* 작품 관리: 작품명은 보통(레귤러) 굵기 */
+#adminModal .admin-project-item-title { font-weight: 400 !important; }
