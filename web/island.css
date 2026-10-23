@@ -4904,3 +4904,27 @@ body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
   background: var(--surface); border: 1px solid var(--line); color: var(--accent);
 }
 .welcome-acc-opts .is-primary .welcome-acc-ico { background: rgba(255, 255, 255, 0.18); border-color: transparent; color: white; }
+
+/* 하단 상태줄: 인터넷 · 내화면 보호 · 도토리 · 클라우드 (아이콘만) */
+.isl-foot-chips { position: relative; align-items: center; justify-content: flex-end; gap: 2px; }
+.isl-foot-chips .isl-chip.isl-foot-ic {
+  position: relative; width: 30px; height: 30px; padding: 0; justify-content: center;
+  background: transparent !important; flex: none;
+}
+.isl-foot-chips .isl-chip.isl-foot-ic:hover { background: var(--isl-sunk) !important; }
+.isl-foot-ic svg { width: 17px; height: 17px; display: block; }
+.offline-mode-badge .ic-off, .offline-mode-badge .offline-mode-dot { display: none; }
+.offline-mode-badge.is-offline .ic-on { display: none; }
+.offline-mode-badge.is-offline .ic-off { display: inline; }
+.offline-mode-badge.is-offline { color: var(--accent-dark) !important; background: var(--isl-sunk) !important; }
+.offline-mode-badge.is-offline .offline-mode-dot {
+  display: block; position: absolute; top: 5px; right: 5px; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--accent-dark);
+}
+.offline-mode-hint {
+  position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 40;
+  max-width: min(260px, 100%); padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--border-strong, var(--line)); background: var(--surface-1, var(--panel));
+  color: var(--text-primary); font-size: 12px; line-height: 1.45;
+}
+.offline-mode-hint.hidden { display: none !important; }

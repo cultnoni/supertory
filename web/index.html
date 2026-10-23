@@ -695,22 +695,6 @@
             <div class="header-notice-body header-idea-bar" id="headerIdeaBar" role="list"></div>
           </section>
         </div>
-        <button
-          type="button"
-          id="offlineModeBadge"
-          class="offline-mode-badge hidden"
-          hidden
-          aria-expanded="false"
-          aria-controls="offlineModeHint"
-          data-i18n-title="app.오프라인_모드_설명"
-          title="인터넷 없이도 원고 작성은 그대로 가능해요. AI 기능만 연결되면 다시 쓸 수 있어요"
-        >
-          <span class="offline-mode-dot" aria-hidden="true"></span>
-          <span data-i18n="app.오프라인_모드">오프라인 모드</span>
-        </button>
-        <div id="offlineModeHint" class="offline-mode-hint hidden" hidden role="tooltip">
-          <span data-i18n="app.오프라인_모드_설명">인터넷 없이도 원고 작성은 그대로 가능해요. AI 기능만 연결되면 다시 쓸 수 있어요</span>
-        </div>
       </div>
     </header>
 
@@ -4548,10 +4532,16 @@
             <p data-i18n="index.1_1_대화는_큰_창에서_이어지고_있어요">1:1 대화는 큰 창에서 이어지고 있어요. 질문칸 글은 그대로 옮겨 가요.</p>
             <button type="button" class="secondary" id="toryChatPopupDockButton" data-i18n="index.큰_창_닫고_여기로">큰 창 닫고 여기로</button>
           </div>
-          <!-- 체크·대화·도구·위젯 탭 공통 하단: 내화면 보호 · 도토리 -->
+          <!-- 체크·대화·도구·위젯 탭 공통 하단 상태줄: 인터넷 · 내화면 보호 · 도토리 · 클라우드 (아이콘만, 이름은 툴팁) -->
           <div class="isl-foot-chips" id="islFootChips">
-            <button type="button" class="isl-chip" data-isl-dock="screenProtect"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg><span data-i18n="island.내화면_보호">내화면 보호</span></button>
-            <button type="button" class="isl-chip" data-isl-dock="credits"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 10h14a7 7 0 0 1-14 0z"/><path d="M12 17v4M12 4c-2 0-4 1-4 3v3h8V7c0-2-2-3-4-3z"/></svg><span data-i18n="island.도토리">도토리</span></button>
+            <button type="button" id="offlineModeBadge" class="isl-chip isl-foot-ic offline-mode-badge" aria-expanded="false" aria-controls="offlineModeHint" title="인터넷에 연결돼 있어요" aria-label="인터넷에 연결돼 있어요">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><g class="ic-on"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/></g><g class="ic-off"><path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/></g></svg>
+              <span class="offline-mode-dot" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="isl-chip isl-foot-ic" data-isl-dock="screenProtect" title="내화면 보호" data-i18n-title="island.내화면_보호" aria-label="내화면 보호" data-i18n-aria-label="island.내화면_보호"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m4.243 5.21 14.39 12.472"/></svg></button>
+            <button type="button" class="isl-chip isl-foot-ic" data-isl-dock="credits" title="도토리" data-i18n-title="island.도토리" aria-label="도토리" data-i18n-aria-label="island.도토리"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 4V2"/><path d="M5 10v4a7.004 7.004 0 0 0 5.277 6.787c.412.104.802.292 1.102.592L12 22l.621-.621c.3-.3.69-.488 1.102-.592A7.003 7.003 0 0 0 19 14v-4"/><path d="M12 4C8 4 4.5 6 4 8c-.243.97-.919 1.952-2 3 1.31-.082 1.972-.29 3-1 .54.92.982 1.356 2 2 1.452-.647 1.954-1.098 2.5-2 .595.995 1.151 1.427 2.5 2 1.31-.621 1.862-1.058 2.5-2 .629.977 1.162 1.423 2.5 2 1.209-.548 1.68-.967 2-2 1.032.916 1.683 1.157 3 1-1.297-1.036-1.758-2.03-2-3-.5-2-4-4-8-4Z"/></svg></button>
+            <button type="button" id="islCloudButton" class="isl-chip isl-foot-ic" title="클라우드 백업" data-i18n-title="island.클라우드_백업" aria-label="클라우드 백업" data-i18n-aria-label="island.클라우드_백업"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg></button>
+            <div id="offlineModeHint" class="offline-mode-hint hidden" hidden role="tooltip"></div>
           </div>
         </div>
 
