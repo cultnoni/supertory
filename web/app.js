@@ -55752,8 +55752,16 @@ function hexContrastRatio(a, b) {
 /**
  * 원고 안의 글자 중 바탕과 대비 3:1 미만으로 보이는 요소를 찾아, 그 요소 위치(nth-child 경로)에만
  * 읽히는 색을 덮는 임시 CSS를 만든다. 클래스·인라인·font color 어느 쪽이든 잡히고 원고 HTML은 그대로.
+ * 본문뿐 아니라 확장해서 보는 화면(집중 쓰기·분할·쪽쓰기)에도 같은 규칙을 걸어, 본문에서 보이는 색과
+ * 확장에서 보이는 색이 같게 한다. 사용자가 직접 칠한 색도 읽히는 한 그대로 둔다.
  */
-function fixLowContrastInlineInk(editor, bgHex) {
+const MANUSCRIPT_INK_CONTAINER_IDS = ["sceneContent", "splitSceneContent", "focusWriteEditor", "pageWritePages"];
+
+function manuscriptInkContainers() {
+  return MANUSCRIPT_INK_CONTAINER_IDS.map((id) => $(id)).filter((el) => el instanceof HTMLElement);
+}
+
+function fixLowContrastInlineInk(editors, bgHex) {
   let tag = document.getElementById("manuscriptInkFixStyle");
   if (!tag) {
     tag = document.createElement("style");
@@ -55761,54 +55769,64 @@ function fixLowContrastInlineInk(editor, bgHex) {
     document.head.appendChild(tag);
   }
   tag.textContent = ""; // 이전에 덮은 색을 걷어 낸 상태에서 다시 측정
-  if (!bgHex || !editor.id) return;
+  if (!bgHex) return;
   const fix = isColorDark(bgHex) ? "#ffffff" : "#24211d";
   const rules = [];
-  const pathOf = (node) => {
-    const parts = [];
-    let cur = node;
-    while (cur && cur !== editor) {
-      const parent = cur.parentElement;
-      if (!parent) return "";
-      const idx = Array.prototype.indexOf.call(parent.children, cur) + 1;
-      parts.unshift(`${cur.tagName.toLowerCase()}:nth-child(${idx})`);
-      cur = parent;
+  for (const editor of editors) {
+    if (!editor.id) continue;
+    const pathOf = (node) => {
+      const parts = [];
+      let cur = node;
+      while (cur && cur !== editor) {
+        const parent = cur.parentElement;
+        if (!parent) return "";
+        const idx = Array.prototype.indexOf.call(parent.children, cur) + 1;
+        parts.unshift(`${cur.tagName.toLowerCase()}:nth-child(${idx})`);
+        cur = parent;
+      }
+      return cur === editor ? parts.join(" > ") : "";
+    };
+    const all = editor.querySelectorAll("*");
+    for (let i = 0; i < all.length && rules.length < 3000; i++) {
+      const node = all[i];
+      if (!(node instanceof HTMLElement)) continue;
+      // 글자가 직접 들어 있는 요소만 본다 (형광펜·배경색이 있는 요소는 건드리지 않음)
+      let hasText = false;
+      for (let c = node.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3 && c.nodeValue && c.nodeValue.trim()) { hasText = true; break; }
+      }
+      if (!hasText) continue;
+      if (/background/i.test(node.getAttribute("style") || "")) continue;
+      let hex = "";
+      try { hex = cssColorToHex(getComputedStyle(node).color); } catch (_) { /* ignore */ }
+      if (!hex || hexContrastRatio(hex, bgHex) >= 3) continue;
+      const path = pathOf(node);
+      if (path) rules.push(`#${editor.id} > ${path}`);
     }
-    return cur === editor ? parts.join(" > ") : "";
-  };
-  const all = editor.querySelectorAll("*");
-  for (let i = 0; i < all.length && rules.length < 1500; i++) {
-    const node = all[i];
-    if (!(node instanceof HTMLElement)) continue;
-    // 글자가 직접 들어 있는 요소만 본다 (형광펜·배경색이 있는 요소는 건드리지 않음)
-    let hasText = false;
-    for (let c = node.firstChild; c; c = c.nextSibling) {
-      if (c.nodeType === 3 && c.nodeValue && c.nodeValue.trim()) { hasText = true; break; }
-    }
-    if (!hasText) continue;
-    if (/background/i.test(node.getAttribute("style") || "")) continue;
-    let hex = "";
-    try { hex = cssColorToHex(getComputedStyle(node).color); } catch (_) { /* ignore */ }
-    if (!hex || hexContrastRatio(hex, bgHex) >= 3) continue;
-    const path = pathOf(node);
-    if (path) rules.push(`#${editor.id} > ${path}`);
   }
   tag.textContent = rules.length ? `${rules.join(",\n")} { color: ${fix} !important; }` : "";
 }
 
 let manuscriptInkObserver = null;
-function watchManuscriptInk(editor) {
-  if (manuscriptInkObserver || typeof MutationObserver === "undefined") return;
-  let queued = false;
-  manuscriptInkObserver = new MutationObserver(() => {
-    if (queued) return;
-    queued = true;
-    setTimeout(() => {
-      queued = false;
-      try { syncManuscriptStatusContrast(); } catch (_) { /* ignore */ }
-    }, 250);
-  });
-  manuscriptInkObserver.observe(editor, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "color"] });
+const manuscriptInkWatched = new WeakSet();
+function watchManuscriptInk(editors) {
+  if (typeof MutationObserver === "undefined") return;
+  if (!manuscriptInkObserver) {
+    let queued = false;
+    manuscriptInkObserver = new MutationObserver(() => {
+      if (queued) return;
+      queued = true;
+      setTimeout(() => {
+        queued = false;
+        try { syncManuscriptStatusContrast(); } catch (_) { /* ignore */ }
+      }, 120);
+    });
+  }
+  for (const editor of editors) {
+    if (manuscriptInkWatched.has(editor)) continue;
+    manuscriptInkWatched.add(editor);
+    manuscriptInkObserver.observe(editor, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "color"] });
+  }
 }
 
 function enforceReadableManuscriptInk(bgHex, dark) {
@@ -55818,8 +55836,9 @@ function enforceReadableManuscriptInk(bgHex, dark) {
   const editor = $("sceneContent");
   if (!editor) return;
   body.removeAttribute("data-ink-fix");
-  watchManuscriptInk(editor);
-  fixLowContrastInlineInk(editor, bgHex);
+  const containers = manuscriptInkContainers();
+  watchManuscriptInk(containers);
+  fixLowContrastInlineInk(containers, bgHex);
   let cur = "";
   try { cur = cssColorToHex(getComputedStyle(editor).color); } catch (_) { /* ignore */ }
   const bad = cur && bgHex && hexContrastRatio(cur, bgHex) < 3;
