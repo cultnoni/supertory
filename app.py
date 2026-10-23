@@ -27,7 +27,7 @@ import time
 import unicodedata
 import uuid
 import webbrowser
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from email.parser import BytesParser
@@ -1839,7 +1839,7 @@ def ensure_character_relations_tables(connection: sqlite3.Connection) -> None:
     except sqlite3.Error:
         return
     if exists is None:
-        connection.executescript(MIGRATION_075_PATH.read_text(encoding="utf-8"))
+        connection.executescript(migration_path(75).read_text(encoding="utf-8"))
     else:
         try:
             connection.execute(
@@ -1860,7 +1860,7 @@ def ensure_character_canvas_groups(connection: sqlite3.Connection) -> None:
     except sqlite3.Error:
         return
     if exists is None:
-        connection.executescript(MIGRATION_087_PATH.read_text(encoding="utf-8"))
+        connection.executescript(migration_path(87).read_text(encoding="utf-8"))
         return
     try:
         connection.execute(
@@ -1880,7 +1880,7 @@ def ensure_custom_dictionary_terms_table(connection: sqlite3.Connection) -> None
     except sqlite3.Error:
         return
     if exists is None:
-        connection.executescript(MIGRATION_089_PATH.read_text(encoding="utf-8"))
+        connection.executescript(migration_path(89).read_text(encoding="utf-8"))
         return
     try:
         connection.execute(
@@ -1900,7 +1900,7 @@ def ensure_scene_character_mention_table(connection: sqlite3.Connection) -> None
     except sqlite3.Error:
         return
     if exists is None:
-        connection.executescript(MIGRATION_088_PATH.read_text(encoding="utf-8"))
+        connection.executescript(migration_path(88).read_text(encoding="utf-8"))
         return
     try:
         connection.execute(
@@ -2540,7 +2540,7 @@ def ensure_item_tables(connection: sqlite3.Connection) -> None:
     except sqlite3.Error:
         return
     if exists is None:
-        connection.executescript(MIGRATION_073_PATH.read_text(encoding="utf-8"))
+        connection.executescript(migration_path(73).read_text(encoding="utf-8"))
         return
     try:
         connection.execute(
@@ -2784,7 +2784,7 @@ def ensure_project_tory_check_table(connection: sqlite3.Connection) -> None:
     except sqlite3.Error:
         return
     if exists is None:
-        connection.executescript(MIGRATION_086_PATH.read_text(encoding="utf-8"))
+        connection.executescript(migration_path(86).read_text(encoding="utf-8"))
         return
     try:
         connection.execute(
@@ -2852,7 +2852,7 @@ def ensure_user_ambient_tracks_custom_category(connection: sqlite3.Connection) -
         sql = str(row[0] or "")
         needs_rebuild = "'custom'" not in sql
         if needs_rebuild:
-            connection.executescript(MIGRATION_066_PATH.read_text(encoding="utf-8"))
+            connection.executescript(migration_path(66).read_text(encoding="utf-8"))
             return
         connection.execute(
             "UPDATE user_ambient_tracks SET category = 'custom' "
@@ -3152,7 +3152,7 @@ def ensure_project_reader_favorites_table(connection: sqlite3.Connection) -> Non
     except sqlite3.Error:
         return
     if exists is None:
-        connection.executescript(MIGRATION_091_PATH.read_text(encoding="utf-8"))
+        connection.executescript(migration_path(91).read_text(encoding="utf-8"))
         return
     try:
         connection.execute(
@@ -3549,6 +3549,14 @@ def _json_load_optional(raw: object) -> object | None:
 
 
 
+def _translation_preparation_repository(
+    connection: sqlite3.Connection,
+) -> TranslationPreparationRepository:
+    return TranslationPreparationRepository(
+        connection, timestamp_provider=utc_timestamp_now
+    )
+
+
 def _chapter_polish_state(rows: Sequence[sqlite3.Row | dict]) -> dict:
     return translation_batch_service.chapter_polish_state(
         [dict(row) for row in rows]
@@ -3616,7 +3624,7 @@ def _chapter_polish_state(rows: Sequence[sqlite3.Row | dict]) -> dict:
 def _confirmed_proper_nouns_glossary(
     connection: sqlite3.Connection, job_id: int
 ) -> str:
-    rows = get_translation_preparation_repository(connection).get_proper_nouns(
+    rows = _translation_preparation_repository(connection).get_proper_nouns(
         int(job_id)
     )
     return translation_preparation_service.format_proper_noun_glossary(rows)
@@ -3748,7 +3756,7 @@ def _load_segment_scene_tags(
 ) -> tuple[str, str]:
     if not scene_context_id:
         return "", ""
-    row = get_translation_preparation_repository(connection).get_scene_context(
+    row = _translation_preparation_repository(connection).get_scene_context(
         int(scene_context_id)
     )
     if row is None:
@@ -6204,6 +6212,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return str(candidate)
             parts = [part for part in rel.replace("\\", "/").split("/") if part]
             if len(parts) >= 3 and parts[0] == "sounds":
+                from routes.ambient_api import resolve_ambient_sound_file
+
                 found = resolve_ambient_sound_file(parts[1], "/".join(parts[2:]))
                 if found is not None:
                     return str(found)
