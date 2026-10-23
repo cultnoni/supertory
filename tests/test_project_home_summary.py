@@ -129,6 +129,49 @@ class ProjectHomeSummaryTests(unittest.TestCase):
         self.assertEqual(counts["words"], 3)
         self.assertEqual(counts["letters"], len(glued.replace(" ", "")))
 
+    def test_char_count_cache_is_not_shared_between_databases(self) -> None:
+        """다른 DB에서 저장본 번호가 같아도 이전 DB의 캐시 값이 섞이면 안 된다(CI 전체 실행에서 발견된 버그)."""
+
+        def outline_counts(content: str) -> dict:
+            _, project = self.request("POST", "/api/projects", {"title": "캐시 확인", "main_genre": "판타지"})
+            pid = project["id"]
+            _, chapter = self.request("POST", f"/api/projects/{pid}/chapters", {"title": "1부"})
+            _, scene = self.request("POST", f"/api/chapters/{chapter['id']}/scenes", {"title": "1화"})
+            _, detail = self.request("GET", f"/api/scenes/{scene['id']}")
+            status, _ = self.request("PUT", f"/api/scenes/{scene['id']}", {
+                "title": "1화", "status": "draft", "synopsis_md": "", "notes_md": "",
+                "content_md": content, "row_version": detail["row_version"],
+            })
+            self.assertEqual(status, 200)
+            _, outline = self.request("GET", f"/api/projects/{pid}/outline")
+            found = []
+
+            def walk(node) -> None:
+                if isinstance(node, dict):
+                    if node.get("id") == scene["id"] and "char_counts" in node:
+                        found.append(node["char_counts"])
+                    for value in node.values():
+                        walk(value)
+                elif isinstance(node, list):
+                    for value in node:
+                        walk(value)
+
+            walk(outline)
+            self.assertTrue(found)
+            return found[0]
+
+        first = outline_counts("<p>가나다</p>")
+        self.assertEqual(first["chars_with_space"], 3)
+
+        # 같은 모양(같은 id)의 다른 DB를 열고, 본문 길이는 같지만 내용이 다른 글을 저장한다.
+        other = tempfile.TemporaryDirectory()
+        self.addCleanup(other.cleanup)
+        app.DATA_DIR = Path(other.name) / "data"
+        app.DATABASE_PATH = app.DATA_DIR / "supertory.sqlite3"
+        app.initialise_database()
+        second = outline_counts("<p>가나다라마바사</p>")
+        self.assertEqual(second["chars_with_space"], 7)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5077,42 +5077,49 @@ def editor_style_plain_text(content: str) -> str:
 
 
 # 목차(바인더) 회차 오른쪽 숫자용: 현재 저장본(revision)별 글자 수 캐시.
-_OUTLINE_CHAR_COUNT_CACHE: dict[int, dict] = {}
+# 키는 (데이터베이스 경로, 저장본 id, 본문 길이) — 같은 프로세스에서 다른 DB를 열어도(테스트·백업 복원 등)
+# 저장본 번호가 겹쳐 엉뚱한 값이 나오지 않게 한다.
+_OUTLINE_CHAR_COUNT_CACHE: dict[tuple[str, int, int], dict] = {}
 _OUTLINE_CHAR_COUNT_CACHE_MAX = 20000
 
 
 def outline_scene_char_counts(project_id: int) -> dict[int, dict]:
     """scene_id → {chars_with_space, chars_no_space, words, letters} (현재 저장본 기준, 본문 표시줄과 같은 방식).
 
-    저장본 id로 캐시해 두어 같은 저장본은 다시 세지 않는다.
+    같은 저장본(같은 DB·같은 id·같은 본문 길이)은 다시 세지 않는다.
     """
     result: dict[int, dict] = {}
+    db_key = str(DATABASE_PATH)
     try:
         with database() as connection:
             rows = connection.execute(
-                "SELECT s.id AS scene_id, r.id AS rev_id FROM scene s "
+                "SELECT s.id AS scene_id, r.id AS rev_id, length(r.content_md) AS n FROM scene s "
                 "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
                 "WHERE s.project_id = ? AND s.deleted_at IS NULL",
                 (project_id,),
             ).fetchall()
             if len(_OUTLINE_CHAR_COUNT_CACHE) > _OUTLINE_CHAR_COUNT_CACHE_MAX:
                 _OUTLINE_CHAR_COUNT_CACHE.clear()
-            missing = sorted({int(r["rev_id"]) for r in rows if int(r["rev_id"]) not in _OUTLINE_CHAR_COUNT_CACHE})
+
+            def key_of(rev_id: object, size: object) -> tuple[str, int, int]:
+                return (db_key, int(rev_id), int(size or 0))
+
+            missing = sorted({int(r["rev_id"]) for r in rows if key_of(r["rev_id"], r["n"]) not in _OUTLINE_CHAR_COUNT_CACHE})
             for start in range(0, len(missing), 200):
                 chunk = missing[start:start + 200]
                 marks = ",".join("?" for _ in chunk)
                 for rev in connection.execute(
-                    f"SELECT id, content_md FROM scene_revision WHERE id IN ({marks})", chunk
+                    f"SELECT id, content_md, length(content_md) AS n FROM scene_revision WHERE id IN ({marks})", chunk
                 ).fetchall():
                     stats = compute_text_stats(editor_style_plain_text(rev["content_md"] or ""))
-                    _OUTLINE_CHAR_COUNT_CACHE[int(rev["id"])] = {
+                    _OUTLINE_CHAR_COUNT_CACHE[key_of(rev["id"], rev["n"])] = {
                         "chars_with_space": stats["chars_with_space"],
                         "chars_no_space": stats["chars_no_space"],
                         "words": stats["words"],
                         "letters": stats["letters"],
                     }
             for r in rows:
-                cached = _OUTLINE_CHAR_COUNT_CACHE.get(int(r["rev_id"]))
+                cached = _OUTLINE_CHAR_COUNT_CACHE.get(key_of(r["rev_id"], r["n"]))
                 if cached:
                     result[int(r["scene_id"])] = cached
     except sqlite3.Error:
