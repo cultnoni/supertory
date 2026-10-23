@@ -8632,7 +8632,9 @@ function applyLiteraryTrackUi() {
   setElHidden($("literaryFormSidebar"), !show);
   setElHidden($("contestPrepBoard"), !show);
   setElHidden($("contestPrepSidebar"), !show);
-  setElHidden($("toriFillStyleButton"), !(show && normalizeLiteraryForm(state.literaryForm) === "short"));
+  const showToriFillStyle = show && normalizeLiteraryForm(state.literaryForm) === "short";
+  setElHidden($("toriFillStyleRow"), !showToriFillStyle);
+  setElHidden($("toriFillStyleButton"), !showToriFillStyle);
   syncLiteraryFormControls();
   syncContestControls();
   syncContestSynopsisOrder();
@@ -40461,13 +40463,7 @@ const SETTINGS_BOOKMARK_META = {
     open: () => openSettingsDocMain("synopsis"),
   },
   keywords: { title: i18n.t('app.장르_키워드'), open: () => openKeywordBoard() },
-  style: {
-    title: i18n.t('app.문체'),
-    // Six columns, not one settings document — open the sidebar box instead of a main editor.
-    open: () => {
-      if (typeof setOpenSettingsSection === "function") setOpenSettingsSection("style");
-    },
-  },
+  style: { title: i18n.t('app.문체'), open: () => openSettingsCollectionMain("style") },
   // Per-doc keys (field → buttons / bookmarks)
   synopsis: { title: i18n.t('app.시놉시스'), open: () => openSettingsDocMain("synopsis") },
   logline: { title: i18n.t('app.로그라인'), open: () => openSettingsDocMain("logline") },
@@ -41391,6 +41387,14 @@ const SETTINGS_COLLECTION_MAIN = {
     addIcon: SETTINGS_ICON_SVG.layersPlus,
     onAdd: () => $("newSourceButton")?.click(),
     render: () => renderSourceList(),
+  },
+  // 문체: 여섯 칸 입력 묶음을 메인으로 옮겨 표시 (같은 입력칸이라 저장은 그대로)
+  style: {
+    title: i18n.t('app.문체'),
+    hint: "",
+    section: "style",
+    listId: "styleFields",
+    hideAdd: true,
   },
   readingInvite: {
     title: i18n.t('app.읽기_권한_초대'),
@@ -54992,7 +54996,7 @@ const THEME_DEFAULT_INK = {
 /** UI 테마별 작성 화면 기본 바탕 (색 변경 메뉴는 그대로 사용 가능) */
 const UI_THEME_WRITING_PAGE_DEFAULTS = {
   // 화이트: 기본 · 주간 · 구름 산책 · E ink · 봄날 정원 · 은빛 안개 · 새벽 도서관
-  light: { theme: "white", customColor: null },
+  light: { theme: "custom", customColor: "#FFFEFB" },
   sand: { theme: "white", customColor: null },
   "cloud-walk": { theme: "white", customColor: null },
   eink: { theme: "white", customColor: null },
@@ -55000,18 +55004,18 @@ const UI_THEME_WRITING_PAGE_DEFAULTS = {
   "silver-fog": { theme: "white", customColor: null },
   library: { theme: "white", customColor: null },
   // 비밀 서재: 아이보리
-  study: { theme: "ivory", customColor: null },
+  study: { theme: "custom", customColor: "#FAF4EC" },
   classroom: { theme: "chalkboard", customColor: null },
   // 야간(다크): R63 G59 B54
   dark: { theme: "custom", customColor: "#3F3B36" },
   // 숲속 오두막: R249 G253 B247
-  cabin: { theme: "custom", customColor: "#F9FDF7" },
+  cabin: { theme: "custom", customColor: "#FAFCF6" },
   // 심야 다락방: R217 G217 B217
   attic: { theme: "custom", customColor: "#D9D9D9" },
   // 딥다크: 본문 편집 영역도 #121212로 통일
   "deep-dark": { theme: "custom", customColor: "#121212" },
   // 노을빛 창가: 세피아
-  "sunset-window": { theme: "sepia", customColor: null },
+  "sunset-window": { theme: "custom", customColor: "#FEF9F3" },
 };
 
 /** UI 테마에 지정된 작성 화면 기본 바탕 (사용자 변경분 제외 · 테마색 복원용) */
@@ -55467,6 +55471,7 @@ function isWritingPageDark(theme, customColor = null) {
 
 function paintPageInkOnEditors(color) {
   const next = color || "";
+  requestAnimationFrame(() => { try { syncManuscriptStatusContrast(); } catch (_) { /* ignore */ } });
   document.querySelectorAll(
     ".rich-editor, #sceneContent, #splitSceneContent, .focus-write-editor, .split-body-editor"
   ).forEach((node) => {
@@ -55723,6 +55728,109 @@ function formatToolbarInkForPage(darkPage) {
 }
 
 /** 글자수 바: 본문 페이지 바탕이 어두우면 글자·칩 대비를 밝게 */
+/** WCAG 대비비 (hex 두 개) */
+function hexContrastRatio(a, b) {
+  const lum = (hex) => {
+    const raw = String(hex || "").replace("#", "");
+    if (raw.length !== 6) return null;
+    const [r, g, bl] = [0, 2, 4].map((i) => {
+      const v = parseInt(raw.slice(i, i + 2), 16) / 255;
+      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const l1 = lum(a);
+  const l2 = lum(b);
+  if (l1 == null || l2 == null) return 21;
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+
+/**
+ * 본문 글자색 자동 전환: 저장된 글자색·원고에 박힌 검정 글자가 지금 작성 바탕에서 안 보이면
+ * (대비 3:1 미만) 화면에서만 읽히는 색으로 바꿔 그림. 저장된 원고·설정은 건드리지 않음.
+ */
+/**
+ * 원고 안의 글자 중 바탕과 대비 3:1 미만으로 보이는 요소를 찾아, 그 요소 위치(nth-child 경로)에만
+ * 읽히는 색을 덮는 임시 CSS를 만든다. 클래스·인라인·font color 어느 쪽이든 잡히고 원고 HTML은 그대로.
+ */
+function fixLowContrastInlineInk(editor, bgHex) {
+  let tag = document.getElementById("manuscriptInkFixStyle");
+  if (!tag) {
+    tag = document.createElement("style");
+    tag.id = "manuscriptInkFixStyle";
+    document.head.appendChild(tag);
+  }
+  tag.textContent = ""; // 이전에 덮은 색을 걷어 낸 상태에서 다시 측정
+  if (!bgHex || !editor.id) return;
+  const fix = isColorDark(bgHex) ? "#ffffff" : "#24211d";
+  const rules = [];
+  const pathOf = (node) => {
+    const parts = [];
+    let cur = node;
+    while (cur && cur !== editor) {
+      const parent = cur.parentElement;
+      if (!parent) return "";
+      const idx = Array.prototype.indexOf.call(parent.children, cur) + 1;
+      parts.unshift(`${cur.tagName.toLowerCase()}:nth-child(${idx})`);
+      cur = parent;
+    }
+    return cur === editor ? parts.join(" > ") : "";
+  };
+  const all = editor.querySelectorAll("*");
+  for (let i = 0; i < all.length && rules.length < 1500; i++) {
+    const node = all[i];
+    if (!(node instanceof HTMLElement)) continue;
+    // 글자가 직접 들어 있는 요소만 본다 (형광펜·배경색이 있는 요소는 건드리지 않음)
+    let hasText = false;
+    for (let c = node.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3 && c.nodeValue && c.nodeValue.trim()) { hasText = true; break; }
+    }
+    if (!hasText) continue;
+    if (/background/i.test(node.getAttribute("style") || "")) continue;
+    let hex = "";
+    try { hex = cssColorToHex(getComputedStyle(node).color); } catch (_) { /* ignore */ }
+    if (!hex || hexContrastRatio(hex, bgHex) >= 3) continue;
+    const path = pathOf(node);
+    if (path) rules.push(`#${editor.id} > ${path}`);
+  }
+  tag.textContent = rules.length ? `${rules.join(",\n")} { color: ${fix} !important; }` : "";
+}
+
+let manuscriptInkObserver = null;
+function watchManuscriptInk(editor) {
+  if (manuscriptInkObserver || typeof MutationObserver === "undefined") return;
+  let queued = false;
+  manuscriptInkObserver = new MutationObserver(() => {
+    if (queued) return;
+    queued = true;
+    setTimeout(() => {
+      queued = false;
+      try { syncManuscriptStatusContrast(); } catch (_) { /* ignore */ }
+    }, 250);
+  });
+  manuscriptInkObserver.observe(editor, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "color"] });
+}
+
+function enforceReadableManuscriptInk(bgHex, dark) {
+  const body = document.body;
+  if (!body) return;
+  body.dataset.pageDark = dark ? "1" : "0";
+  const editor = $("sceneContent");
+  if (!editor) return;
+  body.removeAttribute("data-ink-fix");
+  watchManuscriptInk(editor);
+  fixLowContrastInlineInk(editor, bgHex);
+  let cur = "";
+  try { cur = cssColorToHex(getComputedStyle(editor).color); } catch (_) { /* ignore */ }
+  const bad = cur && bgHex && hexContrastRatio(cur, bgHex) < 3;
+  if (bad) {
+    body.style.setProperty("--page-ink-auto", dark ? "#ffffff" : "#24211d");
+    body.setAttribute("data-ink-fix", "1");
+  } else {
+    body.style.removeProperty("--page-ink-auto");
+  }
+}
+
 function syncManuscriptStatusContrast() {
   const wrap = $("manuscriptStatusWrap");
   const frame = $("manuscriptFrame");
@@ -55748,6 +55856,7 @@ function syncManuscriptStatusContrast() {
     || theme === "night"
     || (normalizeUiThemeId(getUiTheme()) !== "eink" && isColorDark(hex));
   const value = dark ? "dark" : "light";
+  enforceReadableManuscriptInk(hex, dark);
   const formatInk = formatToolbarInkForPage(dark);
   wrap?.setAttribute("data-page-contrast", value);
   frame?.setAttribute("data-page-contrast", value);
@@ -87126,8 +87235,8 @@ const UI_THEME_SWATCH = {
   light: { bg: "#FFFFFF", fg: "#292524" },
   sand: { bg: "#F3EBE1", fg: "#FFFFFF" },
   dark: { bg: "#3A2A20", fg: "#FFFFFF" },
-  cabin: { bg: "#E7EEE6", fg: "#3D5A40" },
-  study: { bg: "#F0E6D8", fg: "#5C4030" },
+  cabin: { bg: "#EDF2E9", fg: "#5E7F61" },
+  study: { bg: "#EAE0D3", fg: "#8C6D58" },
   library: { bg: "#E1E6EB", fg: "#526D82" },
   classroom: { bg: "#B8956A", fg: "#3E6B4A" },
   attic: { bg: "#1A2030", fg: "#C8D0E0" },
@@ -87135,7 +87244,7 @@ const UI_THEME_SWATCH = {
   eink: { bg: "#FFFFFF", fg: "#000000" },
   "cloud-walk": { bg: "#B8D4F0", fg: "#FFFFFF" },
   "spring-garden": { bg: "#FBF0F2", fg: "#B88692" },
-  "sunset-window": { bg: "#F6E6C8", fg: "#D98A5B" },
+  "sunset-window": { bg: "#FBF1E6", fg: "#E5A584" },
   "silver-fog": { bg: "#D4D8DE", fg: "#FFFFFF" },
   daydream: { bg: "#EFEFF7", fg: "#5B5A96" },
 };
@@ -87345,16 +87454,16 @@ function getTitleBarOverlayPayload(themeId = getUiTheme()) {
   const id = normalizeUiThemeId(themeId);
   const scheme = uiThemeScheme(id);
   const fallback = {
-    light: { color: "#FAFAF9", symbolColor: "#1C1917" },
+    light: { color: "#F8F4EC", symbolColor: "#2C2523" },
     sand: { color: "#FEFDF8", symbolColor: "#2C2523" },
     dark: { color: "#1E1B17", symbolColor: "#ECE6DC" },
-    cabin: { color: "#D5DDD3", symbolColor: "#2C3A2E" },
+    cabin: { color: "#EDF2E9", symbolColor: "#2C3A2E" },
     study: { color: "#EAE0D3", symbolColor: "#4A3B32" },
     library: { color: "#E1E6EB", symbolColor: "#2B323B" },
     attic: { color: "#14181F", symbolColor: "#E6E0D4" },
     "deep-dark": { color: "#121212", symbolColor: "#E8E8E8" },
     eink: { color: "#FFFFFF", symbolColor: "#000000" },
-    "sunset-window": { color: "#F6E6C8", symbolColor: "#4D382C" },
+    "sunset-window": { color: "#FBF1E6", symbolColor: "#55402F" },
     "silver-fog": { color: "#F1F3F5", symbolColor: "#343A40" },
   }[id] || (scheme === "dark"
     ? { color: "#1E1B17", symbolColor: "#ECE6DC" }

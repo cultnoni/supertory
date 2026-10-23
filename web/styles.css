@@ -193,20 +193,20 @@ body[data-theme="cabin"],
 body[data-ui-theme="cabin"] {
   --ink: #2C3A2E;
   --muted: #57685A;
-  --paper: #E2E8E0;
-  --header-bg: #D5DDD3;
-  --chrome-bg: #D5DDD3;
-  --line: #C2CDC0;
-  --panel: #D5DDD3;
+  --paper: #F4F8F2;
+  --header-bg: #EDF3EB;
+  --chrome-bg: #EDF3EB;
+  --line: #D9E4D6;
+  --panel: #EDF3EB;
   --accent: #5F7A61;
   --accent-dark: #4A6350;
-  --selection: #B2C5B0;
-  --editor-bg: #E2E8E0;
-  --surface: #EAF0E8;
-  --surface-2: #E2E8E0;
-  --surface-3: #D5DDD3;
-  --surface-input: #EAF0E8;
-  --border-strong: #C2CDC0;
+  --selection: #D8E7D5;
+  --editor-bg: #F4F8F2;
+  --surface: #FAFCF8;
+  --surface-2: #F1F6EE;
+  --surface-3: #E7EFE4;
+  --surface-input: #FAFCF8;
+  --border-strong: #D9E4D6;
   --shadow: #2C3A2E22;
   --ai-success-mode: #5F7A61;
   --ai-success-mode-soft: #4A6350;
@@ -588,15 +588,15 @@ html[data-theme="sunset-window"],
 html[data-ui-theme="sunset-window"],
 body[data-theme="sunset-window"],
 body[data-ui-theme="sunset-window"] {
-  --bg-main: #F6E6C8;       /* 따뜻한 노을 샌드 / 리넨 */
-  --bg-sidebar: #F5E6D3;    /* 차분한 노을 앰버 */
-  --bg-card: #FFF9F2;       /* 소프트 화이트 오렌지 */
-  --text-main: #4D382C;     /* 딥 다크 테라코타 */
-  --text-muted: #7D6153;    /* 뮤트 테라코타 */
-  --accent: #D98A5B;        /* 소프트 오렌지 앰버 */
-  --border: #E6D0BE;        /* 밝은 테라코타 border */
-  --selection: #F2E0D0;     /* 드래그 영역 */
-  --caret: #4D382C;         /* 커서 */
+  --bg-main: #FBF1E6;       /* 파스텔 노을 크림 */
+  --bg-sidebar: #FAEDDF;    /* 연한 복숭아 */
+  --bg-card: #FEF9F3;       /* 소프트 화이트 오렌지 */
+  --text-main: #55402F;     /* 부드러운 테라코타 */
+  --text-muted: #86695A;    /* 뮤트 테라코타 */
+  --accent: #E5A584;        /* 파스텔 오렌지 */
+  --border: #EFE0D0;        /* 연한 테라코타 border */
+  --selection: #F7E3D1;     /* 드래그 영역 */
+  --caret: #55402F;         /* 커서 */
 
   --ink: var(--text-main);
   --muted: var(--text-muted);
@@ -605,16 +605,16 @@ body[data-ui-theme="sunset-window"] {
   --chrome-bg: var(--bg-main);
   --line: var(--border);
   --panel: var(--bg-sidebar);
-  --accent-dark: #AE6E49;
+  --accent-dark: #C9814F;
   --editor-bg: var(--bg-card);
   --surface: var(--bg-card);
   --surface-2: var(--bg-main);
   --surface-3: var(--bg-sidebar);
   --surface-input: var(--bg-card);
   --border-strong: var(--border);
-  --shadow: #4D382C22;
+  --shadow: #55402F1c;
   --ai-success-mode: var(--accent);
-  --ai-success-mode-soft: #AE6E49;
+  --ai-success-mode-soft: #C9814F;
   --bg-surface: var(--bg-card);
   --accent-sand: var(--selection);
   --primary: var(--accent);
@@ -20934,8 +20934,8 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 }
 .ms-tools-card .scene-status-bar .scene-synopsis-in-status {
   border-radius: 5px !important;
-  border-color: color-mix(in srgb, var(--page-line, var(--line)) 70%, transparent) !important;
-  background: color-mix(in srgb, var(--page-ink, var(--ink)) 5%, var(--page-editor-bg, #fff)) !important;
+  border-color: color-mix(in srgb, var(--page-line, var(--line)) 42%, transparent) !important;
+  background: color-mix(in srgb, var(--page-ink, var(--ink)) 2.5%, var(--page-editor-bg, #fff)) !important;
   color: var(--page-ink, var(--ink)) !important;
 }
 .ms-tools-card .scene-status-bar .scene-synopsis-in-status .scene-synopsis-label-btn {

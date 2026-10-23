@@ -988,15 +988,20 @@
                     </span>
                     <span class="settings-box-title" data-i18n="app.문체">문체</span>
                   </button>
-                  <button type="button" class="secondary compact-btn settings-icon-btn hidden" id="toriFillStyleButton" data-tori-fill="style" hidden title="토리야 작성해줘" data-i18n-title="app.토리야_작성해줘" aria-label="토리야 작성해줘" data-i18n-aria-label="app.토리야_작성해줘">
-                    <span aria-hidden="true">✦</span>
-                  </button>
                   <button type="button" class="settings-main-open" data-settings-main="style" aria-label="문체 펼치기" data-i18n-aria-label="app.문체" title="문체 펼치기" data-i18n-title="app.문체">
                     <span class="settings-main-arrow" aria-hidden="true">→</span>
                   </button>
                 </div>
                 <div class="settings-box-preview" id="stylePreview"></div>
                 <div class="settings-box-body" id="styleBody" hidden>
+                  <div class="style-fields" id="styleFields">
+                  <div class="settings-field-head is-actions-only" id="toriFillStyleRow" hidden>
+                    <div class="settings-field-actions">
+                      <button type="button" class="secondary compact-btn settings-icon-btn" id="toriFillStyleButton" data-tori-fill="style" title="토리야 작성해줘" data-i18n-title="app.토리야_작성해줘" aria-label="토리야 작성해줘" data-i18n-aria-label="app.토리야_작성해줘">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 3H8"/><path d="m15.007 5.008 3.987 3.986"/><path d="M20 15v4"/><path d="M21.174 6.813a2.82 2.82 0 0 0-3.986-3.987L3.842 16.175a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="M22 17h-4"/><path d="M4 5v4"/><path d="M6 7H2"/><path d="M9 2v2"/></svg>
+                      </button>
+                    </div>
+                  </div>
                   <label class="world-cat-field">
                     <span class="world-sheet-field-head"><span data-i18n="app.서술_기본값">서술 기본값</span></span>
                     <textarea data-style-field="style_narration" data-style-tori="1" rows="3" placeholder="인칭·시점, 시제, 서술 종결체, 서술 거리. 다중 시점이면 시점 변화 규칙." data-i18n-placeholder="app.문체_서술_기본값_안내"></textarea>
@@ -1021,6 +1026,7 @@
                     <span class="world-sheet-field-head"><span data-i18n="app.고치고_싶은_습관">고치고 싶은 습관</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
                     <textarea data-style-field="style_habit" rows="3" placeholder="스스로 고치고 싶은 습관을 적어주세요. 예: '~것이다'를 줄이고 싶다" data-i18n-placeholder="app.문체_습관_안내"></textarea>
                   </label>
+                  </div>
                 </div>
               </section>
 

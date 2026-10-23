@@ -32,10 +32,6 @@
   --isl-switch-off: #d5dae0;
 }
 /* 기본(라이트)·샌드 팔레트 — 시안 main-design-c-variations #c1 (섬과 종이)의 색을 그대로 */
-html[data-theme="light"],
-html[data-ui-theme="light"],
-body[data-theme="light"],
-body[data-ui-theme="light"],
 html[data-theme="sand"],
 html[data-ui-theme="sand"],
 body[data-theme="sand"],
@@ -79,6 +75,278 @@ body[data-ui-theme="sand"] {
   --isl-st-draft: #d2a456;
   --isl-st-revision: hsl(345 70% 85%);
   --isl-st-complete: #4f9b7d;
+}
+/* 라이트 — 아주 옅은 베이지 + 진갈색 강조 (시안 theme-light-beige 의 B안) */
+html[data-theme="light"],
+html[data-ui-theme="light"],
+body[data-theme="light"],
+body[data-ui-theme="light"] {
+  --bg-main: #f8f4ec;
+  --chrome-bg: #f8f4ec;
+  --header-bg: #f8f4ec;
+  --panel: #fffdf9;
+  --bg-surface: #fffdf9;
+  --surface: #fffdf9;
+  --surface-2: #f4efe5;
+  --surface-input: #f4efe5;
+  --isl-desk: #fbf8f2;
+  --isl-sunk: #f4efe5;
+  --line: #ebe5d8;
+  --border-color: #ebe5d8;
+  --border-strong: #ebe5d8;
+  --hover-border: #ddd5c4;
+  --text-primary: #2c2523;
+  --ink: #2c2523;
+  --muted: #62574e;
+  --toolbar-icon: #62574e;
+  --sub-accent: #918779;
+  --isl-ink2: #62574e;
+  --isl-ink3: #918779;
+  --accent: #5c4636;
+  --primary: #5c4636;
+  --accent-dark: #46342a;
+  --accent-sand: #f3ebdf;
+  --accent-soft: #f3ebdf;
+  --accent-line: #e0d2bf;
+  --accent-ink: #fffaf3;
+  --selection: #f3ebdf;
+  --page-bg: #fffefb;
+  --page-editor-bg: #fffefb;
+  --page-ink: #2c2523;
+  --isl-switch-off: #ddd5c4;
+  --isl-st-outline: #6f92c6;
+  --isl-st-idea: #a99ac8;
+  --isl-st-draft: #d2a456;
+  --isl-st-revision: hsl(345 70% 85%);
+  --isl-st-complete: #4f9b7d;
+}
+html[data-theme="study"],
+html[data-ui-theme="study"],
+body[data-theme="study"],
+body[data-ui-theme="study"] {
+  --bg-main: #EAE0D3;
+  --chrome-bg: #EAE0D3;
+  --header-bg: #EAE0D3;
+  --paper: #EAE0D3;
+  --panel: #EAE0D3;
+  --bg-surface: #EAE0D3;
+  --surface: #EAE0D3;
+  --surface-2: #E2D6C6;
+  --surface-3: #E2D6C6;
+  --surface-input: #FAF4EC;
+  --isl-desk: #EDE3D4;
+  --isl-sunk: #E2D6C6;
+  --line: #D8C8B6;
+  --border-color: #D8C8B6;
+  --border-strong: #D8C8B6;
+  --hover-border: #CDB8A4;
+  --text-primary: #4A3B32;
+  --ink: #4A3B32;
+  --muted: #6E5A4D;
+  --toolbar-icon: #6E5A4D;
+  --sub-accent: #917E70;
+  --isl-ink2: #6E5A4D;
+  --isl-ink3: #917E70;
+  --accent: #8C6D58;
+  --primary: #8C6D58;
+  --accent-dark: #735643;
+  --accent-sand: #E2CFC0;
+  --accent-soft: #E2CFC0;
+  --accent-line: #CDB8A4;
+  --accent-ink: #FAF4EC;
+  --selection: #E2CFC0;
+  --editor-bg: #FAF4EC;
+  --page-bg: #FAF4EC;
+  --page-editor-bg: #FAF4EC;
+  --page-ink: #4A3B32;
+  --isl-switch-off: #CDB8A4;
+}
+/* 비밀 서재 — 시안(theme-light-beige) 배치대로 한지 질감은 걷고 단색으로 */
+html[data-ui-theme="study"] body,
+html[data-ui-theme="study"] main,
+html[data-ui-theme="study"] .outline-panel,
+html[data-ui-theme="study"] .ai-panel,
+html[data-ui-theme="study"] .work-area,
+html[data-ui-theme="study"] .scene-workspace,
+html[data-ui-theme="study"] .synopsis-workspace,
+html[data-ui-theme="study"] .character-board,
+html[data-ui-theme="study"] .idea-board,
+html[data-ui-theme="study"] .keyword-board {
+  background-image: none !important;
+  background-color: var(--chrome-bg);
+}
+html[data-theme="sunset-window"],
+html[data-ui-theme="sunset-window"],
+body[data-theme="sunset-window"],
+body[data-ui-theme="sunset-window"] {
+  --isl-desk: #FDF1E4;
+  --isl-sunk: #F5E5D3;
+  --hover-border: #EFC9AC;
+  --toolbar-icon: #86695A;
+  --sub-accent: #A98E7E;
+  --isl-ink2: #86695A;
+  --isl-ink3: #A98E7E;
+  --accent-soft: #F7E3D1;
+  --accent-line: #EFC9AC;
+  --accent-ink: #FEF9F3;
+  --editor-bg: #FEF9F3;
+  --page-bg: #FEF9F3;
+  --page-editor-bg: #FEF9F3;
+  --page-ink: #55402F;
+  --isl-switch-off: #EFD9C4;
+}
+/* 비밀 서재 — 카드·선택된 탭은 패널보다 밝은 종이색(시안 배치) */
+html[data-ui-theme="study"] .isl-part-card,
+html[data-ui-theme="study"] .isl-tile,
+html[data-ui-theme="study"] .isl-card,
+html[data-ui-theme="study"] .isl-ask,
+html[data-ui-theme="study"] .seg-control-tab.is-active,
+html[data-ui-theme="study"] .seg-control-tab[aria-selected="true"] {
+  background: #FAF4EC !important;
+}
+/* 숲속 오두막 — 이끼 안개(시안 ① 초록). 카드·선택 탭은 패널보다 밝은 종이색 */
+html[data-theme="cabin"],
+html[data-ui-theme="cabin"],
+body[data-theme="cabin"],
+body[data-ui-theme="cabin"] {
+  --bg-main: #EDF2E9;
+  --chrome-bg: #EDF2E9;
+  --header-bg: #EDF2E9;
+  --paper: #EDF2E9;
+  --panel: #EDF2E9;
+  --bg-surface: #EDF2E9;
+  --surface: #EDF2E9;
+  --surface-2: #E3EADD;
+  --surface-3: #E3EADD;
+  --surface-input: #FAFCF6;
+  --isl-desk: #F1F5EC;
+  --isl-sunk: #E3EADD;
+  --line: #D6E0CF;
+  --border-color: #D6E0CF;
+  --border-strong: #D6E0CF;
+  --hover-border: #C4D6BE;
+  --text-primary: #2B3A2D;
+  --ink: #2B3A2D;
+  --muted: #55665A;
+  --toolbar-icon: #55665A;
+  --sub-accent: #859486;
+  --isl-ink2: #55665A;
+  --isl-ink3: #859486;
+  --accent: #5E7F61;
+  --primary: #5E7F61;
+  --accent-dark: #4A6850;
+  --accent-sand: #E0EBDB;
+  --accent-soft: #E0EBDB;
+  --accent-line: #C4D6BE;
+  --accent-ink: #FAFCF6;
+  --selection: #E0EBDB;
+  --editor-bg: #FAFCF6;
+  --page-bg: #FAFCF6;
+  --page-editor-bg: #FAFCF6;
+  --page-ink: #2B3A2D;
+  --isl-switch-off: #C4D6BE;
+}
+html[data-ui-theme="cabin"] .isl-part-card,
+html[data-ui-theme="cabin"] .isl-tile,
+html[data-ui-theme="cabin"] .isl-card,
+html[data-ui-theme="cabin"] .isl-ask,
+html[data-ui-theme="cabin"] .seg-control-tab.is-active,
+html[data-ui-theme="cabin"] .seg-control-tab[aria-selected="true"] {
+  background: #FAFCF6 !important;
+}
+/* 본문 글자색 자동 전환은 app.js(enforceReadableManuscriptInk)가 바탕과 대비를 재서, 안 보이는 글자에만 임시 규칙을 덮는다 */
+body[data-ink-fix="1"] :is(.rich-editor, #sceneContent, #splitSceneContent, .focus-write-editor, .split-body-editor) {
+  color: var(--page-ink-auto) !important;
+  caret-color: var(--page-ink-auto) !important;
+}
+/* 추억 교실 — 나무 바탕 위 글자·아이콘 대비를 높여 칠판·카드와 균형을 맞춤 */
+html[data-theme="classroom"],
+html[data-ui-theme="classroom"],
+body[data-theme="classroom"],
+body[data-ui-theme="classroom"] {
+  --ink: #1E170B;
+  --text-primary: #1E170B;
+  --muted: #3F3219;
+  --toolbar-icon: #1E170B;
+  --sub-accent: #4A3C22;
+  --panel: #B58F60;
+  --accent: #24452F;
+  --primary: #24452F;
+  --accent-dark: #1B3524;
+  --accent-ink: #F7EBD2;
+  --isl-ink2: #33290F;
+  --isl-ink3: #3F321C;
+}
+/* 추억 교실 — 하단 상태줄은 나무 바탕 위라 글자를 어두운 색으로 (칠판 본문용 밝은 글자색을 덮음) */
+html[data-ui-theme="classroom"] .manuscript-status-wrap[data-page-contrast="dark"] :is(.status-bar-counts, .status-bar-field, .status-bar-field-label, .status-reading-time, .scene-goal-progress-label, .status-view-zoom-btn, .status-seg > .status-seg-btn, .status-seg > .stat-chip, .status-seg > .stat-chip strong, span, strong),
+html[data-ui-theme="classroom"] .manuscript-status-wrap[data-page-contrast="dark"] {
+  color: var(--isl-ink2) !important;
+}
+/* 어두운 작성 바탕 위의 보조 글자(작성 상태 단계 버튼·경로·이전/다음 등)는 밝은 글자색으로 */
+#msToolsCard[data-page-contrast="dark"] #sceneStatusShell,
+#msToolsCard[data-page-contrast="dark"] .episode-nav-bar,
+#msToolsCard[data-page-contrast="dark"] #islCrumb {
+  --isl-ink2: color-mix(in srgb, var(--page-ink-auto, white) 88%, transparent);
+  --isl-ink3: color-mix(in srgb, var(--page-ink-auto, white) 74%, transparent);
+}
+#msToolsCard[data-page-contrast="dark"] #sceneStatusShell .scene-synopsis-label-btn {
+  color: var(--page-ink-auto, white) !important;
+}
+html[data-ui-theme="classroom"] .manuscript-status-wrap .status-save-btn {
+  color: var(--isl-ink2) !important;
+}
+/* E ink — 순수 검정·흰색만 (회색·반투명·색 없음). 변수를 먼저 흑백으로 고정하고, 남는 회색 곳을 개별로 덮음 */
+html[data-theme="eink"],
+html[data-ui-theme="eink"] {
+  --isl-ink2: #000; --isl-ink3: #000; --muted: #000; --sub-accent: #000; --toolbar-icon: #000;
+  --isl-sunk: #fff; --isl-desk: #fff; --surface-2: #fff; --surface-3: #fff; --surface-input: #fff;
+  --accent-soft: #fff; --accent-sand: #fff; --selection: #fff;
+  --line: #000; --border-color: #000; --border-strong: #000; --hover-border: #000; --accent-line: #000;
+  --isl-switch-off: #fff; --page-line: #000;
+}
+html[data-ui-theme="eink"] *:not(:focus-visible),
+html[data-ui-theme="eink"] *::before,
+html[data-ui-theme="eink"] *::after { text-shadow: none !important; }
+html[data-ui-theme="eink"] :is(.scene-wc, #islCrumb, .part-title, .folder-title, .seg-control-tab, .binder-tab, .glump-sprint-lock-pop, .glump-sprint-lock-pop *) { color: #000 !important; }
+html[data-ui-theme="eink"] :is(.seg-control.binder-switch, .seg-control, .format-toolbar-row, .format-toolbar-row-format, #workArea, #editorMetaShell, .scene-synopsis-in-status) { background: #fff !important; }
+html[data-ui-theme="eink"] .seg-control { border: 1px solid #000 !important; }
+/* E ink 서식 줄은 개별 박스 없이 구분선만 — 설정집 메인(로그라인 등)의 서식 줄에 위·좌·우 테두리만 남던 것을 없앰 */
+html[data-ui-theme="eink"] .format-toolbar { border: 0 !important; border-radius: 0 !important; }
+html[data-ui-theme="eink"] .isl-step.is-now { background: #000 !important; color: #fff !important; }
+html[data-ui-theme="eink"] :is(#editorMetaShell, .scene-synopsis-in-status) { border-color: #000 !important; }
+html[data-ui-theme="eink"] :is(#sceneStatusBar, .panel-heading, .ai-panel-heading) { border-bottom-color: #000 !important; }
+html[data-ui-theme="eink"] :is(.status-bar-vsep, #synopsisListButton, .scene-synopsis-label-btn) { border-color: #000 !important; }
+html[data-ui-theme="eink"] .ai-mode-picker-group { background: #fff !important; border: 1px solid #000 !important; }
+html[data-ui-theme="eink"] #settingsBinder .settings-box-header { border: 1px solid #000 !important; border-radius: 11px; }
+html[data-ui-theme="eink"] #settingsBinder .settings-box-body { border: 1px solid #000 !important; background: #fff !important; }
+html[data-ui-theme="eink"] :is(.isl-chip, .isl-cycle, .tory-persona-chip, .settings-finder-input) { background: #fff !important; border: 1px solid #000 !important; color: #000 !important; }
+html[data-ui-theme="eink"] :is(#sceneContent, .rich-editor, .focus-write-editor, .split-body-editor)::before, html[data-ui-theme="eink"] ::placeholder { color: #000 !important; opacity: 1 !important; }
+html[data-ui-theme="eink"] .guide-tip-box { border-color: #000 !important; background: #fff !important; }
+html[data-ui-theme="eink"] :is(#aiResultLiveLabel, .tory-helper-section-label, .ai-result-label) { color: #000 !important; }
+html[data-ui-theme="eink"] .tory-switch-track { background: #000 !important; border-color: #000 !important; }
+/* E ink는 음영이 없으므로 서식 도구 줄 아래에 본문과 구분되는 검정 선을 긋는다 */
+html[data-ui-theme="eink"] .scene-workspace #formatToolbarShell { border-bottom: 1px solid #000 !important; }
+/* E ink 설정집 타일: 마우스를 올리거나 선택(열림·메인에서 보기)하면 검정 바탕 + 흰 글자·아이콘·숫자 (바탕이 흰색으로 덮여 글자가 사라지던 문제) */
+html[data-ui-theme="eink"] #settingsBinder .settings-box:hover > .settings-box-header,
+html[data-ui-theme="eink"] #settingsBinder .settings-box.is-open > .settings-box-header,
+html[data-ui-theme="eink"] #settingsBinder .settings-box.is-open:hover > .settings-box-header {
+  background: #000 !important;
+  color: #fff !important;
+}
+html[data-ui-theme="eink"] #settingsBinder .settings-box:hover > .settings-box-header *,
+html[data-ui-theme="eink"] #settingsBinder .settings-box.is-open > .settings-box-header * {
+  color: #fff !important;
+  stroke: #fff;
+}
+html[data-ui-theme="eink"] #settingsBinder .settings-box:hover > .settings-box-header .settings-main-open,
+html[data-ui-theme="eink"] #settingsBinder .settings-box.is-open > .settings-box-header .settings-main-open {
+  background: #fff !important;
+  border-color: #fff !important;
+}
+html[data-ui-theme="eink"] #settingsBinder .settings-box:hover > .settings-box-header .settings-main-open *,
+html[data-ui-theme="eink"] #settingsBinder .settings-box.is-open > .settings-box-header .settings-main-open * {
+  color: #000 !important;
+  stroke: #000;
 }
 html[data-ui-scheme="dark"] {
   --isl-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.3);
@@ -793,19 +1061,19 @@ body { --isl-paper-ink: var(--page-ink); }
   --ink: var(--isl-paper-ink);
   color: var(--isl-paper-ink);
   padding-left: 56px; padding-right: 56px;
-  box-shadow: 1px 0 0 rgba(31, 36, 41, 0.06), -1px 0 0 rgba(31, 36, 41, 0.06);
+  box-shadow: none;
 }
 .scene-workspace:not(.split-active) .episode-nav-bar {
   margin-top: 20px;
   padding-top: 26px;
   border-radius: 4px 4px 0 0;
-  box-shadow: 0 -1px 0 rgba(31, 36, 41, 0.06), 1px 0 0 rgba(31, 36, 41, 0.06), -1px 0 0 rgba(31, 36, 41, 0.06);
+  box-shadow: none;
 }
 .scene-workspace:not(.split-active) #sceneStatusShell { padding-bottom: 10px; }
 .scene-workspace:not(.split-active) .manuscript-page {
   margin-top: 0 !important;
   border-radius: 0 0 4px 4px;
-  box-shadow: 0 10px 30px rgba(31, 36, 41, 0.1), 1px 0 0 rgba(31, 36, 41, 0.06), -1px 0 0 rgba(31, 36, 41, 0.06), 0 1px 0 rgba(31, 36, 41, 0.06);
+  box-shadow: 0 10px 30px rgba(31, 36, 41, 0.1);
 }
 .scene-workspace:not(.split-active) .episode-nav-btn,
 .scene-workspace:not(.split-active) .title-input { color: var(--isl-paper-ink) !important; }
@@ -970,9 +1238,9 @@ main { padding-top: 6px !important; }
   color: color-mix(in srgb, var(--isl-paper-ink) 50%, transparent);
   font-size: 12px; min-height: 58px;
   border-radius: 4px 4px 0 0;
-  box-shadow: 0 -1px 0 rgba(31, 36, 41, 0.06), 1px 0 0 rgba(31, 36, 41, 0.06), -1px 0 0 rgba(31, 36, 41, 0.06);
+  box-shadow: none;
 }
-.scene-workspace:not(.split-active) .episode-nav-bar { margin-top: 0 !important; padding-top: 6px !important; border-radius: 0 !important; padding-left: 64px !important; padding-right: 64px !important; box-shadow: 1px 0 0 rgba(31, 36, 41, 0.06), -1px 0 0 rgba(31, 36, 41, 0.06) !important; }
+.scene-workspace:not(.split-active) .episode-nav-bar { margin-top: 0 !important; padding-top: 6px !important; border-radius: 0 !important; padding-left: 64px !important; padding-right: 64px !important; box-shadow: none !important; }
 .scene-workspace:not(.split-active) #sceneStatusShell { padding-left: 64px !important; padding-right: 64px !important; padding-bottom: 16px !important; }
 .scene-workspace:not(.split-active) .episode-title-input { font-size: 26px !important; font-weight: 700 !important; letter-spacing: -0.015em; }
 .episode-nav-btn .episode-nav-label { display: none !important; }
