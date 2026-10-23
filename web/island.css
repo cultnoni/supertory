@@ -254,80 +254,7 @@ html[data-ui-theme="cabin"] .seg-control-tab.is-active,
 html[data-ui-theme="cabin"] .seg-control-tab[aria-selected="true"] {
   background: #FAFCF6 !important;
 }
-/* 본문 글자색 자동 전환 — 어두운 작성 바탕에서는 검정 계열 글자를, 밝은 바탕에서는 흰 글자를 테마 글자색(--page-ink)으로 표시 (저장된 원고는 바꾸지 않음) */
-body[data-page-dark="1"] .rich-editor [style*="color: rgb(0, 0, 0)"]:not([style*="background"]),
-body[data-page-dark="1"] .rich-editor [style*="color:#000"]:not([style*="background"]),
-body[data-page-dark="1"] .rich-editor [style*="color: #000"]:not([style*="background"]),
-body[data-page-dark="1"] .rich-editor [style*="color: rgb(36, 33, 29)"]:not([style*="background"]),
-body[data-page-dark="1"] .rich-editor [style*="color:#24211d"]:not([style*="background"]),
-body[data-page-dark="1"] .rich-editor [style*="color: #24211d"]:not([style*="background"]),
-body[data-page-dark="1"] .rich-editor [style*="color: rgb(31, 31, 31)"]:not([style*="background"]),
-body[data-page-dark="1"] .rich-editor [style*="color: rgb(28, 25, 23)"]:not([style*="background"]),
-body[data-page-dark="1"] .rich-editor [style*="color: rgb(44, 37, 35)"]:not([style*="background"]),
-body[data-page-dark="1"] .rich-editor [style*="color: rgb(26, 26, 26)"]:not([style*="background"]),
-body[data-page-dark="1"] #sceneContent [style*="color: rgb(0, 0, 0)"]:not([style*="background"]),
-body[data-page-dark="1"] #sceneContent [style*="color:#000"]:not([style*="background"]),
-body[data-page-dark="1"] #sceneContent [style*="color: #000"]:not([style*="background"]),
-body[data-page-dark="1"] #sceneContent [style*="color: rgb(36, 33, 29)"]:not([style*="background"]),
-body[data-page-dark="1"] #sceneContent [style*="color:#24211d"]:not([style*="background"]),
-body[data-page-dark="1"] #sceneContent [style*="color: #24211d"]:not([style*="background"]),
-body[data-page-dark="1"] #sceneContent [style*="color: rgb(31, 31, 31)"]:not([style*="background"]),
-body[data-page-dark="1"] #sceneContent [style*="color: rgb(28, 25, 23)"]:not([style*="background"]),
-body[data-page-dark="1"] #sceneContent [style*="color: rgb(44, 37, 35)"]:not([style*="background"]),
-body[data-page-dark="1"] #sceneContent [style*="color: rgb(26, 26, 26)"]:not([style*="background"]),
-body[data-page-dark="1"] #splitSceneContent [style*="color: rgb(0, 0, 0)"]:not([style*="background"]),
-body[data-page-dark="1"] #splitSceneContent [style*="color:#000"]:not([style*="background"]),
-body[data-page-dark="1"] #splitSceneContent [style*="color: #000"]:not([style*="background"]),
-body[data-page-dark="1"] #splitSceneContent [style*="color: rgb(36, 33, 29)"]:not([style*="background"]),
-body[data-page-dark="1"] #splitSceneContent [style*="color:#24211d"]:not([style*="background"]),
-body[data-page-dark="1"] #splitSceneContent [style*="color: #24211d"]:not([style*="background"]),
-body[data-page-dark="1"] #splitSceneContent [style*="color: rgb(31, 31, 31)"]:not([style*="background"]),
-body[data-page-dark="1"] #splitSceneContent [style*="color: rgb(28, 25, 23)"]:not([style*="background"]),
-body[data-page-dark="1"] #splitSceneContent [style*="color: rgb(44, 37, 35)"]:not([style*="background"]),
-body[data-page-dark="1"] #splitSceneContent [style*="color: rgb(26, 26, 26)"]:not([style*="background"]),
-body[data-page-dark="1"] .focus-write-editor [style*="color: rgb(0, 0, 0)"]:not([style*="background"]),
-body[data-page-dark="1"] .focus-write-editor [style*="color:#000"]:not([style*="background"]),
-body[data-page-dark="1"] .focus-write-editor [style*="color: #000"]:not([style*="background"]),
-body[data-page-dark="1"] .focus-write-editor [style*="color: rgb(36, 33, 29)"]:not([style*="background"]),
-body[data-page-dark="1"] .focus-write-editor [style*="color:#24211d"]:not([style*="background"]),
-body[data-page-dark="1"] .focus-write-editor [style*="color: #24211d"]:not([style*="background"]),
-body[data-page-dark="1"] .focus-write-editor [style*="color: rgb(31, 31, 31)"]:not([style*="background"]),
-body[data-page-dark="1"] .focus-write-editor [style*="color: rgb(28, 25, 23)"]:not([style*="background"]),
-body[data-page-dark="1"] .focus-write-editor [style*="color: rgb(44, 37, 35)"]:not([style*="background"]),
-body[data-page-dark="1"] .focus-write-editor [style*="color: rgb(26, 26, 26)"]:not([style*="background"]),
-body[data-page-dark="1"] .split-body-editor [style*="color: rgb(0, 0, 0)"]:not([style*="background"]),
-body[data-page-dark="1"] .split-body-editor [style*="color:#000"]:not([style*="background"]),
-body[data-page-dark="1"] .split-body-editor [style*="color: #000"]:not([style*="background"]),
-body[data-page-dark="1"] .split-body-editor [style*="color: rgb(36, 33, 29)"]:not([style*="background"]),
-body[data-page-dark="1"] .split-body-editor [style*="color:#24211d"]:not([style*="background"]),
-body[data-page-dark="1"] .split-body-editor [style*="color: #24211d"]:not([style*="background"]),
-body[data-page-dark="1"] .split-body-editor [style*="color: rgb(31, 31, 31)"]:not([style*="background"]),
-body[data-page-dark="1"] .split-body-editor [style*="color: rgb(28, 25, 23)"]:not([style*="background"]),
-body[data-page-dark="1"] .split-body-editor [style*="color: rgb(44, 37, 35)"]:not([style*="background"]),
-body[data-page-dark="1"] .split-body-editor [style*="color: rgb(26, 26, 26)"]:not([style*="background"]) {
-  color: var(--page-ink-auto, var(--page-ink)) !important;
-}
-body[data-page-dark="0"] .rich-editor [style*="color: rgb(255, 255, 255)"]:not([style*="background"]),
-body[data-page-dark="0"] .rich-editor [style*="color:#fff"]:not([style*="background"]),
-body[data-page-dark="0"] .rich-editor [style*="color: #fff"]:not([style*="background"]),
-body[data-page-dark="0"] #sceneContent [style*="color: rgb(255, 255, 255)"]:not([style*="background"]),
-body[data-page-dark="0"] #sceneContent [style*="color:#fff"]:not([style*="background"]),
-body[data-page-dark="0"] #sceneContent [style*="color: #fff"]:not([style*="background"]),
-body[data-page-dark="0"] #splitSceneContent [style*="color: rgb(255, 255, 255)"]:not([style*="background"]),
-body[data-page-dark="0"] #splitSceneContent [style*="color:#fff"]:not([style*="background"]),
-body[data-page-dark="0"] #splitSceneContent [style*="color: #fff"]:not([style*="background"]),
-body[data-page-dark="0"] .focus-write-editor [style*="color: rgb(255, 255, 255)"]:not([style*="background"]),
-body[data-page-dark="0"] .focus-write-editor [style*="color:#fff"]:not([style*="background"]),
-body[data-page-dark="0"] .focus-write-editor [style*="color: #fff"]:not([style*="background"]),
-body[data-page-dark="0"] .split-body-editor [style*="color: rgb(255, 255, 255)"]:not([style*="background"]),
-body[data-page-dark="0"] .split-body-editor [style*="color:#fff"]:not([style*="background"]),
-body[data-page-dark="0"] .split-body-editor [style*="color: #fff"]:not([style*="background"]) {
-  color: var(--page-ink-auto, var(--page-ink)) !important;
-}
-body[data-page-dark="1"] :is(.rich-editor, #sceneContent, #splitSceneContent, .focus-write-editor, .split-body-editor) font[color="#000000"],
-body[data-page-dark="1"] :is(.rich-editor, #sceneContent, #splitSceneContent, .focus-write-editor, .split-body-editor) font[color="#000"] {
-  color: var(--page-ink-auto, var(--page-ink)) !important;
-}
+/* 본문 글자색 자동 전환은 app.js(enforceReadableManuscriptInk)가 바탕과 대비를 재서, 안 보이는 글자에만 임시 규칙을 덮는다 */
 body[data-ink-fix="1"] :is(.rich-editor, #sceneContent, #splitSceneContent, .focus-write-editor, .split-body-editor) {
   color: var(--page-ink-auto) !important;
   caret-color: var(--page-ink-auto) !important;
@@ -359,11 +286,11 @@ html[data-ui-theme="classroom"] .manuscript-status-wrap[data-page-contrast="dark
 #msToolsCard[data-page-contrast="dark"] #sceneStatusShell,
 #msToolsCard[data-page-contrast="dark"] .episode-nav-bar,
 #msToolsCard[data-page-contrast="dark"] #islCrumb {
-  --isl-ink2: color-mix(in srgb, var(--page-ink-auto, #ffffff) 88%, transparent);
-  --isl-ink3: color-mix(in srgb, var(--page-ink-auto, #ffffff) 74%, transparent);
+  --isl-ink2: color-mix(in srgb, var(--page-ink-auto, white) 88%, transparent);
+  --isl-ink3: color-mix(in srgb, var(--page-ink-auto, white) 74%, transparent);
 }
 #msToolsCard[data-page-contrast="dark"] #sceneStatusShell .scene-synopsis-label-btn {
-  color: var(--page-ink-auto, #ffffff) !important;
+  color: var(--page-ink-auto, white) !important;
 }
 html[data-ui-theme="classroom"] .manuscript-status-wrap .status-save-btn {
   color: var(--isl-ink2) !important;

@@ -248,6 +248,13 @@ class IslandDesignContractTests(unittest.TestCase):
             self.css,
             flags=re.S,
         )
+        # 이름 붙은 테마(비밀 서재·노을·오두막·추억교실·E ink 등)의 팔레트/보정 블록도 예외:
+        # 셀렉터에 data-theme / data-ui-theme 가 들어간 규칙은 그 테마의 색을 정의하는 곳이다.
+        body = re.sub(
+            r'[^{}]*\[data-(?:ui-)?theme="[^"]+"\][^{}]*\{[^{}]*\}',
+            "",
+            body,
+        )
         body = re.sub(r"rgba?\([^)]*\)", "", body)
         hexes = re.findall(r"#[0-9a-fA-F]{3,8}\b", body)
         # var() 대체값(fallback)과 상태 점 토큰 정도만 허용
