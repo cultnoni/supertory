@@ -276,6 +276,8 @@ class CharacterImportAnalysisApiTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         html = (root / "web" / "index.html").read_text(encoding="utf-8")
         js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        # setup 호출(safeSetup)은 리팩터링 때 app-boot.js로 옮겨졌다.
+        boot = (root / "web" / "app-boot.js").read_text(encoding="utf-8")
         self.assertGreaterEqual(html.count("토리야 작성해줘"), 4)
         self.assertIn('data-tori-fill="world"', html)
         self.assertIn('data-tori-fill="characters"', html)
@@ -299,7 +301,7 @@ class CharacterImportAnalysisApiTests(unittest.TestCase):
         self.assertIn("/api/characters/${state.characterId}/trait-history", js)
         self.assertIn("/api/items/${state.itemId}/trait-history", js)
         self.assertIn("/api/projects/${pid}/trait-history", js)
-        self.assertIn('safeSetup("setupTraitChronicle", setupTraitChronicle)', js)
+        self.assertIn('safeSetup("setupTraitChronicle", setupTraitChronicle)', boot)
 
 
 if __name__ == "__main__":

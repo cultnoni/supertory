@@ -144,7 +144,9 @@ class IslandDesignContractTests(unittest.TestCase):
         self.assertIn('#formatToolbar.is-compact [data-format="list"]', self.css)
         self.assertNotIn('#formatToolbar.is-compact [data-format="justifyLeft"]', self.css)
         self.assertIn("function fitFormatRow(", self.js)
-        self.assertIn('#formatToolbar.is-tight .isl-fmt-more', self.css)
+        # 더보기(⋯) 버튼은 폭과 관계없이 항상 표시된다(서식줄 폭 동작 정리, 2c0de65).
+        self.assertIn('#formatToolbar .isl-fmt-more', self.css)
+        self.assertNotIn('#formatToolbar.is-tight .isl-fmt-more', self.css)
 
     def test_widget_rail_pushes_body_and_snaps_dropped_widgets(self) -> None:
         for token in ("function islRailDock(", "function setupIslRailSnap(", "function islSnapIndex("):
