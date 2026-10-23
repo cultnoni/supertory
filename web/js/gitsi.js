@@ -137,8 +137,7 @@ function toggleGitsiPopover() {
       return;
     }
     const floatEl = $("gitsiFloat");
-    if (floatEl?.classList.contains("is-mini")) setGitsiFloatMode("expanded");
-    else setGitsiFloatMode("mini");
+    if (floatEl) cycleGitsiFloatMode();
     closeGitsiPopover();
     return;
   }
@@ -387,13 +386,22 @@ function clampGitsiMiniPosition(el) {
 function setGitsiFloatMode(mode) {
   const el = $("gitsiFloat");
   if (!el || el.classList.contains("hidden")) return;
-  const expanded = mode === "expanded";
-  if (expanded) {
-    rememberGitsiMiniBox(el);
-    applyGitsiExpandedRect();
+  const next = mode === "expanded" || mode === "strip" ? mode : "mini";
+  if (next === "expanded" && !el.classList.contains("is-expanded")) {
+    if (el.classList.contains("is-mini")) rememberGitsiMiniBox(el);
   }
-  el.classList.toggle("is-expanded", expanded);
-  el.classList.toggle("is-mini", !expanded);
+  if (next === "expanded") {
+    // 데스크톱 앱처럼 앱 밖(브라우저 전체 화면)까지 꽉 채운다. 거부되면 페이지 전체로 대신한다.
+    try {
+      if (!document.fullscreenElement) void el.requestFullscreen?.().catch(() => {});
+    } catch (_) { /* ignore */ }
+  } else if (document.fullscreenElement === el) {
+    try { void document.exitFullscreen?.().catch(() => {}); } catch (_) { /* ignore */ }
+  }
+  el.classList.toggle("is-expanded", next === "expanded");
+  el.classList.toggle("is-strip", next === "strip");
+  el.classList.toggle("is-mini", next === "mini");
+  el.dataset.gitsiMode = next;
   requestAnimationFrame(() => {
     syncGitsiMeetFrameSize();
     setTimeout(syncGitsiMeetFrameSize, 60);
@@ -401,11 +409,19 @@ function setGitsiFloatMode(mode) {
   });
 }
 
+function cycleGitsiFloatMode() {
+  const el = $("gitsiFloat");
+  if (!el) return;
+  const cur = el.dataset.gitsiMode || "mini";
+  setGitsiFloatMode(cur === "strip" ? "mini" : cur === "mini" ? "expanded" : "strip");
+}
+
 function showGitsiFloatMini() {
   const el = $("gitsiFloat");
   if (!el) return;
-  el.classList.remove("hidden", "is-expanded");
+  el.classList.remove("hidden", "is-expanded", "is-strip");
   el.classList.add("is-mini");
+  el.dataset.gitsiMode = "mini";
   el.setAttribute("aria-hidden", "false");
   if (!el.dataset.gitsiDragged) {
     const work = $("workArea")?.getBoundingClientRect();
@@ -434,7 +450,11 @@ function hideGitsiFloat() {
   const el = $("gitsiFloat");
   if (!el) return;
   el.classList.add("hidden", "is-mini");
-  el.classList.remove("is-expanded", "is-dragging");
+  el.classList.remove("is-expanded", "is-strip", "is-dragging");
+  el.dataset.gitsiMode = "mini";
+  if (document.fullscreenElement === el) {
+    try { void document.exitFullscreen?.().catch(() => {}); } catch (_) { /* ignore */ }
+  }
   el.setAttribute("aria-hidden", "true");
   state.gitsiOpen = false;
   syncGitsiCallUi();
@@ -705,6 +725,12 @@ function setupGitsi() {
   $("gitsiLeaveMiniButton")?.addEventListener("click", leaveGitsiMeeting);
   $("gitsiExpandButton")?.addEventListener("click", () => setGitsiFloatMode("expanded"));
   $("gitsiShrinkButton")?.addEventListener("click", () => setGitsiFloatMode("mini"));
+  $("gitsiStripButton")?.addEventListener("click", () => setGitsiFloatMode("strip"));
+  $("gitsiRestoreButton")?.addEventListener("click", () => setGitsiFloatMode("mini"));
+  document.addEventListener("fullscreenchange", () => {
+    const el = $("gitsiFloat");
+    if (el?.classList.contains("is-expanded") && !document.fullscreenElement) setGitsiFloatMode("mini");
+  });
   $("gitsiMiniHit")?.addEventListener("click", () => setGitsiFloatMode("expanded"));
   $("gitsiMicButton")?.addEventListener("click", () => gitsiExecute("toggleAudio"));
   $("gitsiCamButton")?.addEventListener("click", () => gitsiExecute("toggleVideo"));
