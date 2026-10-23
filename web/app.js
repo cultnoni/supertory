@@ -682,19 +682,12 @@ function syncOfflineModeBadge() {
   const hint = $("offlineModeHint");
   if (!badge) return;
   const offline = isInternetOfflineMode();
-  badge.classList.toggle("hidden", !offline);
-  badge.hidden = !offline;
-  const label = i18n.t("app.오프라인_모드");
-  const detail = i18n.t("app.오프라인_모드_설명");
-  const textEl = badge.querySelector("[data-i18n='app.오프라인_모드']");
-  if (textEl) textEl.textContent = label;
+  badge.classList.toggle("is-offline", offline);
+  const label = i18n.t(offline ? "app.오프라인_모드" : "island.인터넷_연결됨");
+  const detail = i18n.t(offline ? "app.오프라인_모드_설명" : "island.인터넷_연결됨");
   badge.setAttribute("aria-label", label);
-  badge.title = detail;
-  if (hint) {
-    const hintText = hint.querySelector("[data-i18n='app.오프라인_모드_설명']");
-    if (hintText) hintText.textContent = detail;
-    if (!offline) closeOfflineModeHint();
-  }
+  badge.title = label;
+  if (hint) hint.textContent = detail;
 }
 
 async function refreshNetworkStatus(options = {}) {
@@ -738,7 +731,7 @@ function setupOfflineModeUi() {
   badge?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (badge.hidden) return;
+    syncOfflineModeBadge();
     const hint = $("offlineModeHint");
     const open = badge.getAttribute("aria-expanded") === "true";
     if (open) {
@@ -757,6 +750,9 @@ function setupOfflineModeUi() {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeOfflineModeHint();
+  });
+  $("islCloudButton")?.addEventListener("click", () => {
+    toast(i18n.t("island.클라우드_백업_준비중"), 2200);
   });
   window.addEventListener("online", () => {
     const wasOffline = isInternetOfflineMode();
@@ -53381,11 +53377,6 @@ function syncHeaderNoticeStripLayout() {
   let rightVp = wr.right;
   const capRight = tb.right - padRight - 4;
   if (Number.isFinite(capRight)) rightVp = Math.min(rightVp, capRight);
-  const badge = $("offlineModeBadge");
-  if (badge && !badge.hidden && !badge.classList.contains("hidden")) {
-    const br = badge.getBoundingClientRect();
-    if (br.width > 0) rightVp = Math.min(rightVp, br.left - gap);
-  }
   const left = Math.max(0, Math.round(leftVp - tb.left));
   const width = Math.max(0, Math.round(rightVp - tb.left - left));
   strip.style.left = `${left}px`;
