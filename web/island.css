@@ -818,7 +818,8 @@ body { --isl-paper-ink: var(--page-ink); }
   padding-left: min(var(--ms-page-margin-x, 30mm), 22%) !important;
   padding-right: min(var(--ms-page-margin-x, 30mm), 22%) !important;
 }
-/* 페이지 모양 "평면": 종이 가장자리·그림자 없이 작업 영역 전체를 본문 페이지와 같은 색으로.
+/* 페이지 모양 "평면": 종이 폭(A4처럼)은 그대로 두고, 종이 가장자리·그림자만 없애
+   종이 주변 바탕이 본문 페이지와 같은 색이 되게 한다.
    (기본 "종이"는 위 규칙 그대로 — html[data-page-layout="flat"] 일 때만 덮어씀) */
 html[data-page-layout="flat"] .scene-workspace:not(.split-active) form#sceneEditor {
   background: var(--page-editor-bg, var(--page-bg, white));
@@ -827,15 +828,9 @@ html[data-page-layout="flat"] .scene-workspace:not(.split-active) .isl-crumb,
 html[data-page-layout="flat"] .scene-workspace:not(.split-active) .episode-nav-bar,
 html[data-page-layout="flat"] .scene-workspace:not(.split-active) #sceneStatusShell,
 html[data-page-layout="flat"] .scene-workspace:not(.split-active) .manuscript-page {
-  width: 100% !important;
-  max-width: none !important;
-  margin-left: 0 !important; margin-right: 0 !important;
   border-radius: 0 !important;
   box-shadow: none !important;
 }
-html[data-page-layout="flat"] .scene-workspace:not(.split-active) .isl-crumb,
-html[data-page-layout="flat"] .scene-workspace:not(.split-active) .episode-nav-bar { margin-top: 0 !important; }
-html[data-page-layout="flat"] .scene-workspace:not(.split-active) .manuscript-page { margin-bottom: 0 !important; }
 .isl-fp-lab.isl-fp-lab-wide { width: auto; white-space: nowrap; }
 .isl-fp-chip[aria-pressed="true"] { background: var(--isl-accent-soft, var(--isl-sunk)) !important; color: var(--text-primary) !important; font-weight: 600; }
 /* 서식줄은 이제 패널색 띠 위 → 글자색은 테마 본문색 */
@@ -4517,3 +4512,127 @@ body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
   flex: 0 0 auto; height: auto !important; min-height: 0 !important; line-height: 1.5 !important;
   overflow: visible !important; white-space: nowrap;
 }
+
+/* ═════ 시작 화면 개편: 마스코트 옆 토리 소개 · 가운데 타이틀(고운바탕) · 펼치는 3단계 · 최근 작품 · 팁 ═════ */
+@font-face {
+  font-family: "Gowun Batang Title";
+  src: url("/fonts/GowunBatang-Bold-title.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+.work-area > #welcome.welcome-screen {
+  justify-content: safe center;
+  gap: 14px;
+  padding-top: 20px; padding-bottom: 28px;
+  overflow-y: auto;
+}
+.welcome-card.welcome-card-v2 {
+  background: transparent; border: 0; box-shadow: none; padding: 0;
+  align-items: stretch;
+}
+.welcome-hero { display: flex; align-items: center; gap: 22px; text-align: left; }
+.welcome-hero .welcome-mascot { flex: none; margin: 0; }
+.welcome-hero-text { min-width: 0; flex: 1 1 auto; }
+.welcome-hero-text .welcome-mascot-hello {
+  display: inline-block; margin: 0 0 8px !important;
+  padding: 6px 16px; border: 1px solid color-mix(in srgb, var(--line) 75%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--surface) 75%, transparent);
+  font-size: 13.5px !important; min-height: 34px; line-height: 1.5; box-sizing: border-box;
+}
+.welcome-card-v2 .welcome-tory-blurb p,
+.welcome-card-v2 .welcome-tory-blurb-body { font-size: 12.5px; line-height: 1.7; text-align: left; }
+.welcome-card-v2 .welcome-card-title {
+  text-align: center;
+  font-family: "Gowun Batang Title", "Gowun Batang", "Noto Serif KR", serif;
+  font-size: clamp(1.4rem, 2.4vw, 1.75rem);
+  font-weight: 700;
+  line-height: 1.45;
+  margin: calc(16px - 3mm) 0 0;
+}
+@media (max-width: 720px) {
+  .welcome-hero { flex-direction: column; text-align: center; }
+  .welcome-card-v2 .welcome-tory-blurb p { text-align: center; }
+}
+
+/* 펼치는 3단계 */
+.welcome-acc, .welcome-recent-wrap, .welcome-tips2 {
+  box-sizing: border-box; width: min(var(--welcome-col-width, 64rem), 100%);
+  margin: 0 auto; min-width: 0; flex: 0 0 auto;
+}
+.welcome-acc-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.welcome-acc-tab {
+  display: flex; flex-direction: column; gap: 6px; text-align: left; cursor: pointer;
+  padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+}
+.welcome-acc-tab:hover { border-color: var(--muted); }
+.welcome-acc-tab strong { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink); }
+.welcome-acc-tab strong::after { content: "⌄"; margin-left: auto; color: var(--muted); transition: transform 0.2s; }
+.welcome-acc-tab small { font-size: 12px; line-height: 1.5; color: var(--muted); }
+.welcome-acc-tab[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: linear-gradient(color-mix(in srgb, var(--accent) 10%, var(--surface)), var(--surface) 80%);
+}
+.welcome-acc-tab[aria-expanded="true"] strong::after { transform: rotate(180deg); color: var(--accent); }
+.welcome-acc-num {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface)); color: var(--accent);
+  font-size: 12px; font-weight: 700; flex: none;
+}
+.welcome-acc-panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.28s ease, margin 0.28s ease; margin-top: 0; }
+.welcome-acc-panel.is-open { grid-template-rows: 1fr; margin-top: 10px; }
+.welcome-acc-panel > div { overflow: hidden; min-height: 0; }
+.welcome-acc-inner {
+  background: var(--surface); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: 12px; padding: 12px;
+}
+.welcome-acc-opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.welcome-acc-opts button {
+  display: flex; flex-direction: column; gap: 4px; text-align: left; cursor: pointer;
+  padding: 14px; border: 0; border-radius: 10px; background: var(--accent-sand, var(--panel));
+}
+.welcome-acc-opts button:hover { filter: brightness(0.97); }
+.welcome-acc-opts strong { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.welcome-acc-opts small { font-size: 12px; color: var(--muted); }
+.welcome-acc-opts .is-primary { background: var(--accent); }
+.welcome-acc-opts .is-primary strong { color: white; }
+.welcome-acc-opts .is-primary small { color: rgba(255, 255, 255, 0.78); }
+.welcome-acc-text { margin: 0; padding: 4px 6px; font-size: 13px; line-height: 1.7; color: var(--ink); }
+@media (max-width: 720px) {
+  .welcome-acc-tabs, .welcome-acc-opts { grid-template-columns: 1fr; }
+}
+
+/* 최근 작품 · 팁 */
+.welcome-sec-h { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 8px; font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.welcome-sec-count { font-size: 11.5px; font-weight: 600; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border-radius: 999px; padding: 1px 9px; }
+.welcome-sec-count:empty { display: none; }
+.welcome-recent { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.welcome-recent-empty { grid-column: 1 / -1; margin: 0; padding: 16px; text-align: center; font-size: 13px; color: var(--muted); border: 1px dashed var(--line); border-radius: 12px; background: var(--surface); }
+.welcome-wcard {
+  display: flex; flex-direction: column; gap: 6px; text-align: left; cursor: pointer;
+  padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+}
+.welcome-wcard:hover { border-color: var(--muted); box-shadow: 0 6px 18px rgba(31, 36, 41, 0.06); }
+.welcome-wcard.is-current { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: linear-gradient(color-mix(in srgb, var(--accent) 10%, var(--surface)), var(--surface) 70%); }
+.welcome-wcard-genre { align-self: flex-start; font-size: 11px; padding: 2px 7px; border-radius: 5px; color: var(--muted); background: var(--accent-sand, var(--panel)); }
+.welcome-wcard strong { font-size: 15px; font-weight: 650; color: var(--ink); }
+.welcome-wcard-meta { font-size: 12px; color: var(--muted); }
+.welcome-tips2 ul { margin: 0; padding: 0; list-style: none; font-size: 13px; line-height: 1.6; color: var(--ink); }
+.welcome-tips2 li { padding: 8px 0; border-top: 1px solid var(--line); }
+.welcome-tips2 li:first-child { border-top: 0; }
+@media (prefers-reduced-motion: reduce) { .welcome-acc-panel { transition: none; } }
+
+.welcome-wcard-bar { display: flex; gap: 3px; height: 4px; }
+.welcome-wcard-bar:empty { display: none; }
+.welcome-wcard-bar i { border-radius: 2px; min-width: 6px; }
+.welcome-wcard-bar i[data-status="outline"] { background: var(--isl-st-outline); }
+.welcome-wcard-bar i[data-status="idea"] { background: var(--isl-st-idea); }
+.welcome-wcard-bar i[data-status="draft"] { background: var(--isl-st-draft); }
+.welcome-wcard-bar i[data-status="revision"] { background: var(--isl-st-revision); }
+.welcome-wcard-bar i[data-status="complete"] { background: var(--isl-st-complete); }
+
+.welcome-acc-opts button { flex-direction: row; align-items: flex-start; gap: 12px; }
+.welcome-acc-opt-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.welcome-acc-ico {
+  flex: none; box-sizing: content-box; width: 18px; height: 18px; padding: 8px; border-radius: 9px;
+  background: var(--surface); border: 1px solid var(--line); color: var(--accent);
+}
+.welcome-acc-opts .is-primary .welcome-acc-ico { background: rgba(255, 255, 255, 0.18); border-color: transparent; color: white; }

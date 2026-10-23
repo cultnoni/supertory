@@ -1,0 +1,1092 @@
+{
+ "version": 2,
+ "language": "en",
+ "works": [
+  {
+   "key": "gift",
+   "title": "The Gift of the Magi",
+   "purpose": "literature",
+   "main_genre": "literary",
+   "sub_genre": "",
+   "literary_form": "short",
+   "settings": {
+    "synopsis_md": "O. Henry, 1905. A public-domain classic; the text comes from Project Gutenberg and is split into three episodes as an example. Feel free to edit or delete it.\n\nOn Christmas Eve, Della has only $1.87 to buy a present for her husband Jim. She sells her beautiful long hair to buy him a platinum chain for his treasured watch. When Jim comes home, he has sold his watch to buy her a set of jeweled combs for that very hair. Each has given up the thing that made the other gift useful—and each has given the most precious thing they had.",
+    "logline_md": "A poor young couple each sells their most prized possession to buy the other a Christmas gift, and discover that love is the only gift that cannot be wasted.",
+    "intro_md": "A short story of one room, two people and one evening. Warm, ironic and instantly recognizable, “The Gift of the Magi” is a model of the twist ending that leaves a smile and a lump in the throat.",
+    "intent_md": "To show how a story can be built entirely on irony and affection: every sentence moves toward the final reversal, while the narrator’s gentle, slightly mocking voice keeps sentimentality in check.",
+    "keywords": [
+     "Christmas",
+     "sacrifice",
+     "irony",
+     "marriage",
+     "twist ending",
+     "New York",
+     "short story",
+     "love"
+    ],
+    "world": {
+     "reality": "Realistic urban fiction",
+     "era": "Early 1900s; Christmas Eve",
+     "locale": "A shabby eight-dollar-a-week furnished flat in New York City",
+     "heritage": "The legend of the Magi, the wise men who brought gifts to the infant Christ, closes the story",
+     "special": "A narrator who addresses the reader directly and comments wryly on the characters’ poverty and devotion",
+     "rules": "Small domestic details (a chain, a comb, a head of hair) carry all of the emotion; nothing is explained twice",
+     "limits": "The twist works only if neither character knows what the other has done until the last moment",
+     "daily": "Cooking in a frying-pan, counting pennies, a letter-box nobody writes to, a worn overcoat",
+     "class": "Working poor: Jim earns $20 a week, which has recently dropped",
+     "geo_terrain": "A cramped flat and a hair-goods shop up one flight of stairs, linked by city streets and shop interiors",
+     "geo_regions": "The flat, the window across the airshaft, Madame Sofronie’s shop (up one flight of stairs), the stores Della ransacks, the Broadway window with the combs",
+     "geo_routes": "Flat → street → hair shop → stores → home again"
+    },
+    "style": {
+     "style_narration": "Third person with an intrusive, witty storyteller who talks to the reader (“…which instigates the moral reflection…”).",
+     "style_sentence": "Short declaratives mixed with long, comic, list-like sentences; dashes and exclamations show Della’s emotions.",
+     "style_dialogue": "Brief, affectionate, a little breathless; Jim is almost silent until the final speech.",
+     "style_lexicon": "Plain American English of the early 1900s, with mock-grand diction (“cascade”, “the Queen of Sheba”) for comic contrast.",
+     "style_choice": "Objects (the fob chain, the combs) stand in for feelings that are never named outright.",
+     "style_habit": "Ends with a short moral reflection that reframes the whole story."
+    }
+   },
+   "chapters": [
+    {
+     "title": "The Gift of the Magi",
+     "scenes": [
+      {
+       "title": "1. One Dollar and Eighty-Seven Cents",
+       "status": "complete",
+       "content_html": "<p>One dollar and eighty-seven cents. That was all. And sixty cents of it was in pennies. Pennies saved one and two at a time by bulldozing the grocer and the vegetable man and the butcher until one’s cheeks burned with the silent imputation of parsimony that such close dealing implied. Three times Della counted it. One dollar and eighty-seven cents. And the next day would be Christmas.</p><p>There was clearly nothing to do but flop down on the shabby little couch and howl. So Della did it. Which instigates the moral reflection that life is made up of sobs, sniffles, and smiles, with sniffles predominating.</p><p>While the mistress of the home is gradually subsiding from the first stage to the second, take a look at the home. A furnished flat at $8 per week. It did not exactly beggar description, but it certainly had that word on the lookout for the mendicancy squad.</p><p>In the vestibule below was a letter-box into which no letter would go, and an electric button from which no mortal finger could coax a ring. Also appertaining thereunto was a card bearing the name “Mr. James Dillingham Young.”</p><p>The “Dillingham” had been flung to the breeze during a former period of prosperity when its possessor was being paid $30 per week. Now, when the income was shrunk to $20, though, they were thinking seriously of contracting to a modest and unassuming D. But whenever Mr. James Dillingham Young came home and reached his flat above he was called “Jim” and greatly hugged by Mrs. James Dillingham Young, already introduced to you as Della. Which is all very good.</p><p>Della finished her cry and attended to her cheeks with the powder rag. She stood by the window and looked out dully at a gray cat walking a gray fence in a gray backyard. Tomorrow would be Christmas Day, and she had only $1.87 with which to buy Jim a present. She had been saving every penny she could for months, with this result. Twenty dollars a week doesn’t go far. Expenses had been greater than she had calculated. They always are. Only $1.87 to buy a present for Jim. Her Jim. Many a happy hour she had spent planning for something nice for him. Something fine and rare and sterling—something just a little bit near to being worthy of the honor of being owned by Jim.</p><p>There was a pier glass between the windows of the room. Perhaps you have seen a pier glass in an $8 flat. A very thin and very agile person may, by observing his reflection in a rapid sequence of longitudinal strips, obtain a fairly accurate conception of his looks. Della, being slender, had mastered the art.</p><p>Suddenly she whirled from the window and stood before the glass. Her eyes were shining brilliantly, but her face had lost its color within twenty seconds. Rapidly she pulled down her hair and let it fall to its full length.</p><p>Now, there were two possessions of the James Dillingham Youngs in which they both took a mighty pride. One was Jim’s gold watch that had been his father’s and his grandfather’s. The other was Della’s hair. Had the queen of Sheba lived in the flat across the airshaft, Della would have let her hair hang out the window some day to dry just to depreciate Her Majesty’s jewels and gifts. Had King Solomon been the janitor, with all his treasures piled up in the basement, Jim would have pulled out his watch every time he passed, just to see him pluck at his beard from envy.</p><p>So now Della’s beautiful hair fell about her rippling and shining like a cascade of brown waters. It reached below her knee and made itself almost a garment for her. And then she did it up again nervously and quickly. Once she faltered for a minute and stood still while a tear or two splashed on the worn red carpet.</p><p>On went her old brown jacket; on went her old brown hat. With a whirl of skirts and with the brilliant sparkle still in her eyes, she fluttered out the door and down the stairs to the street.</p>"
+      },
+      {
+       "title": "2. Madame Sofronie",
+       "status": "revision",
+       "content_html": "<p>Where she stopped the sign read: “Mme. Sofronie. Hair Goods of All Kinds.” One flight up Della ran, and collected herself, panting. Madame, large, too white, chilly, hardly looked the “Sofronie.”</p><p>“Will you buy my hair?” asked Della.</p><p>“I buy hair,” said Madame. “Take yer hat off and let’s have a sight at the looks of it.”</p><p>Down rippled the brown cascade.</p><p>“Twenty dollars,” said Madame, lifting the mass with a practised hand.</p><p>“Give it to me quick,” said Della.</p><p>Oh, and the next two hours tripped by on rosy wings. Forget the hashed metaphor. She was ransacking the stores for Jim’s present.</p><p>She found it at last. It surely had been made for Jim and no one else. There was no other like it in any of the stores, and she had turned all of them inside out. It was a platinum fob chain simple and chaste in design, properly proclaiming its value by substance alone and not by meretricious ornamentation—as all good things should do. It was even worthy of The Watch. As soon as she saw it she knew that it must be Jim’s. It was like him. Quietness and value—the description applied to both. Twenty-one dollars they took from her for it, and she hurried home with the 87 cents. With that chain on his watch Jim might be properly anxious about the time in any company. Grand as the watch was, he sometimes looked at it on the sly on account of the old leather strap that he used in place of a chain.</p><p>When Della reached home her intoxication gave way a little to prudence and reason. She got out her curling irons and lighted the gas and went to work repairing the ravages made by generosity added to love. Which is always a tremendous task, dear friends—a mammoth task.</p><p>Within forty minutes her head was covered with tiny, close-lying curls that made her look wonderfully like a truant schoolboy. She looked at her reflection in the mirror long, carefully, and critically.</p><p>“If Jim doesn’t kill me,” she said to herself, “before he takes a second look at me, he’ll say I look like a Coney Island chorus girl. But what could I do—oh! what could I do with a dollar and eighty-seven cents?”</p><p>At 7 o’clock the coffee was made and the frying-pan was on the back of the stove hot and ready to cook the chops.</p><p>Jim was never late. Della doubled the fob chain in her hand and sat on the corner of the table near the door that he always entered. Then she heard his step on the stair away down on the first flight, and she turned white for just a moment. She had a habit of saying a little silent prayer about the simplest everyday things, and now she whispered: “Please God, make him think I am still pretty.”</p>"
+      },
+      {
+       "title": "3. The Combs and the Chain",
+       "status": "draft",
+       "content_html": "<p>The door opened and Jim stepped in and closed it. He looked thin and very serious. Poor fellow, he was only twenty-two—and to be burdened with a family! He needed a new overcoat and he was without gloves.</p><p>Jim stopped inside the door, as immovable as a setter at the scent of quail. His eyes were fixed upon Della, and there was an expression in them that she could not read, and it terrified her. It was not anger, nor surprise, nor disapproval, nor horror, nor any of the sentiments that she had been prepared for. He simply stared at her fixedly with that peculiar expression on his face.</p><p>Della wriggled off the table and went for him.</p><p>“Jim, darling,” she cried, “don’t look at me that way. I had my hair cut off and sold because I couldn’t have lived through Christmas without giving you a present. It’ll grow out again—you won’t mind, will you? I just had to do it. My hair grows awfully fast. Say ‘Merry Christmas!’ Jim, and let’s be happy. You don’t know what a nice—what a beautiful, nice gift I’ve got for you.”</p><p>“You’ve cut off your hair?” asked Jim, laboriously, as if he had not arrived at that patent fact yet even after the hardest mental labor.</p><p>“Cut it off and sold it,” said Della. “Don’t you like me just as well, anyhow? I’m me without my hair, ain’t I?”</p><p>Jim looked about the room curiously.</p><p>“You say your hair is gone?” he said, with an air almost of idiocy.</p><p>“You needn’t look for it,” said Della. “It’s sold, I tell you—sold and gone, too. It’s Christmas Eve, boy. Be good to me, for it went for you. Maybe the hairs of my head were numbered,” she went on with sudden serious sweetness, “but nobody could ever count my love for you. Shall I put the chops on, Jim?”</p><p>Out of his trance Jim seemed quickly to wake. He enfolded his Della. For ten seconds let us regard with discreet scrutiny some inconsequential object in the other direction. Eight dollars a week or a million a year—what is the difference? A mathematician or a wit would give you the wrong answer. The magi brought valuable gifts, but that was not among them. This dark assertion will be illuminated later on.</p><p>Jim drew a package from his overcoat pocket and threw it upon the table.</p><p>“Don’t make any mistake, Dell,” he said, “about me. I don’t think there’s anything in the way of a haircut or a shave or a shampoo that could make me like my girl any less. But if you’ll unwrap that package you may see why you had me going a while at first.”</p><p>White fingers and nimble tore at the string and paper. And then an ecstatic scream of joy; and then, alas! a quick feminine change to hysterical tears and wails, necessitating the immediate employment of all the comforting powers of the lord of the flat.</p><p>For there lay The Combs—the set of combs, side and back, that Della had worshipped long in a Broadway window. Beautiful combs, pure tortoise shell, with jewelled rims—just the shade to wear in the beautiful vanished hair. They were expensive combs, she knew, and her heart had simply craved and yearned over them without the least hope of possession. And now, they were hers, but the tresses that should have adorned the coveted adornments were gone.</p><p>But she hugged them to her bosom, and at length she was able to look up with dim eyes and a smile and say: “My hair grows so fast, Jim!”</p><p>And then Della leaped up like a little singed cat and cried, “Oh, oh!”</p><p>Jim had not yet seen his beautiful present. She held it out to him eagerly upon her open palm. The dull precious metal seemed to flash with a reflection of her bright and ardent spirit.</p><p>“Isn’t it a dandy, Jim? I hunted all over town to find it. You’ll have to look at the time a hundred times a day now. Give me your watch. I want to see how it looks on it.”</p><p>Instead of obeying, Jim tumbled down on the couch and put his hands under the back of his head and smiled.</p><p>“Dell,” said he, “let’s put our Christmas presents away and keep ’em a while. They’re too nice to use just at present. I sold the watch to get the money to buy your combs. And now suppose you put the chops on.”</p><p>The magi, as you know, were wise men—wonderfully wise men—who brought gifts to the Babe in the manger. They invented the art of giving Christmas presents. Being wise, their gifts were no doubt wise ones, possibly bearing the privilege of exchange in case of duplication. And here I have lamely related to you the uneventful chronicle of two foolish children in a flat who most unwisely sacrificed for each other the greatest treasures of their house. But in a last word to the wise of these days let it be said that of all who give gifts these two were the wisest. Of all who give and receive gifts, such as they are wisest. Everywhere they are wisest. They are the magi.</p>"
+      }
+     ]
+    }
+   ],
+   "characters": [
+    {
+     "key": "della",
+     "name": "Della",
+     "role": "protagonist",
+     "aliases": [
+      "Dell",
+      "Mrs. James Dillingham Young"
+     ],
+     "short_description": "A young wife with $1.87 and the most beautiful hair in the building.",
+     "profile_md": "Della, Mrs. James Dillingham Young, lives in a shabby flat with her husband. She weeps, then powders her nose, then does something dramatic: she sells her hair to buy Jim a gift worthy of his watch.",
+     "strengths_md": "- Warm, decisive and imaginative\n- Willing to give up her vanity for love",
+     "weaknesses_md": "- Impulsive; acts first and worries later\n- Fears Jim’s reaction to her short hair",
+     "author_notes_md": "Her emotional swings (tears, brisk powdering, bright smile) carry the comedy."
+    },
+    {
+     "key": "jim",
+     "name": "Jim",
+     "role": "protagonist",
+     "aliases": [
+      "James Dillingham Young"
+     ],
+     "short_description": "Della’s husband: thin, serious, proud of the gold watch he inherited.",
+     "profile_md": "A man with a $20-a-week job and two treasures: the gold watch that had been his father’s and grandfather’s, and his wife’s hair. He sells the former to buy combs for the latter.",
+     "strengths_md": "- Devoted and steady",
+     "weaknesses_md": "- Quiet; keeps his feelings hidden until the final scene",
+     "author_notes_md": "His stunned silence at the door is the story’s turning point."
+    },
+    {
+     "key": "sofronie",
+     "name": "Madame Sofronie",
+     "role": "supporting",
+     "aliases": [
+      "Madame"
+     ],
+     "short_description": "A hair-goods dealer on the second floor who buys Della’s hair for $20.",
+     "profile_md": "Large, chilly and businesslike. She buys hair “with a practised hand” and has no sentiment for what she purchases.",
+     "strengths_md": "- Efficient",
+     "weaknesses_md": "- Cold",
+     "author_notes_md": "A brief, memorable cameo."
+    },
+    {
+     "key": "narrator",
+     "name": "The Narrator",
+     "role": "minor",
+     "aliases": [],
+     "short_description": "An ironic storyteller who addresses the reader directly.",
+     "profile_md": "Not a character in the plot, but a voice that makes jokes about poverty and finishes with the moral about the Magi.",
+     "strengths_md": "",
+     "weaknesses_md": "",
+     "author_notes_md": "Keep the narrator’s asides short."
+    }
+   ],
+   "relations": [
+    {
+     "a": "della",
+     "b": "jim",
+     "label": "Married couple"
+    },
+    {
+     "a": "della",
+     "b": "sofronie",
+     "label": "Seller and buyer"
+    },
+    {
+     "a": "narrator",
+     "b": "della",
+     "label": "Wry commentator"
+    }
+   ],
+   "items": [
+    {
+     "name": "Della’s Hair",
+     "owner": "della",
+     "aliases": [
+      "her hair",
+      "the brown cascade"
+     ],
+     "description": "A knee-length cascade of brown hair, Della’s pride. She sells it for $20 to buy Jim’s present."
+    },
+    {
+     "name": "Jim’s Gold Watch",
+     "owner": "jim",
+     "aliases": [
+      "the watch"
+     ],
+     "description": "A family heirloom from his father and grandfather. It hangs on a shabby leather strap instead of a chain, so Jim checks the time on the sly."
+    },
+    {
+     "name": "The Platinum Fob Chain",
+     "owner": "della",
+     "aliases": [
+      "the chain"
+     ],
+     "description": "A plain, handsome chain that Della finds after hours of searching. Cost: $21."
+    },
+    {
+     "name": "The Combs",
+     "owner": "jim",
+     "aliases": [
+      "the set of combs",
+      "tortoise-shell combs"
+     ],
+     "description": "Side and back combs, rimmed with jewels, that Della had admired in a Broadway shop window. Jim sells his watch to buy them."
+    },
+    {
+     "name": "$1.87",
+     "owner": "della",
+     "aliases": [
+      "one dollar and eighty-seven cents"
+     ],
+     "description": "All the money Della has saved, penny by penny, after bargaining with grocers and butchers."
+    }
+   ],
+   "dictionary": [
+    {
+     "term": "Magi",
+     "definition": "The wise men who brought gifts to the infant Christ; here, a symbol of wise giving.",
+     "memo": "Final paragraph"
+    },
+    {
+     "term": "Fob chain",
+     "definition": "A short chain that attaches a pocket watch to a waistcoat.",
+     "memo": "Central object"
+    },
+    {
+     "term": "Pier glass",
+     "definition": "A tall narrow mirror set between windows.",
+     "memo": "Scene 1"
+    },
+    {
+     "term": "Instigate",
+     "definition": "To provoke or prompt; the narrator’s mock-solemn word for how Della’s tears lead to a moral.",
+     "memo": "Narrator’s voice"
+    },
+    {
+     "term": "Queen of Sheba",
+     "definition": "A biblical queen famous for her wealth; used to compare Della’s hair to jewels.",
+     "memo": ""
+    }
+   ],
+   "ideas": [
+    {
+     "title": "The final reversal",
+     "body_md": "Each gift is useless only because the other person sacrificed the very thing it was meant for. Write the last paragraph as a quiet punchline, not a sermon.",
+     "color": "yellow"
+    },
+    {
+     "title": "Narrator’s voice",
+     "body_md": "Let the narrator tease the reader once per page; keep Della’s emotions sincere.",
+     "color": "blue"
+    },
+    {
+     "title": "Object symbolism",
+     "body_md": "Hair and watch are both signs of time and care. Give each a short, concrete description early on.",
+     "color": "green"
+    }
+   ],
+   "baits": [
+    {
+     "kind": "plant",
+     "quote": "Jim’s gold watch that had been his father’s and his grandfather’s",
+     "summary": "Jim’s watch has no chain",
+     "plant_scene": [
+      0,
+      0
+     ],
+     "recover_scene": [
+      0,
+      2
+     ],
+     "recover_at": "Scene 3",
+     "recover_content": "Della gives him the chain; Jim has already sold the watch."
+    },
+    {
+     "kind": "plant",
+     "quote": "two possessions of the James Dillingham Youngs in which they both took a mighty pride",
+     "summary": "Two prized possessions: the watch and the hair",
+     "plant_scene": [
+      0,
+      0
+     ],
+     "recover_scene": [
+      0,
+      2
+     ],
+     "recover_at": "Scene 3",
+     "recover_content": "Each is sacrificed for a gift that needs the other: combs for the hair, a chain for the watch."
+    },
+    {
+     "kind": "plant",
+     "quote": "“If Jim doesn’t kill me,” she said to herself, “before he takes a second look at me",
+     "summary": "Della fears Jim’s reaction",
+     "plant_scene": [
+      0,
+      1
+     ],
+     "recover_scene": [
+      0,
+      2
+     ],
+     "recover_at": "Scene 3",
+     "recover_content": "Jim stares, stunned—not angry, but shocked."
+    }
+   ],
+   "scene_members": {
+    "0:0": {
+     "pov": "della",
+     "members": [
+      [
+       "della",
+       "primary"
+      ],
+      [
+       "narrator",
+       "supporting"
+      ],
+      [
+       "jim",
+       "mentioned"
+      ]
+     ]
+    },
+    "0:1": {
+     "pov": "della",
+     "members": [
+      [
+       "della",
+       "primary"
+      ],
+      [
+       "sofronie",
+       "primary"
+      ],
+      [
+       "jim",
+       "mentioned"
+      ]
+     ]
+    },
+    "0:2": {
+     "pov": "della",
+     "members": [
+      [
+       "della",
+       "primary"
+      ],
+      [
+       "jim",
+       "primary"
+      ],
+      [
+       "narrator",
+       "supporting"
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "key": "tellTale",
+   "title": "The Tell-Tale Heart",
+   "purpose": "genre_literature",
+   "main_genre": "thriller",
+   "sub_genre": "",
+   "settings": {
+    "synopsis_md": "Edgar Allan Poe, 1843. A public-domain classic; the text comes from Project Gutenberg and is split into three episodes as an example. Feel free to edit or delete it.\n\nA nervous man insists he is not mad as he tells how he killed an old man whose pale “vulture eye” he could not bear. After seven nights of watching, he strikes on the eighth, hides the body beneath the floorboards and welcomes the police with confidence—until a low, quick, muffled sound grows in his ears, and he confesses.",
+    "logline_md": "A man who swears he is sane murders an old man for his eye and is undone by a heartbeat only he can hear.",
+    "intro_md": "A Gothic psychological thriller in a single breathless monologue. It is the textbook example of the unreliable narrator and of fear built from sound.",
+    "intent_md": "A study in how rhythm, repetition and sudden short sentences can make a reader feel a mind unraveling. Use it as a model for first-person suspense.",
+    "keywords": [
+     "Gothic",
+     "psychological thriller",
+     "unreliable narrator",
+     "murder",
+     "guilt",
+     "hallucination",
+     "monologue",
+     "short story",
+     "classic"
+    ],
+    "world": {
+     "reality": "Realistic Gothic",
+     "era": "Nineteenth century (unspecified)",
+     "locale": "An old man’s house: bedroom, hallway, front door, the space beneath the floorboards",
+     "heritage": "Superstition of the “death watches”—beetles ticking in the wall, taken as omens of death",
+     "special": "The narrator’s acute hearing: he claims to hear all things in heaven, earth and hell",
+     "rules": "Everything is the narrator’s own account; the reader can never be certain what is true",
+     "limits": "The harder he insists on his calm, the more his madness shows",
+     "extreme_event": "Seven nights of watching, then the murder on the eighth",
+     "extreme_impact": "Guilt returns as the sound of a heart that will not stop beating",
+     "power": "The police, called by a neighbor who heard a shriek",
+     "daily": "A house at midnight; closed shutters; a bell tolling the hour",
+     "class": "The old man has money; the narrator has access to his house, but their relationship is never explained",
+     "factions": "The narrator versus three police officers",
+     "conflict": "“I am sane” against the growing sound in his ears",
+     "geo_terrain": "A single claustrophobic house",
+     "geo_regions": "The old man’s chamber, the hallway, the front door, the cavity under three floorboards",
+     "geo_routes": "Front door → hallway → bedroom → floorboards"
+    },
+    "extras": [
+     {
+      "title": "Reading notes",
+      "body": "Notice how sentences shorten and exclamation marks multiply as the narrator’s control slips. The dashes and repetitions are part of the music of the text."
+     }
+    ]
+   },
+   "chapters": [
+    {
+     "title": "Short story",
+     "scenes": [
+      {
+       "title": "1. The Vulture Eye",
+       "status": "complete",
+       "content_html": "<p>True!—nervous—very, very dreadfully nervous I had been and am; but why will you say that I am mad? The disease had sharpened my senses—not destroyed—not dulled them. Above all was the sense of hearing acute. I heard all things in the heaven and in the earth. I heard many things in hell. How, then, am I mad? Hearken! and observe how healthily—how calmly I can tell you the whole story.</p><p>It is impossible to say how first the idea entered my brain; but once conceived, it haunted me day and night. Object there was none. Passion there was none. I loved the old man. He had never wronged me. He had never given me insult. For his gold I had no desire. I think it was his eye! yes, it was this! He had the eye of a vulture—a pale blue eye, with a film over it. Whenever it fell upon me, my blood ran cold; and so by degrees—very gradually—I made up my mind to take the life of the old man, and thus rid myself of the eye forever.</p><p>Now this is the point. You fancy me mad. Madmen know nothing. But you should have seen me. You should have seen how wisely I proceeded—with what caution—with what foresight—with what dissimulation I went to work! I was never kinder to the old man than during the whole week before I killed him. And every night, about midnight, I turned the latch of his door and opened it—oh, so gently! And then, when I had made an opening sufficient for my head, I put in a dark lantern, all closed, closed, that no light shone out, and then I thrust in my head. Oh, you would have laughed to see how cunningly I thrust it in! I moved it slowly—very, very slowly, so that I might not disturb the old man’s sleep. It took me an hour to place my whole head within the opening so far that I could see him as he lay upon his bed. Ha!—would a madman have been so wise as this? And then, when my head was well in the room, I undid the lantern cautiously—oh, so cautiously—cautiously (for the hinges creaked)—I undid it just so much that a single thin ray fell upon the vulture eye. And this I did for seven long nights—every night just at midnight—but I found the eye always closed; and so it was impossible to do the work; for it was not the old man who vexed me, but his Evil Eye. And every morning, when the day broke, I went boldly into the chamber, and spoke courageously to him, calling him by name in a hearty tone, and inquiring how he has passed the night. So you see he would have been a very profound old man, indeed, to suspect that every night, just at twelve, I looked in upon him while he slept.</p>"
+      },
+      {
+       "title": "2. The Eighth Night",
+       "status": "draft",
+       "content_html": "<p>Upon the eighth night I was more than usually cautious in opening the door. A watch’s minute hand moves more quickly than did mine. Never before that night had I felt the extent of my own powers—of my sagacity. I could scarcely contain my feelings of triumph. To think that there I was, opening the door, little by little, and he not even to dream of my secret deeds or thoughts. I fairly chuckled at the idea; and perhaps he heard me; for he moved on the bed suddenly, as if startled. Now you may think that I drew back—but no. His room was as black as pitch with the thick darkness, (for the shutters were close fastened, through fear of robbers,) and so I knew that he could not see the opening of the door, and I kept pushing it on steadily, steadily.</p><p>I had my head in, and was about to open the lantern, when my thumb slipped upon the tin fastening, and the old man sprang up in bed, crying out—“Who’s there?”</p><p>I kept quite still and said nothing. For a whole hour I did not move a muscle, and in the meantime I did not hear him lie down. He was still sitting up in the bed listening;—just as I have done, night after night, hearkening to the death watches in the wall.</p><p>Presently I heard a slight groan, and I knew it was the groan of mortal terror. It was not a groan of pain or of grief—oh, no!—it was the low stifled sound that arises from the bottom of the soul when overcharged with awe. I knew the sound well. Many a night, just at midnight, when all the world slept, it has welled up from my own bosom, deepening, with its dreadful echo, the terrors that distracted me. I say I knew it well. I knew what the old man felt, and pitied him, although I chuckled at heart. I knew that he had been lying awake ever since the first slight noise, when he had turned in the bed. His fears had been ever since growing upon him. He had been trying to fancy them causeless, but could not. He had been saying to himself—“It is nothing but the wind in the chimney—it is only a mouse crossing the floor,” or “It is merely a cricket which has made a single chirp.” Yes, he had been trying to comfort himself with these suppositions: but he had found all in vain. All in vain; because Death, in approaching him had stalked with his black shadow before him, and enveloped the victim. And it was the mournful influence of the unperceived shadow that caused him to feel—although he neither saw nor heard—to feel the presence of my head within the room.</p><p>When I had waited a long time, very patiently, without hearing him lie down, I resolved to open a little—a very, very little crevice in the lantern. So I opened it—you cannot imagine how stealthily, stealthily—until, at length a single dim ray, like the thread of the spider, shot from out the crevice and fell full upon the vulture eye.</p><p>It was open—wide, wide open—and I grew furious as I gazed upon it. I saw it with perfect distinctness—all a dull blue, with a hideous veil over it that chilled the very marrow in my bones; but I could see nothing else of the old man’s face or person: for I had directed the ray as if by instinct, precisely upon the damned spot.</p><p>And have I not told you that what you mistake for madness is but over-acuteness of the sense?—now, I say, there came to my ears a low, dull, quick sound, such as a watch makes when enveloped in cotton. I knew that sound well, too. It was the beating of the old man’s heart. It increased my fury, as the beating of a drum stimulates the soldier into courage.</p><p>But even yet I refrained and kept still. I scarcely breathed. I held the lantern motionless. I tried how steadily I could maintain the ray upon the eye. Meantime the hellish tattoo of the heart increased. It grew quicker and quicker, and louder and louder every instant. The old man’s terror must have been extreme! It grew louder, I say, louder every moment!—do you mark me well? I have told you that I am nervous: so I am. And now at the dead hour of the night, amid the dreadful silence of that old house, so strange a noise as this excited me to uncontrollable terror. Yet, for some minutes longer I refrained and stood still. But the beating grew louder, louder! I thought the heart must burst. And now a new anxiety seized me—the sound would be heard by a neighbour! The old man’s hour had come! With a loud yell, I threw open the lantern and leaped into the room. He shrieked once—once only. In an instant I dragged him to the floor, and pulled the heavy bed over him. I then smiled gaily, to find the deed so far done. But, for many minutes, the heart beat on with a muffled sound. This, however, did not vex me; it would not be heard through the wall. At length it ceased. The old man was dead. I removed the bed and examined the corpse. Yes, he was stone, stone dead. I placed my hand upon the heart and held it there many minutes. There was no pulsation. He was stone dead. His eye would trouble me no more.</p>"
+      },
+      {
+       "title": "3. The Heart Beneath the Floor",
+       "status": "outline",
+       "content_html": "<p>If still you think me mad, you will think so no longer when I describe the wise precautions I took for the concealment of the body. The night waned, and I worked hastily, but in silence. First of all I dismembered the corpse. I cut off the head and the arms and the legs.</p><p>I then took up three planks from the flooring of the chamber, and deposited all between the scantlings. I then replaced the boards so cleverly, so cunningly, that no human eye—not even his—could have detected any thing wrong. There was nothing to wash out—no stain of any kind—no blood-spot whatever. I had been too wary for that. A tub had caught all—ha! ha!</p><p>When I had made an end of these labors, it was four o’clock—still dark as midnight. As the bell sounded the hour, there came a knocking at the street door. I went down to open it with a light heart,—for what had I now to fear? There entered three men, who introduced themselves, with perfect suavity, as officers of the police. A shriek had been heard by a neighbour during the night; suspicion of foul play had been aroused; information had been lodged at the police office, and they (the officers) had been deputed to search the premises.</p><p>I smiled,—for what had I to fear? I bade the gentlemen welcome. The shriek, I said, was my own in a dream. The old man, I mentioned, was absent in the country. I took my visitors all over the house. I bade them search—search well. I led them, at length, to his chamber. I showed them his treasures, secure, undisturbed. In the enthusiasm of my confidence, I brought chairs into the room, and desired them here to rest from their fatigues, while I myself, in the wild audacity of my perfect triumph, placed my own seat upon the very spot beneath which reposed the corpse of the victim.</p><p>The officers were satisfied. My manner had convinced them. I was singularly at ease. They sat, and while I answered cheerily, they chatted of familiar things. But, ere long, I felt myself getting pale and wished them gone. My head ached, and I fancied a ringing in my ears: but still they sat and still chatted. The ringing became more distinct:—it continued and became more distinct: I talked more freely to get rid of the feeling: but it continued and gained definiteness—until, at length, I found that the noise was not within my ears.</p><p>No doubt I now grew very pale;—but I talked more fluently, and with a heightened voice. Yet the sound increased—and what could I do? It was a low, dull, quick sound—much such a sound as a watch makes when enveloped in cotton. I gasped for breath—and yet the officers heard it not. I talked more quickly—more vehemently; but the noise steadily increased. I arose and argued about trifles, in a high key and with violent gesticulations; but the noise steadily increased. Why would they not be gone? I paced the floor to and fro with heavy strides, as if excited to fury by the observations of the men—but the noise steadily increased. Oh God! what could I do? I foamed—I raved—I swore! I swung the chair upon which I had been sitting, and grated it upon the boards, but the noise arose over all and continually increased. It grew louder—louder—louder! And still the men chatted pleasantly, and smiled. Was it possible they heard not? Almighty God!—no, no! They heard!—they suspected!—they knew!—they were making a mockery of my horror!—this I thought, and this I think. But anything was better than this agony! Anything was more tolerable than this derision! I could bear those hypocritical smiles no longer! I felt that I must scream or die! and now—again!—hark! louder! louder! louder! louder!</p><p>“Villains!” I shrieked, “dissemble no more! I admit the deed!—tear up the planks!—here, here!—It is the beating of his hideous heart!</p>"
+      }
+     ]
+    }
+   ],
+   "characters": [
+    {
+     "key": "narrator",
+     "name": "The Narrator",
+     "role": "protagonist",
+     "aliases": [
+      "the storyteller",
+      "the madman"
+     ],
+     "short_description": "A nervous man who insists he is not mad.",
+     "profile_md": "Unnamed. He boasts of his cunning and his keen senses while calmly describing a murder. The more he argues for his sanity, the less credible he becomes.",
+     "strengths_md": "- Patience and meticulous planning\n- Acute hearing",
+     "weaknesses_md": "- Guilt expressed as hallucination\n- Need to prove himself clever",
+     "author_notes_md": "An unreliable narrator: the reader should doubt him from the first sentence."
+    },
+    {
+     "key": "oldman",
+     "name": "The Old Man",
+     "role": "supporting",
+     "aliases": [
+      "the vulture-eyed old man"
+     ],
+     "short_description": "A rich old man with one pale blue, filmed eye.",
+     "profile_md": "He has done the narrator no wrong. He lies awake at night, afraid, and shouts “Who’s there?” when a thumb slips on a tin fastening.",
+     "strengths_md": "",
+     "weaknesses_md": "- The eye, which is both his weakness and the reason for his death",
+     "author_notes_md": ""
+    },
+    {
+     "key": "officers",
+     "name": "Three Officers",
+     "role": "minor",
+     "aliases": [
+      "the police",
+      "the gentlemen"
+     ],
+     "short_description": "Policemen who arrive at four in the morning after a neighbor’s report.",
+     "profile_md": "Polite and relaxed, they accept the narrator’s explanation and sit chatting. Whether they truly cannot hear the sound is left uncertain.",
+     "strengths_md": "",
+     "weaknesses_md": "",
+     "author_notes_md": "Keep their friendliness ambiguous: are they mocking him?"
+    },
+    {
+     "key": "neighbor",
+     "name": "The Neighbor",
+     "role": "minor",
+     "aliases": [],
+     "short_description": "Heard a shriek in the night and called the police.",
+     "profile_md": "Appears only through the officers’ account.",
+     "strengths_md": "",
+     "weaknesses_md": "",
+     "author_notes_md": ""
+    }
+   ],
+   "relations": [
+    {
+     "a": "narrator",
+     "b": "oldman",
+     "label": "Narrator and old man (affection and murderous hatred; their relationship is never explained)"
+    },
+    {
+     "a": "narrator",
+     "b": "officers",
+     "label": "Suspect and investigators"
+    },
+    {
+     "a": "neighbor",
+     "b": "oldman",
+     "label": "Neighbor who reported the shriek"
+    }
+   ],
+   "items": [
+    {
+     "name": "The Vulture Eye",
+     "owner": "oldman",
+     "aliases": [
+      "the Evil Eye",
+      "the pale blue eye"
+     ],
+     "description": "A pale blue eye covered with a film, the reason the narrator wants the old man dead. Only when it is open can the deed be done."
+    },
+    {
+     "name": "The Dark Lantern",
+     "owner": "narrator",
+     "aliases": [
+      "the lantern"
+     ],
+     "description": "A closed lantern with a sliding shutter. The narrator opens it a hair’s breadth so that a single thin ray falls on the eye."
+    },
+    {
+     "name": "The Heartbeat",
+     "owner": null,
+     "aliases": [
+      "the low, dull, quick sound",
+      "a watch wrapped in cotton"
+     ],
+     "description": "A low, quick, muffled sound like a watch wrapped in cotton. First the old man’s pulse, finally the narrator’s own guilt."
+    },
+    {
+     "name": "The Floorboards",
+     "owner": null,
+     "aliases": [
+      "three planks"
+     ],
+     "description": "Three planks lifted from the chamber floor to hide the body; the officers sit directly above them."
+    },
+    {
+     "name": "The Old Man’s Treasure",
+     "owner": "oldman",
+     "aliases": [
+      "his gold"
+     ],
+     "description": "The money the narrator claims he never wanted. He shows it to the police, untouched."
+    }
+   ],
+   "dictionary": [
+    {
+     "term": "Dark lantern",
+     "definition": "A hand lantern with a sliding shutter so the light can be hidden or revealed.",
+     "memo": "Scene 1"
+    },
+    {
+     "term": "Death watch",
+     "definition": "A beetle whose ticking in wood was said to foretell a death.",
+     "memo": "Narrator listens to the death watches in the wall"
+    },
+    {
+     "term": "Scantling",
+     "definition": "A small timber beam, here the joists beneath the floorboards.",
+     "memo": "Where the body is hidden"
+    },
+    {
+     "term": "Nervous",
+     "definition": "Excessively sensitive in feeling and perception; the narrator insists this is not madness.",
+     "memo": "Opening word"
+    },
+    {
+     "term": "Unreliable narrator",
+     "definition": "A narrator whose account the reader has reason to doubt.",
+     "memo": "Analysis keyword"
+    }
+   ],
+   "ideas": [
+    {
+     "title": "Rhythm and breath",
+     "body_md": "Keep the dashes and repetitions; as the narrator panics, sentences get shorter and louder.",
+     "color": "pink"
+    },
+    {
+     "title": "Reader exercise",
+     "body_md": "Mark each place where the narrator insists he is calm. Where do you stop believing him?",
+     "color": "yellow"
+    },
+    {
+     "title": "Adaptation idea",
+     "body_md": "Retell the scene from the officers’ point of view. Did they hear it too?",
+     "color": "purple"
+    },
+    {
+     "title": "Sound design",
+     "body_md": "Describe the heartbeat only through similes, such as a drum or a watch wrapped in cotton.",
+     "color": "blue"
+    }
+   ],
+   "baits": [
+    {
+     "kind": "plant",
+     "quote": "I heard all things in the heaven and in the earth. I heard many things in hell.",
+     "summary": "The narrator’s extreme hearing",
+     "plant_scene": [
+      0,
+      0
+     ],
+     "recover_scene": [
+      0,
+      2
+     ],
+     "recover_at": "Scene 3",
+     "recover_content": "Only he hears the heartbeat that the officers ignore."
+    },
+    {
+     "kind": "plant",
+     "quote": "He had the eye of a vulture—a pale blue eye, with a film over it.",
+     "summary": "The vulture eye",
+     "plant_scene": [
+      0,
+      0
+     ],
+     "recover_scene": [
+      0,
+      1
+     ],
+     "recover_at": "Scene 2",
+     "recover_content": "The eye opens wide on the eighth night."
+    },
+    {
+     "kind": "plant",
+     "quote": "such as a watch makes when enveloped in cotton",
+     "summary": "Simile for the heartbeat",
+     "plant_scene": [
+      0,
+      1
+     ],
+     "recover_scene": [
+      0,
+      2
+     ],
+     "recover_at": "Scene 3",
+     "recover_content": "The same simile returns as hallucination."
+    },
+    {
+     "kind": "plant",
+     "quote": "A tub had caught all—ha! ha!",
+     "summary": "Overconfidence",
+     "plant_scene": [
+      0,
+      2
+     ],
+     "recover_scene": null,
+     "recover_at": "Ending",
+     "recover_content": "His pride collapses into confession."
+    }
+   ],
+   "scene_members": {
+    "0:0": {
+     "pov": "narrator",
+     "members": [
+      [
+       "narrator",
+       "primary"
+      ],
+      [
+       "oldman",
+       "primary"
+      ]
+     ]
+    },
+    "0:1": {
+     "pov": "narrator",
+     "members": [
+      [
+       "narrator",
+       "primary"
+      ],
+      [
+       "oldman",
+       "primary"
+      ]
+     ]
+    },
+    "0:2": {
+     "pov": "narrator",
+     "members": [
+      [
+       "narrator",
+       "primary"
+      ],
+      [
+       "officers",
+       "primary"
+      ],
+      [
+       "neighbor",
+       "mentioned"
+      ],
+      [
+       "oldman",
+       "mentioned"
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "key": "settlement",
+   "title": "The Reincarnated Dungeon Auditor Wants to Quit",
+   "purpose": "web_novel",
+   "main_genre": "fantasy",
+   "sub_genre": "",
+   "settings": {
+    "synopsis_md": "An original example written by SuperTory in web-novel style (regression, modern fantasy). Feel free to edit or delete it.\n\nSeventh-year Settlement Section clerk Kang Doyun dies in an off-scale gate disaster and wakes up nearly two years in the past with “Audit Sight,” the power to see the numbers missing from any transaction. He discovers that the disaster stemmed from a scheme that under-reported gate grades and skimmed A-rank mana stones. Using statements as his weapon, he chases the executive behind his section chief and teams up with Seo Harin, an S-rank hunter who died in the same disaster. He has one year and nine months to make every number add up.",
+    "logline_md": "A low-ranking clerk who stamped numbers he knew were wrong dies, regresses nearly two years, and uses a power that shows “missing numbers” to expose a huge scheme and prevent a catastrophe.",
+    "intro_md": "Five minutes before quitting time, overtime always landed on Kang Doyun. It was only after dying that he learned what it costs to look away from them. This time around, he’s the one holding the numbers—and instead of quitting, he’s going to settle the accounts.",
+    "intent_md": "A regression story where the hero fights with ledgers instead of swords. It aims for workplace relatability and satisfying payback through information and negotiation rather than power inflation.",
+    "tory_priority_md": "- Keep the structure where one wrong number in each episode sets off the incident\n- Doyun is not overpowered: Audit Sight is limited to five uses a day\n- Aim for 3,000–5,000 characters (roughly 600–1,000 words) per episode and end every one on a single-line hook that pulls readers into the next",
+    "keywords": [
+     "regression",
+     "modern fantasy",
+     "hunter fiction",
+     "office drama",
+     "satisfying payback",
+     "loot settlement",
+     "office worker",
+     "S-rank hunter",
+     "exposing corruption",
+     "revenge"
+    ],
+    "world": {
+     "reality": "Alternate modern-day Korea where “gates” have appeared",
+     "era": "Present day; the regression point is about one year and nine months before the North Gate disaster",
+     "locale": "The Agency headquarters in Jongno, the Seoul North Gate zone, Hunter Street",
+     "heritage": "Fifteen years ago the first fissure (the Great Rift) opened over Seoul, ushering in gates and hunters",
+     "special": "Mana stones are the new energy source. Stone grades (F to A, special) and hunter ranks (F to S) decide economy and status",
+     "rules": "Loot is confirmed by Agency settlement statements and split between hunter and Agency by ratio; the reported gate grade sets safety rules and payout",
+     "limits": "Audit Sight works five times a day and only shows omissions in numerically verifiable transactions; it cannot reveal people’s thoughts or combat ability",
+     "extreme_event": "An off-scale gate (a disaster of S-rank or above) breaks open",
+     "extreme_impact": "North Seoul is sealed, the Agency headquarters collapses, and about 300 hunters and staff die; the cause is recorded as “management failure”",
+     "power": "A three-pillar system of the government, the Agency and the major guilds; Agency executives control settlement and permits",
+     "daily": "Mana-based energy billing, hunter license renewals, cordons and evacuation drills",
+     "class": "Hunter rank is social rank; Agency support staff (non-hunters) are looked down on as “number crunchers”",
+     "factions": "The Settlement Section / Executive Director Cha’s faction / the major guild Cheongwol / Seo Harin’s team / the Agency audit office",
+     "conflict": "Profits from loot settlement: a corruption scheme that under-reports gate grades and skims mana stones, and the higher-ups covering it up",
+     "geo_terrain": "The Seoul metropolitan area and the northern mountains, dotted with fissure zones",
+     "geo_regions": "The North Gate zone, Agency headquarters (Jongno), Hunter Street (Gangnam), the warehouse in the closed zone",
+     "geo_routes": "Gate cordons, hunter-only subway lines, and encrypted intranet for settlement files"
+    },
+    "extras": [
+     {
+      "title": "Hunter ranks and settlement ratio",
+      "body": "Hunters are ranked S, A, B, C, D and F. For B-rank gates and below, loot is split 70 hunter : 30 Agency. Off-scale gates are recovered by the Agency first, with special compensation for hunters."
+     },
+     {
+      "title": "Agency org chart",
+      "body": "Board of directors → Executive Director (Cha Dohun) → Settlement Section (Section Chief Han Mansu) → settlement clerks (Kang Doyun, Park Jisu and others). The audit office reports to the board, but a statement is final with just the chief’s approval."
+     }
+    ]
+   },
+   "chapters": [
+    {
+     "title": "Part 1",
+     "scenes": [
+      {
+       "title": "Episode 1: Five Minutes Before Quitting Time",
+       "status": "complete",
+       "content_html": "<p>There were exactly five minutes left until quitting time.</p><p>Kang Doyun stamped the last settlement statement, eyes on the clock in the corner of his monitor. Seventh year in the Korea Dungeon Management Agency’s Settlement Section. Every day he received settlement sheets for twelve dungeons’ worth of loot and made the numbers add up. If the hunters who cut down monsters were the heroes, the man who calculated those heroes’ paychecks was the Agency’s lowest-ranking cog.</p><p>Fifteen years had passed since the dungeons first opened. Mana stones and loot pouring out of the gates had carried people through the energy crisis, and “hunter” had become a dream more popular than “celebrity.” But few people ever checked exactly how much a hunter had earned, how much of it went into the Agency’s vault, and how much landed in the hunter’s account. That was Doyun’s job. Checking exactly. A job nobody thanked him for.</p><p>Still, he didn’t dislike it. Numbers don’t lie. The ones who lied were always the people who wrote them down.</p><p>“Doyun, one more thing before you leave.”</p><p>Section Chief Han Mansu dropped a sheet of paper onto his desk. Doyun swallowed a sigh, unfolded it, and narrowed his eyes.</p><p><em>Seoul North Gate (C-rank) — Total loot: 420 million won</em></p><p>The number was off. Working back from the monster list and the mana stone grades, it should have been at least 700 million.</p><p>“Chief, this number looks wrong. If you work backward from the stone grades, it should be at least seven hundred million—”</p><p>“It came down from above. Just stamp it.”</p><p>“But the statement—”</p><p>“Kang.” Chief Han lowered his voice. “Seven years in. You should know when to read the room.”</p><p>Doyun closed his mouth. Reading the room. It was the first skill you had to learn to last at the Agency. And for the past seven years, he had used that skill to look away from an awful lot of numbers.</p><p>Just then the Settlement Section door banged open and a few hunters walked in, still in their gear. The man at the front waved a receipt and shouted.</p><p>“Why are the settlement sheets so late? When do we get paid this month?”</p><p>“I’m sorry. I’ll check and get back to you by the end of today—”</p><p>Doyun bowed out of habit. The hunters left grumbling. It was no wonder they were angry: money earned risking their lives sat in stacks of paper for days. And the people holding those stacks were sitting right in this office.</p><p>Someone knew that very well. Knew it well enough to use it.</p><p>Just as Doyun opened his mouth again, the whole building shuddered.</p><p>“What was that? An earthquake?”</p><p>The office lights flickered, and the sky outside cracked open, glowing violet. Doyun had seen that kind of crack before—only in training videos, under the name “off-scale gate.”</p><p>“Everyone evacuate! Get underground!”</p><p>Screams and sirens tangled together. Clutching the papers, Doyun ran for the emergency stairs, but he didn’t make it down three floors. The stairwell wall tore like paper, and black claws grazed his chest.</p><p>‘So this is it. And I never even got my overtime pay.’</p><p>Just before his consciousness went out, a strange voice rang in his ear.</p><p>[Death condition met: settlement discrepancy of 280 million won] [Regression perk activated.]</p><p>[Accident record opened] 312 dead or missing. Cause: “management failure.” The list of the dead included the S-rank hunter Seo Harin, who fought to the very last.</p><p>In the dark, Doyun thought one last time of the number on the sheet. 420 million won. The wrong number. He had stamped it anyway, because the chief had said it came down from above. He should have argued, just once. In seven years he had never pushed back, and he never imagined that silence would come back to haunt him like this.</p><p>And strangely, what he regretted most as he died was that he never used his vacation days.</p><p>When he opened his eyes, Doyun was slumped over his desk. The date in the corner of his monitor was nearly two years in the past.</p><p>And in front of him, floating in the air, was a translucent window.</p><p>[Regressor’s Perk: Audit Sight — See the “missing numbers” in any transaction]</p><p>Doyun glared at the window for a long time, then pinched his own cheek as hard as he could. It hurt. It wasn’t a dream.</p><p>“…Audit Sight?”</p><p>He liked the name. It wasn’t flashy like a hunter’s skill name, but at least it was named after what he did best. Slowly he looked down at the stack of statements on his desk. The one on top was giving off a faint red glow.</p>"
+      },
+      {
+       "title": "Episode 2: The Number Missing from the Statement",
+       "status": "draft",
+       "content_html": "<p>“Doyun, are you okay? You look pale.”</p><p>Park Jisu, his deskmate, who had joined the Agency the same year he had, asked with concern, but Doyun couldn’t answer. His fingertips were still trembling. It couldn’t have been a dream—the feeling of claws across his chest was too vivid.</p><p>‘Nearly two years back? Then how long until the North Gate opens…?’</p><p>Counting dates in his head, Doyun stopped breathing. Exactly one year and nine months. On that day an off-scale gate would open in northern Seoul, the Agency headquarters would collapse, and some three hundred hunters and staff would die. And the cause of that accident would be recorded, in the end, only as “management failure.”</p><p>In his previous life, Doyun had realized that everything was connected only after the disaster hit. This time was different. He had one year and nine months. If he could trace, in numbers, who was skimming what and where, he might be able to stop the accident.</p><p>The problem was that Doyun wasn’t a hunter. No sword, no magic. All he had was seven years of settlement experience and this strange window.</p><p>“Then I’ll fight with that.”</p><p>He looked down at the stack of statements piled on his desk. The window in the air blinked again.</p><p>Jisu dragged her chair over and whispered, “Doyun, are you really sick? The way you’ve been glaring at those papers is scary.”</p><p>“…No. The numbers are just a little off.”</p><p>“Numbers are always off. That’s our whole job, right? Taking the weird ones and making them look normal.”</p><p>Jisu said it with a smile, but the words stuck with Doyun for some reason. Making strange things look normal. If that was what settlement really was, how much strangeness had he covered up before his regression?</p><p>[Use Audit Sight?]</p><p>“…Use.”</p><p>At once the numbers on the statements began to glow. Most were white, but a few lines bled red. Doyun pressed a finger on one.</p><p><em>Seoul North Gate (C-rank) — Total loot: 420 million won</em></p><p>Small letters appeared beside the red number.</p><p>[Missing amount: 280 million won] [Missing item: Mana stone (A-rank) ×3] [Recipient: —]</p><p>“Three A-rank mana stones are missing. And there’s no recipient?”</p><p>A C-rank gate couldn’t produce A-rank stones. If it had, it wasn’t C-rank. Someone had reported the gate at a lower grade and skimmed the real loot. And it was the very gate that would blow up one year and nine months from now.</p><p>The red numbers weren’t a single line. Page after page, the same name kept surfacing—the same approver, the same stamp, the same time slot. A chill ran down Doyun’s spine. This wasn’t a one-off mistake. It was a long-standing habit.</p><p>He turned page after page and used Audit Sight a few more times. Each time, the back of his eyes stung, and on the fifth use his vision blurred. A small number appeared in the corner of the window.</p><p>[Uses remaining: 0/5]</p><p>“So it isn’t a one-time thing. There’s a cap on how many times I can use it each day.”</p><p>The words slipped out. Doyun pressed his palms against his eyes. Strangely, the fact that there was a limit put his mind at ease. Power you got for free couldn’t be trusted, but power with a price could be calculated.</p><p>And at the top of every one of those approval chains stood the same name: Executive Director Cha Dohun.</p><p>Doyun knew that name. It came at the very end of the accident record the system had forced on him before the regression: a press conference after the North Gate disaster, and the man who calmly read out the words “management failure.”</p><p>Doyun slowly got to his feet. Eight hours remained until quitting time. But in this life, there was something he had to do before going home.</p><p>“Chief Han, about this statement. I’d like to go to the site and check it myself.”</p><p>The chief’s face stiffened—just a little.</p>"
+      },
+      {
+       "title": "Episode 3: The S-Rank Hunter’s Receipt",
+       "status": "idea",
+       "content_html": "<p>A Settlement Section clerk volunteering for a site inspection was almost unheard of in the Agency’s history. When Doyun turned in his fieldwork request, the chief asked for a reason instead of giving his approval. Doyun produced the answer he had prepared.</p><p>“The numbers don’t add up, sir. I’m the type who can’t let a mismatch slide.”</p><p>The chief stared at him for a long moment and then stamped the form. The look in his eyes nagged at Doyun, but checking came first.</p><p>Two days later, the closed zone of the Seoul North C-rank gate was chilly even at midday. No one was inside the cordon, and only the marks of mana stone excavation remained on the floor. When Doyun switched on Audit Sight, a faint red line rose in the air. Someone had carried loads out of here, and the footprints led to a warehouse behind the gate.</p><p>[Uses remaining: 4/5]</p><p>A small number appeared in the corner of the window. Doyun frowned. Five times a day. Even Audit Sight wasn’t free. Every use made the back of his eyes throb, and after the fifth, the numbers stayed blurry for hours. Every single use counted.</p><p>“What are you doing there?”</p><p>A low voice sounded behind him. He turned and saw a woman in a black coat. Doyun knew that face. B-rank at this point, but a year from now she would become the country’s fifth S-rank hunter: Seo Harin.</p><p>And before his regression, she was the person who had fought to the very end in the North Gate disaster and died there.</p><p>“Kang Doyun, from the Agency’s Settlement Section. I’m here to check the loot.”</p><p>“The Settlement Section comes out to the field? That’s a first.”</p><p>Harin glanced at the documents in his hand and pulled a crumpled piece of paper from her coat pocket.</p><p>“Those papers—they’re settlement statements, right? I think my team’s share is calculated from those.”</p><p>“It is. But the numbers are a little strange.”</p><p>“I know they’re strange. It’s not just this month.”</p><p>Harin’s voice dropped lower. Only then did Doyun notice the deep shadows beneath her eyes. It was a face he had never seen up close before his regression. In the newspapers Harin was always smiling.</p><p>“Good timing. I had something to check about this gate myself. This is the settlement receipt my team got.”</p><p>Doyun took the receipt. The moment he activated Audit Sight, his breath stopped.</p><p>[Missing amount: 280 million won] [Missing item: Mana stone (A-rank) ×3] [Recipient: Agency Settlement Section Chief]</p><p>“…Found it.”</p><p>Doyun checked the receipt once more. The numbers were right. The amount missing from Harin’s team’s share was exactly the amount that had flowed to Chief Han.</p><p>Harin’s eyes narrowed.</p><p>“Found what?”</p><p>Doyun folded the receipt, slipped it into his pocket, and smiled for the first time. He was no longer the low-ranking clerk who spent every day watching the last five minutes tick down, but a man with the numbers in his hands.</p><p>“Hunter Seo. Would you make a deal with me? I can tell you exactly how much of your pay is leaking.”</p><p>“And in exchange, what do you want?”</p><p>“Nothing much. You go into the gates and do what you do. I’ll read the paperwork. Just promise me one thing.”</p><p>“What?”</p><p>“One year and nine months from now, on the day the gate opens in northern Seoul, don’t go anywhere near it.”</p><p>Harin didn’t answer. Instead she laughed, low, very low. Doyun realized that the laugh was nothing like the one in the newspapers.</p><p>“Interesting, Mr. Settlement.”</p><p>Harin said nothing for a while, then took a business card from her coat pocket and placed it in Doyun’s palm. It was a simple card with only a name and a number.</p><p>“Tomorrow at ten a.m. Come to the café next to the Cheongwol guild on Hunter Street. And bring all the statements.”</p><p>“All of them? There’s material that can’t leave the building—”</p><p>“That’s for you to figure out, Mr. Settlement. Numbers are your specialty, right?”</p><p>Harin turned away first. The tail of her black coat fluttered in the wind beyond the cordon. Doyun watched her back, card in hand, in a daze. Before his regression, he had never exchanged a single word with her.</p><p>In Doyun’s pocket, the receipt rustled. One year and nine months. In that time he had to sharpen this one sheet of paper into something keener than a blade.</p><p>[Uses remaining: 3/5]</p><p>The number in the corner of the window flickered quietly. Doyun put the receipt and the card side by side in his pocket and slowly left the cordon. Three hours remained until quitting time. But this time, he didn’t look at the clock.</p>"
+      }
+     ]
+    }
+   ],
+   "characters": [
+    {
+     "key": "doyun",
+     "name": "Kang Doyun",
+     "role": "protagonist",
+     "aliases": [
+      "Doyun",
+      "Clerk Kang",
+      "the settlement clerk"
+     ],
+     "short_description": "A seventh-year Settlement Section clerk who regresses and gains Audit Sight.",
+     "profile_md": "Age 29. He got through seven years of overtime by reading the room. He believes numbers don’t lie, yet he stamped wrong numbers on orders from above. After dying and regressing nearly two years into the past, he vows to follow the numbers to the end.",
+     "strengths_md": "- Audit Sight (five uses per day)\n- Memory for numbers and cross-checking\n- Low rank, so little suspicion",
+     "weaknesses_md": "- Zero combat ability\n- Timid, can’t say no\n- Eye fatigue accumulates with every use",
+     "author_notes_md": "No overpowered hero. His growth is not seeing more but using what he sees more precisely."
+    },
+    {
+     "key": "harin",
+     "name": "Seo Harin",
+     "role": "supporting",
+     "aliases": [
+      "Hunter Seo",
+      "the woman in the black coat"
+     ],
+     "short_description": "B-rank hunter, destined to become the country’s fifth S-rank within a year.",
+     "profile_md": "Age 26. She knows her team’s settlement share has been leaking. She smiles in public but has deep shadows under her eyes. Before the regression, she fought to the end in the North Gate disaster and died.",
+     "strengths_md": "- Swordsmanship and combat instinct\n- Tenacity; never drops a suspicion",
+     "weaknesses_md": "- Slow to trust\n- Overextends herself for her team",
+     "author_notes_md": "A relationship that begins as a deal and becomes trust. Romance builds slowly."
+    },
+    {
+     "key": "hanmansu",
+     "name": "Han Mansu",
+     "role": "antagonist",
+     "aliases": [
+      "Chief Han",
+      "Section Chief"
+     ],
+     "short_description": "Settlement Section Chief. A mid-level manager who falsifies figures to skim A-rank stones.",
+     "profile_md": "Age 48. Doyun’s direct boss. He silences subordinates with “it came down from above.” His name appears again and again on approval lines, but the real profit flows upward.",
+     "strengths_md": "- Influence within the organization\n- Control of paperwork and approvals",
+     "weaknesses_md": "- Cowardly and subservient to those above\n- Poor at handling numbers himself",
+     "author_notes_md": "The first mid-boss; where Doyun delivers his first payback."
+    },
+    {
+     "key": "jisu",
+     "name": "Park Jisu",
+     "role": "supporting",
+     "aliases": [
+      "Jisu"
+     ],
+     "short_description": "Doyun’s deskmate, hired the same year; quick to read people.",
+     "profile_md": "Age 28. Optimistic and talkative but good at reading people. The first to notice Doyun has changed.",
+     "strengths_md": "- Office gossip and connections",
+     "weaknesses_md": "- Cannot keep secrets for long",
+     "author_notes_md": "Source of information and comic relief."
+    },
+    {
+     "key": "chadohun",
+     "name": "Cha Dohun",
+     "role": "antagonist",
+     "aliases": [
+      "Executive Director Cha"
+     ],
+     "short_description": "Agency executive director and final authority behind the scheme.",
+     "profile_md": "Age 57. At the top of every settlement approval line. Before the regression, he apologized for “management failure” at the press conference after the North Gate disaster.",
+     "strengths_md": "- Political power and connections",
+     "weaknesses_md": "- The structure collapses once the ledgers line up",
+     "author_notes_md": "Makes his full entrance mid-story."
+    },
+    {
+     "key": "minchul",
+     "name": "Jung Minchul",
+     "role": "minor",
+     "aliases": [
+      "Minchul"
+     ],
+     "short_description": "The tank on Harin’s team; quiet and protective.",
+     "profile_md": "Age 34. Harin’s long-time teammate. He has noticed the team’s pay leaking but says nothing.",
+     "strengths_md": "- Defense and teamwork",
+     "weaknesses_md": "- Tight-lipped",
+     "author_notes_md": "Planned to appear from Episode 4."
+    }
+   ],
+   "relations": [
+    {
+     "a": "doyun",
+     "b": "harin",
+     "label": "Settlement ally and deal partner"
+    },
+    {
+     "a": "doyun",
+     "b": "hanmansu",
+     "label": "Subordinate and boss (suspected corruption)"
+    },
+    {
+     "a": "doyun",
+     "b": "jisu",
+     "label": "Settlement Section colleagues"
+    },
+    {
+     "a": "hanmansu",
+     "b": "chadohun",
+     "label": "Approval chain (hidden backer)"
+    },
+    {
+     "a": "doyun",
+     "b": "chadohun",
+     "label": "Responsible for the disaster in the previous timeline"
+    },
+    {
+     "a": "harin",
+     "b": "minchul",
+     "label": "Teammates"
+    }
+   ],
+   "items": [
+    {
+     "name": "Audit Sight",
+     "owner": "doyun",
+     "aliases": [
+      "the perk"
+     ],
+     "description": "A regressor’s perk. It reveals the “missing numbers” in transactions and statements as a red glow. Five uses a day; each use makes the back of his eyes ache."
+    },
+    {
+     "name": "A-rank mana stones ×3",
+     "owner": null,
+     "aliases": [
+      "the missing stones"
+     ],
+     "description": "Three A-rank stones from the North Gate that was reported as C-rank. They account for the 280 million won missing from the statement."
+    },
+    {
+     "name": "The Crumpled Receipt",
+     "owner": "harin",
+     "aliases": [
+      "Harin’s team receipt"
+     ],
+     "description": "The settlement receipt Harin’s team received. Under Audit Sight, the recipient line reads “Settlement Section Chief.”"
+    },
+    {
+     "name": "The Approval Stamp",
+     "owner": "hanmansu",
+     "aliases": [
+      "the Chief’s stamp"
+     ],
+     "description": "The stamp that finalizes settlement statements. It always arrives with the same excuse: “It came down from above.”"
+    },
+    {
+     "name": "Gate Cordon Pass",
+     "owner": "doyun",
+     "aliases": [
+      "field pass"
+     ],
+     "description": "The pass that lets a settlement clerk visit a closed gate zone; it takes Doyun into the field for the first time."
+    }
+   ],
+   "dictionary": [
+    {
+     "term": "Gate",
+     "definition": "A rift leading to another dimension, from which monsters and mana stones emerge. Graded F to S, and above that, off-scale.",
+     "memo": ""
+    },
+    {
+     "term": "Mana stone",
+     "definition": "An energy crystal dropped by monsters. A-rank and above are central to national energy policy.",
+     "memo": "Episode 1"
+    },
+    {
+     "term": "Off-scale gate",
+     "definition": "A disaster-class gate beyond the existing rank system; its breach destroys whole districts.",
+     "memo": "The North Gate"
+    },
+    {
+     "term": "Audit Sight",
+     "definition": "Doyun’s regression perk: five times a day, he sees what is missing from a transaction.",
+     "memo": ""
+    },
+    {
+     "term": "Korea Dungeon Management Agency",
+     "definition": "The public body that manages gates, hunter licenses and loot settlement; “the Agency” for short.",
+     "memo": ""
+    },
+    {
+     "term": "Loot settlement",
+     "definition": "The procedure of appraising stones and by-products and dividing them between hunter and Agency.",
+     "memo": ""
+    },
+    {
+     "term": "Cordon",
+     "definition": "The boundary of a restricted zone set up around a gate.",
+     "memo": ""
+    }
+   ],
+   "ideas": [
+    {
+     "title": "Episodes 4–10 outline",
+     "body_md": "Ep. 4: Harin accepts the deal / Ep. 5: pressure on Chief Han / Ep. 6: audit office / Ep. 7: where the A-rank stones went / Ep. 8: Cha’s faction exposed / Ep. 9: Harin’s past / Ep. 10: first public exposure.",
+     "color": "yellow"
+    },
+    {
+     "title": "Audit Sight limits",
+     "body_md": "Five uses a day. Numbers stay blurry after use. Headaches with back-to-back use. No effect when used twice on the same paper.",
+     "color": "orange"
+    },
+    {
+     "title": "Cha Dohun’s weakness",
+     "body_md": "Not the stamp but a copy of the settlement statements. When the ledgers line up, everything falls like dominoes.",
+     "color": "pink"
+    },
+    {
+     "title": "Payback moment",
+     "body_md": "Every time the chief says “it came down from above,” Doyun recites the exact missing amount from that document.",
+     "color": "green"
+    },
+    {
+     "title": "Harin’s arc",
+     "body_md": "Guilt over overlooking illegal settlements to protect her team. Doyun’s deal unties that knot.",
+     "color": "purple"
+    }
+   ],
+   "baits": [
+    {
+     "kind": "plant",
+     "quote": "Exactly one year and nine months. On that day an off-scale gate would open in northern Seoul...",
+     "summary": "Deadline for the North Gate disaster",
+     "plant_scene": [
+      0,
+      1
+     ],
+     "recover_scene": null,
+     "recover_at": "Climax (around Episode 40)",
+     "recover_content": "Close the ledgers in time to prevent the catastrophe."
+    },
+    {
+     "kind": "plant",
+     "quote": "[Missing item: Mana stone (A-rank) ×3]",
+     "summary": "Whereabouts of three A-rank stones",
+     "plant_scene": [
+      0,
+      1
+     ],
+     "recover_scene": null,
+     "recover_at": "Planned for Episode 7",
+     "recover_content": "Find the stones in the warehouse or trace how they were moved."
+    },
+    {
+     "kind": "plant",
+     "quote": "a year from now she would become the country’s fifth S-rank hunter: Seo Harin",
+     "summary": "Harin’s fate",
+     "plant_scene": [
+      0,
+      2
+     ],
+     "recover_scene": null,
+     "recover_at": "Mid to late story",
+     "recover_content": "Doyun prevents Harin’s death."
+    },
+    {
+     "kind": "plant",
+     "quote": "The chief’s face stiffened—just a little.",
+     "summary": "Chief Han’s reaction",
+     "plant_scene": [
+      0,
+      1
+     ],
+     "recover_scene": [
+      0,
+      2
+     ],
+     "recover_at": "Episode 3 (the receipt)",
+     "recover_content": "Confirmed by the “Settlement Section Chief” on the receipt."
+    },
+    {
+     "kind": "plant",
+     "quote": "Executive Director Cha Dohun.",
+     "summary": "The ultimate boss behind the scheme",
+     "plant_scene": [
+      0,
+      1
+     ],
+     "recover_scene": null,
+     "recover_at": "Planned for Episode 8",
+     "recover_content": "The chain of approvals up to Cha is finally proven, and Cha's faction is exposed."
+    }
+   ],
+   "scene_members": {
+    "0:0": {
+     "pov": "doyun",
+     "members": [
+      [
+       "doyun",
+       "primary"
+      ],
+      [
+       "hanmansu",
+       "supporting"
+      ]
+     ]
+    },
+    "0:1": {
+     "pov": "doyun",
+     "members": [
+      [
+       "doyun",
+       "primary"
+      ],
+      [
+       "jisu",
+       "supporting"
+      ],
+      [
+       "hanmansu",
+       "supporting"
+      ],
+      [
+       "chadohun",
+       "mentioned"
+      ]
+     ]
+    },
+    "0:2": {
+     "pov": "doyun",
+     "members": [
+      [
+       "doyun",
+       "primary"
+      ],
+      [
+       "harin",
+       "primary"
+      ],
+      [
+       "hanmansu",
+       "mentioned"
+      ]
+     ]
+    }
+   }
+  }
+ ]
+}

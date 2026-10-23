@@ -2258,6 +2258,41 @@ function saveStatDisplay(display) {
   }
 }
 
+/** 목차(바인더) 회차 오른쪽 숫자: 본문 글자 수 보기에서 마지막으로 고른 방식을 따른다. */
+const BINDER_COUNT_METRIC_KEY = "supertory.binderCountMetric";
+const BINDER_COUNT_METRICS = ["words", "letters", "chars_with_space", "chars_no_space"];
+
+function getBinderCountMetric() {
+  try {
+    const v = localStorage.getItem(BINDER_COUNT_METRIC_KEY);
+    if (BINDER_COUNT_METRICS.includes(v)) return v;
+  } catch (_) {
+    /* ignore */
+  }
+  return "words";
+}
+
+function setBinderCountMetric(metric) {
+  if (!BINDER_COUNT_METRICS.includes(metric) || metric === getBinderCountMetric()) return;
+  try {
+    localStorage.setItem(BINDER_COUNT_METRIC_KEY, metric);
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    if ($("outline") && state.outline) renderOutline(state.outline);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function binderCountOf(scene) {
+  const metric = getBinderCountMetric();
+  const counts = scene?.char_counts || {};
+  if (metric === "words") return Number(counts.words ?? scene?.word_count) || 0;
+  return Number(counts[metric]) || 0;
+}
+
 function loadStatScope() {
   try {
     const v = localStorage.getItem(STAT_SCOPE_KEY);
@@ -2317,6 +2352,7 @@ function selectSpaceMode(mode) {
   }
   applyStatDisplayVisibility();
   setGoalMetric(spaceMetricFromMode(next));
+  setBinderCountMetric(spaceMetricFromMode(next));
 }
 
 function cycleUnitMode() {
@@ -2325,6 +2361,7 @@ function cycleUnitMode() {
   saveStatDisplay(statDisplay);
   applyStatDisplayVisibility();
   updateSceneStats();
+  setBinderCountMetric(statDisplay.unit === "letters" ? "letters" : "words");
 }
 
 function applyStatDisplayVisibility() {
@@ -11868,6 +11905,7 @@ function applyProjectsListPayload(projects, listMode = null) {
     state.projectListMode = state.projects[0].list_mode;
   }
   refreshProjectSelectOptions();
+  if (typeof renderWelcomeRecent === "function") renderWelcomeRecent();
 }
 
 function bumpOpenedProjectInLocalList(projectId, lastOpenedAt = null) {
@@ -12323,8 +12361,207 @@ async function restoreLastWorkspaceView() {
   showWelcome();
 }
 
+const SAMPLE_WORKS_SEEDED_KEY = "supertory.sampleWorksSeeded";
+
+/** 처음 켰을 때(작품 0개) 장르별 예시 작품 3편을 한 번만 저장한다. 앱 언어(ko/en/es)별 샘플 파일을 쓴다. */
+async function seedSampleWorksIfFirstRun() {
+  try {
+    if (localStorage.getItem(SAMPLE_WORKS_SEEDED_KEY)) return false;
+  } catch (_) {
+    return false;
+  }
+  const markSeeded = () => {
+    try { localStorage.setItem(SAMPLE_WORKS_SEEDED_KEY, "1"); } catch (_) { /* ignore */ }
+  };
+  const sampleLang = typeof i18n.getLang === "function" ? i18n.getLang() : "ko";
+  if (!["ko", "en", "es"].includes(sampleLang)) return false;
+  let pack;
+  try {
+    const response = await fetch(`samples/${sampleLang}.json`, { cache: "no-store" });
+    if (!response.ok) return false;
+    pack = await response.json();
+  } catch (_) {
+    return false;
+  }
+  let created = 0;
+  const attempt = async (label, fn) => {
+    try {
+      return await fn();
+    } catch (error) {
+      console.warn("sample work seed step failed:", label, error);
+      return null;
+    }
+  };
+  for (const work of pack.works || []) {
+    try {
+      const project = await api("/api/projects", {
+        method: "POST",
+        body: JSON.stringify({
+          title: work.title,
+          purpose: work.purpose,
+          main_genre: work.main_genre,
+          sub_genre: work.sub_genre || "",
+          literary_form: work.literary_form || undefined,
+        }),
+      });
+      const projectId = Number(project?.id);
+      if (!projectId) continue;
+
+      // 설정집: 시놉시스·로그라인·작품소개·기획의도·키워드·세계관·문체
+      await attempt("settings", async () => {
+        const st = work.settings || {};
+        const body = {};
+        for (const key of ["synopsis_md", "logline_md", "intro_md", "intent_md", "tory_priority_md"]) {
+          if (st[key]) body[key] = st[key];
+        }
+        if (Array.isArray(st.keywords) && st.keywords.length) body.keywords = st.keywords;
+        if (st.world) {
+          const values = emptyWorldBuildingValues();
+          Object.assign(values, st.world);
+          values.extras = Array.isArray(st.extras) ? st.extras : [];
+          body.worldbuilding_md = composeWorldbuildingMd(values);
+        }
+        if (st.style) Object.assign(body, st.style);
+        if (Object.keys(body).length) {
+          await api(`/api/projects/${projectId}/settings`, { method: "PUT", body: JSON.stringify(body) });
+        }
+      });
+
+      // 회차
+      const sceneIds = {};
+      for (let ci = 0; ci < (work.chapters || []).length; ci += 1) {
+        const chapterSeed = work.chapters[ci];
+        const chapter = await api(`/api/projects/${projectId}/chapters`, {
+          method: "POST",
+          body: JSON.stringify({ title: chapterSeed.title }),
+        });
+        for (let si = 0; si < (chapterSeed.scenes || []).length; si += 1) {
+          const sceneSeed = chapterSeed.scenes[si];
+          const scene = await api(`/api/chapters/${chapter.id}/scenes`, {
+            method: "POST",
+            body: JSON.stringify({ title: sceneSeed.title }),
+          });
+          const detail = await api(`/api/scenes/${scene.id}`);
+          await api(`/api/scenes/${scene.id}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              title: sceneSeed.title,
+              status: sceneSeed.status || "draft",
+              synopsis_md: "",
+              notes_md: "",
+              content_md: sceneSeed.content_html,
+              row_version: detail.row_version,
+            }),
+          });
+          sceneIds[`${ci}:${si}`] = Number(scene.id);
+        }
+      }
+
+      // 인물
+      const characterIds = {};
+      for (const ch of work.characters || []) {
+        await attempt(`character ${ch.name}`, async () => {
+          const made = await api(`/api/projects/${projectId}/characters`, {
+            method: "POST",
+            body: JSON.stringify({ name: ch.name }),
+          });
+          const id = Number(made?.id);
+          if (!id) return;
+          characterIds[ch.key] = id;
+          await api(`/api/characters/${id}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              name: ch.name,
+              role: ch.role || "",
+              short_description: ch.short_description || "",
+              profile_md: ch.profile_md || "",
+              strengths_md: ch.strengths_md || "",
+              weaknesses_md: ch.weaknesses_md || "",
+              author_notes_md: ch.author_notes_md || "",
+              aliases: ch.aliases || [],
+            }),
+          });
+        });
+      }
+      // 인물 관계
+      for (const rel of work.relations || []) {
+        const a = characterIds[rel.a];
+        const b = characterIds[rel.b];
+        if (!a || !b) continue;
+        await attempt(`relation ${rel.label}`, () => api(`/api/projects/${projectId}/character-relations`, {
+          method: "POST",
+          body: JSON.stringify({ character_a_id: a, character_b_id: b, label: rel.label }),
+        }));
+      }
+      // 회차별 등장인물·시점
+      for (const [key, info] of Object.entries(work.scene_members || {})) {
+        const sceneId = sceneIds[key];
+        if (!sceneId) continue;
+        const members = (info.members || [])
+          .filter(([ck]) => characterIds[ck])
+          .map(([ck, role]) => ({ character_id: characterIds[ck], appearance_role: role }));
+        await attempt(`scene members ${key}`, () => api(`/api/scenes/${sceneId}/characters`, {
+          method: "PUT",
+          body: JSON.stringify({ pov_id: info.pov ? characterIds[info.pov] || null : null, members }),
+        }));
+      }
+      // 아이템
+      for (const item of work.items || []) {
+        await attempt(`item ${item.name}`, () => api(`/api/projects/${projectId}/items`, {
+          method: "POST",
+          body: JSON.stringify({
+            name: item.name,
+            description: item.description || "",
+            owner_character_id: item.owner ? characterIds[item.owner] || null : null,
+            aliases: item.aliases || [],
+          }),
+        }));
+      }
+      // 사전
+      for (const term of work.dictionary || []) {
+        await attempt(`dictionary ${term.term}`, () => api(`/api/projects/${projectId}/dictionary-terms`, {
+          method: "POST",
+          body: JSON.stringify({ term: term.term, definition: term.definition || "", memo: term.memo || "" }),
+        }));
+      }
+      // 생각수첩
+      for (const idea of work.ideas || []) {
+        await attempt(`idea ${idea.title}`, () => api(`/api/projects/${projectId}/ideas`, {
+          method: "POST",
+          body: JSON.stringify({ title: idea.title, body_md: idea.body_md || "", color: idea.color || "yellow" }),
+        }));
+      }
+      // 떡밥
+      for (const bait of work.baits || []) {
+        await attempt(`bait ${bait.summary}`, () => {
+          const body = {
+            kind: bait.kind || "plant",
+            quote: bait.quote,
+            summary: bait.summary || "",
+            recover_at: bait.recover_at || "",
+            recover_content: bait.recover_content || "",
+          };
+          if (bait.plant_scene) body.plant_scene_id = sceneIds[bait.plant_scene.join(":")] || null;
+          if (bait.recover_scene) body.recover_scene_id = sceneIds[bait.recover_scene.join(":")] || null;
+          return api(`/api/projects/${projectId}/baits`, { method: "POST", body: JSON.stringify(body) });
+        });
+      }
+      created += 1;
+    } catch (error) {
+      console.warn("sample work seed failed", work?.title, error);
+    }
+  }
+  if (created > 0) markSeeded();
+  return created > 0;
+}
+
 async function loadProjects(preferredId = null) {
-  const projects = await api("/api/projects");
+  let projects = await api("/api/projects");
+  if (!Array.isArray(projects) || !projects.length) {
+    if (await seedSampleWorksIfFirstRun()) projects = await api("/api/projects");
+  } else {
+    try { localStorage.setItem(SAMPLE_WORKS_SEEDED_KEY, "1"); } catch (_) { /* ignore */ }
+  }
   applyProjectsListPayload(projects);
   pruneStaleEpisodeTabStorage(state.projects);
   const select = $("projectSelect");
@@ -33667,7 +33904,7 @@ function refreshPartCard() {
   const activeTitle = active?.querySelector(".scene-title")?.textContent?.trim() || "";
   const epShort = (activeTitle.match(/^(\d+\s*화)/) || [])[1] || activeTitle;
   setText("islCrumb", [titleOf(outer) && outer !== host ? titleOf(outer) : "", titleOf(host), epShort].filter(Boolean).join(" › "));
-  setText("islPartSub", i18n.t("island.요약_진행", { n: dots.length, m: counts.complete, w: words.toLocaleString() }));
+  setText("islPartSub", i18n.t(getBinderCountMetric() === "words" ? "island.요약_진행" : "island.요약_진행_글자", { n: dots.length, m: counts.complete, w: words.toLocaleString() }));
   const bar = $("islPartBar");
   if (bar) {
     bar.innerHTML = ["complete", "revision", "draft", "idea", "outline"]
@@ -66912,8 +67149,10 @@ function renderSceneTreeHtml(scenes, {
     // 작성 상태는 고정 폭 슬롯 → 북마크 유무와 관계없이 열 정렬
     // 모든 상태 동일 텍스트 뱃지 · 완성만 is-complete 틴트 배경
     const statusInner = `<span class="scene-status${isComplete ? " is-complete" : ""}" data-status="${escapeHtml(String(scene.status || ""))}">${escapeHtml(statusText)}</span>`;
-    const wcNum = Number(scene.word_count) || 0;
-    const wcMarkup = wcNum > 0 ? `<span class="scene-wc">${wcNum.toLocaleString()}</span>` : "";
+    const wcNum = binderCountOf(scene);
+    const wcMarkup = wcNum > 0
+      ? `<span class="scene-wc" title="${escapeHtml(COUNT_METRIC_LABEL[getBinderCountMetric()] || "")}">${wcNum.toLocaleString()}</span>`
+      : "";
     const statusMarkup = `<span class="scene-status-slot">${statusInner}</span>`;
     const sid = Number(scene.id);
     // 북마크·떡밥: 작성상태 왼쪽 · 호버 박스 밖(트리/폴더 아이콘 열)
@@ -68682,8 +68921,117 @@ function showWelcome() {
     $("ideaBoard")?.classList.add("hidden");
   }
   updateWelcomeGuideUi();
+  renderWelcomeRecent();
   // Persist "project open, no scene" so relaunch can return to welcome for this work.
   if (state.projectId) saveLastWorkspace({ sceneId: null });
+}
+
+/* —— Welcome screen: 펼치는 3단계 + 최근 작품 카드 —— */
+function welcomeRelativeTime(iso) {
+  const ts = Date.parse(String(iso || "").replace(" ", "T"));
+  if (!Number.isFinite(ts)) return "";
+  const diffSec = Math.round((ts - Date.now()) / 1000);
+  const units = [["day", 86400], ["hour", 3600], ["minute", 60]];
+  let rtf;
+  try {
+    rtf = new Intl.RelativeTimeFormat(document.documentElement.lang || "ko", { numeric: "auto" });
+  } catch (_) {
+    return "";
+  }
+  for (const [unit, sec] of units) {
+    if (Math.abs(diffSec) >= sec) return rtf.format(Math.round(diffSec / sec), unit);
+  }
+  return rtf.format(0, "second");
+}
+
+function renderWelcomeRecent() {
+  const box = $("welcomeRecent");
+  if (!box) return;
+  const all = state.projects || [];
+  const list = [...all]
+    .sort((a, b) => String(b.last_opened_at || b.updated_at || "").localeCompare(String(a.last_opened_at || a.updated_at || "")))
+    .slice(0, 3);
+  const count = $("welcomeRecentCount");
+  if (count) count.textContent = all.length ? i18n.t("app.웰컴_작품_수", { count: all.length }) : "";
+  if (!list.length) {
+    box.innerHTML = `<p class="welcome-recent-empty">${escapeHtml(i18n.t("app.웰컴_아직_작품_없음"))}</p>`;
+    return;
+  }
+  box.innerHTML = list.map((project, index) => {
+    const genre = [
+      project.purpose ? (purposeLabel[project.purpose] || project.purpose) : "",
+      project.main_genre ? mainGenreLabel(project.main_genre) : "",
+    ].filter(Boolean).join(" · ");
+    const when = welcomeRelativeTime(project.last_opened_at || project.updated_at);
+    const edited = when ? i18n.t("app.웰컴_수정_시각", { when }) : "";
+    const meta = [index === 0 ? i18n.t("app.웰컴_이어_쓰기") : "", edited].filter(Boolean).join(" · ");
+    return `<button type="button" class="welcome-wcard${index === 0 ? " is-current" : ""}" data-welcome-project="${Number(project.id)}">
+      ${genre ? `<span class="welcome-wcard-genre">${escapeHtml(genre)}</span>` : ""}
+      <strong>${escapeHtml(projectOptionLabel(project))}</strong>
+      <span class="welcome-wcard-meta welcome-wcard-stats" data-welcome-stats="${Number(project.id)}"></span>
+      <div class="welcome-wcard-bar" data-welcome-bar="${Number(project.id)}"></div>
+      <span class="welcome-wcard-meta">${escapeHtml(meta)}</span>
+    </button>`;
+  }).join("");
+  list.forEach((project) => { void fillWelcomeCardSummary(project); });
+}
+
+const welcomeSummaryCache = new Map();
+
+async function fillWelcomeCardSummary(project) {
+  const id = Number(project.id);
+  const key = `${id}:${project.updated_at || ""}:${project.last_opened_at || ""}`;
+  let summary = welcomeSummaryCache.get(key);
+  if (!summary) {
+    try {
+      summary = await api(`/api/projects/${id}/home-summary`);
+    } catch (_) {
+      return;
+    }
+    welcomeSummaryCache.set(key, summary);
+  }
+  const stats = document.querySelector(`[data-welcome-stats="${id}"]`);
+  const bar = document.querySelector(`[data-welcome-bar="${id}"]`);
+  if (stats) {
+    stats.textContent = [
+      summary.volume_count > 0 ? i18n.t("app.웰컴_권수", { n: summary.volume_count }) : "",
+      i18n.t("app.웰컴_화수", { n: summary.episode_count }),
+      i18n.t("app.웰컴_글자수", { n: Number(summary.char_count || 0).toLocaleString() }),
+    ].filter(Boolean).join(" · ");
+  }
+  if (bar) {
+    const counts = summary.status_counts || {};
+    bar.innerHTML = ["complete", "revision", "draft", "idea", "outline"]
+      .filter((k) => counts[k] > 0)
+      .map((k) => `<i data-status="${k}" style="flex:${counts[k]}"></i>`)
+      .join("");
+  }
+}
+
+function setupWelcomeHome() {
+  const root = $("welcome");
+  if (!root || root.dataset.homeBound === "1") return;
+  root.dataset.homeBound = "1";
+  root.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-welcome-acc]");
+    if (tab) {
+      const wasOpen = tab.getAttribute("aria-expanded") === "true";
+      root.querySelectorAll("[data-welcome-acc]").forEach((el) => el.setAttribute("aria-expanded", "false"));
+      root.querySelectorAll("[data-welcome-acc-panel]").forEach((el) => el.classList.remove("is-open"));
+      if (!wasOpen) {
+        tab.setAttribute("aria-expanded", "true");
+        root.querySelector(`[data-welcome-acc-panel="${tab.dataset.welcomeAcc}"]`)?.classList.add("is-open");
+      }
+      return;
+    }
+    const card = event.target.closest("[data-welcome-project]");
+    if (card) {
+      selectProjectFromList(card.dataset.welcomeProject);
+      return;
+    }
+    const create = event.target.closest("[data-welcome-create]");
+    if (create) $(create.dataset.welcomeCreate)?.click();
+  });
 }
 
 /* —— Welcome screen: animated Tory + +button guide —— */
@@ -68707,11 +69055,11 @@ function welcomeFileIconHtml() {
 function welcomeSpeechLines() {
   return [
     i18n.t("app.반가워요_작가님"),
-    i18n.t("app.먼저_왼쪽_위_를_눌러봐요", { icon: welcomeFileIconHtml() }),
-    i18n.t("app.새_글_쓰기부터_시작하면_돼요"),
-    i18n.t("app.써_둔_글이_있으면_가져오기도_가능"),
+    i18n.t("app.웰컴_말풍선_시작"),
+    i18n.t("app.웰컴_말풍선_가져오기"),
+    i18n.t("app.웰컴_말풍선_토리"),
+    i18n.t("app.웰컴_말풍선_자동저장"),
     i18n.t("app.준비되면_같이_써봐요"),
-    i18n.t("app.토리와_함께"),
   ];
 }
 
@@ -88497,6 +88845,7 @@ function setupCreateMenu() {
 }
 
 setupCreateMenu();
+setupWelcomeHome();
 setupNewProjectModal();
 setupOpeningHintUi();
 setupOpeningIdeasModal();

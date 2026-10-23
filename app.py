@@ -4711,6 +4711,46 @@ def serialize_project_list_row(row: sqlite3.Row | dict) -> dict:
     return item
 
 
+def project_home_summary_payload(connection: sqlite3.Connection, project_id: int) -> dict:
+    """시작 화면 '최근 작품' 카드용 요약: 권(최상위 폴더) 수 · 화(회차) 수 · 글자 수 · 상태별 개수."""
+    volumes = 0
+    try:
+        volumes = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM folder WHERE project_id = ? AND parent_id IS NULL "
+                "AND deleted_at IS NULL",
+                (project_id,),
+            ).fetchone()[0]
+        )
+    except sqlite3.OperationalError:
+        volumes = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM chapter WHERE project_id = ? AND deleted_at IS NULL",
+                (project_id,),
+            ).fetchone()[0]
+        )
+    status_counts: dict[str, int] = {}
+    episodes = 0
+    chars = 0
+    rows = connection.execute(
+        "SELECT s.status, r.content_md FROM scene s "
+        "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+        "WHERE s.project_id = ? AND s.deleted_at IS NULL",
+        (project_id,),
+    ).fetchall()
+    for row in rows:
+        status = str(row[0] or "")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        episodes += 1
+        chars += len(plain_text_from_content(row[1] or ""))
+    return {
+        "volume_count": volumes,
+        "episode_count": episodes,
+        "char_count": chars,
+        "status_counts": status_counts,
+    }
+
+
 def list_projects_payload(connection: sqlite3.Connection) -> list[dict]:
     mode = project_list_mode(connection)
     # linked_success_profile_id added in migration 026 — tolerate older DBs mid-migrate.
@@ -5020,6 +5060,71 @@ def compute_text_stats(plain_text: str) -> dict:
         "words": words,
         "letters": letters,
     }
+
+
+def editor_style_plain_text(content: str) -> str:
+    """본문 글자 수 표시줄과 같은 방식의 글: 작가 주석 블록을 빼고 태그만 떼어 문단을 이어 붙인다.
+
+    web/app.js getEditorPlainText()는 복제한 노드의 innerText를 쓰는데, 화면 밖 노드라 줄바꿈 없이
+    textContent처럼 이어진다. 목차 숫자가 본문 숫자와 같아지도록 같은 방식으로 센다.
+    """
+    text = author_note_blocks.strip_author_note_html(content or "")
+    text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", "", text)
+    text = re.sub(r"(?s)<[^>]+>", "", text)
+    text = re.sub(r"<[^>]*$", "", text)
+    text = html_lib.unescape(text)
+    return text.replace("\xa0", " ")
+
+
+# 목차(바인더) 회차 오른쪽 숫자용: 현재 저장본(revision)별 글자 수 캐시.
+# 키는 (데이터베이스 경로, 저장본 id, 본문 길이) — 같은 프로세스에서 다른 DB를 열어도(테스트·백업 복원 등)
+# 저장본 번호가 겹쳐 엉뚱한 값이 나오지 않게 한다.
+_OUTLINE_CHAR_COUNT_CACHE: dict[tuple[str, int, int], dict] = {}
+_OUTLINE_CHAR_COUNT_CACHE_MAX = 20000
+
+
+def outline_scene_char_counts(project_id: int) -> dict[int, dict]:
+    """scene_id → {chars_with_space, chars_no_space, words, letters} (현재 저장본 기준, 본문 표시줄과 같은 방식).
+
+    같은 저장본(같은 DB·같은 id·같은 본문 길이)은 다시 세지 않는다.
+    """
+    result: dict[int, dict] = {}
+    db_key = str(DATABASE_PATH)
+    try:
+        with database() as connection:
+            rows = connection.execute(
+                "SELECT s.id AS scene_id, r.id AS rev_id, length(r.content_md) AS n FROM scene s "
+                "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                "WHERE s.project_id = ? AND s.deleted_at IS NULL",
+                (project_id,),
+            ).fetchall()
+            if len(_OUTLINE_CHAR_COUNT_CACHE) > _OUTLINE_CHAR_COUNT_CACHE_MAX:
+                _OUTLINE_CHAR_COUNT_CACHE.clear()
+
+            def key_of(rev_id: object, size: object) -> tuple[str, int, int]:
+                return (db_key, int(rev_id), int(size or 0))
+
+            missing = sorted({int(r["rev_id"]) for r in rows if key_of(r["rev_id"], r["n"]) not in _OUTLINE_CHAR_COUNT_CACHE})
+            for start in range(0, len(missing), 200):
+                chunk = missing[start:start + 200]
+                marks = ",".join("?" for _ in chunk)
+                for rev in connection.execute(
+                    f"SELECT id, content_md, length(content_md) AS n FROM scene_revision WHERE id IN ({marks})", chunk
+                ).fetchall():
+                    stats = compute_text_stats(editor_style_plain_text(rev["content_md"] or ""))
+                    _OUTLINE_CHAR_COUNT_CACHE[key_of(rev["id"], rev["n"])] = {
+                        "chars_with_space": stats["chars_with_space"],
+                        "chars_no_space": stats["chars_no_space"],
+                        "words": stats["words"],
+                        "letters": stats["letters"],
+                    }
+            for r in rows:
+                cached = _OUTLINE_CHAR_COUNT_CACHE.get(key_of(r["rev_id"], r["n"]))
+                if cached:
+                    result[int(r["scene_id"])] = cached
+    except sqlite3.Error:
+        return {}
+    return result
 
 
 def first_sentence_preview(content: str, limit: int = 160) -> str:
@@ -6319,6 +6424,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 with database() as connection:
                     payload = list_projects_payload(connection)
                 self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/home-summary", path)
+            if match:
+                with database() as connection:
+                    self.require_project(connection, int(match.group(1)))
+                    self.send_json(project_home_summary_payload(connection, int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/outline", path)
@@ -17093,11 +17205,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         parts_rows: list[dict],
         chapters_rows: list[dict],
         scenes_rows: list[sqlite3.Row],
+        project_id: int = 0,
     ) -> dict:
         """Shared parts/chapters/scenes assembly (legacy-shaped)."""
         flat_by_chapter: dict[int, list[dict]] = {}
+        char_counts = outline_scene_char_counts(int(project_id or 0)) if scenes_rows else {}
         for scene in scenes_rows:
             data = as_dict(scene)
+            data["char_counts"] = char_counts.get(int(data.get("id") or 0)) or {}
             if "parent_scene_id" not in data:
                 data["parent_scene_id"] = None
             title = str(data.get("title") or "").strip()
@@ -17164,12 +17279,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         }
 
     def _prepare_outline_scene_dicts(
-        self, scenes_rows: list[sqlite3.Row]
+        self, scenes_rows: list[sqlite3.Row], project_id: int = 0
     ) -> list[dict]:
-        """Normalize scene rows for outline trees (body_preview, parent_scene_id)."""
+        """Normalize scene rows for outline trees (body_preview, parent_scene_id, char_counts)."""
         prepared: list[dict] = []
+        char_counts = outline_scene_char_counts(int(project_id or 0)) if scenes_rows else {}
         for scene in scenes_rows:
             data = as_dict(scene)
+            data["char_counts"] = char_counts.get(int(data.get("id") or 0)) or {}
             if "parent_scene_id" not in data:
                 data["parent_scene_id"] = None
             title = str(data.get("title") or "").strip()
@@ -17199,7 +17316,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
         if scenes_rows is None:
             scenes_rows = self._load_outline_scenes(connection, project_id)
-        prepared = self._prepare_outline_scene_dicts(scenes_rows)
+        prepared = self._prepare_outline_scene_dicts(scenes_rows, project_id)
         flat_by_folder: dict[int, list[dict]] = {}
         for data in prepared:
             # Prefer scene.folder_id; fall back to chapter→folder map
@@ -17346,6 +17463,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             parts_rows=[as_dict(p) for p in parts],
             chapters_rows=[as_dict(c) for c in chapters],
             scenes_rows=scenes,
+            project_id=project_id,
         )
         return self._attach_folders_field(
             connection, project_id, payload, scenes_rows=scenes
@@ -17460,6 +17578,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             parts_rows=parts_rows,
             chapters_rows=clean_chapters,
             scenes_rows=scenes,
+            project_id=project_id,
         )
         return self._attach_folders_field(
             connection, project_id, payload, scenes_rows=scenes
