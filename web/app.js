@@ -12363,7 +12363,7 @@ async function restoreLastWorkspaceView() {
 
 const SAMPLE_WORKS_SEEDED_KEY = "supertory.sampleWorksSeeded";
 
-/** 처음 켰을 때(작품 0개) 장르별 예시 작품 3편을 한 번만 저장한다. 한국어 앱에서만. */
+/** 처음 켰을 때(작품 0개) 장르별 예시 작품 3편을 한 번만 저장한다. 앱 언어(ko/en/es)별 샘플 파일을 쓴다. */
 async function seedSampleWorksIfFirstRun() {
   try {
     if (localStorage.getItem(SAMPLE_WORKS_SEEDED_KEY)) return false;
@@ -12373,10 +12373,11 @@ async function seedSampleWorksIfFirstRun() {
   const markSeeded = () => {
     try { localStorage.setItem(SAMPLE_WORKS_SEEDED_KEY, "1"); } catch (_) { /* ignore */ }
   };
-  if (document.documentElement.lang && document.documentElement.lang !== "ko") return false;
+  const sampleLang = typeof i18n.getLang === "function" ? i18n.getLang() : "ko";
+  if (!["ko", "en", "es"].includes(sampleLang)) return false;
   let pack;
   try {
-    const response = await fetch("samples/ko.json", { cache: "no-store" });
+    const response = await fetch(`samples/${sampleLang}.json`, { cache: "no-store" });
     if (!response.ok) return false;
     pack = await response.json();
   } catch (_) {
