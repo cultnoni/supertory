@@ -36251,6 +36251,35 @@ html[lang="es"] .format-tool-label-wrap {
   bottom: auto !important;
   border-radius: 10px;
 }
+.gitsi-float.is-strip {
+  width: 280px;
+  height: auto;
+}
+.gitsi-float.is-strip .gitsi-float-stage,
+.gitsi-float.is-strip .gitsi-float-mini-controls {
+  flex: 0 0 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+.gitsi-float.is-strip .gitsi-float-mini-only,
+.gitsi-float.is-strip .gitsi-float-expanded-only,
+.gitsi-float.is-strip .gitsi-float-not-strip,
+.gitsi-float:not(.is-strip) .gitsi-float-strip-only {
+  display: none !important;
+}
+.gitsi-float.is-expanded {
+  /* 브라우저 전체 화면이 거부돼도 페이지 전체를 덮는다 */
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  border-radius: 0;
+}
+.gitsi-float:fullscreen {
+  width: 100vw !important;
+  height: 100vh !important;
+}
 .gitsi-float.is-mini .gitsi-float-expanded-only {
   display: none !important;
 }
