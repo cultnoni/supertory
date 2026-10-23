@@ -39,6 +39,7 @@ class WritableDataDirModeTests(unittest.TestCase):
                 path = app.resolve_writable_data_dir(environ=env, frozen=False, root=ROOT)
                 self.assertEqual(path, Path(appdata) / "supertory" / "data")
 
+    @unittest.skipUnless(os.name == "nt", "Windows 경로(C:\\...)를 쓰는 테스트라 윈도우에서만 실행")
     def test_frozen_keeps_executable_sidecar_data(self) -> None:
         path = app.resolve_writable_data_dir(
             environ={"APPDATA": r"C:\Users\x\AppData\Roaming", "SUPERTORY_DB_MODE": "isolated"},
