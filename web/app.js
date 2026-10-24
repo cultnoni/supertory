@@ -77784,6 +77784,9 @@ function setupEpisodeChrome() {
   // 탭 줄 양 끝의 손잡이: 왼쪽은 바인더(좌) 패널, 오른쪽은 SuperTORY(우) 패널을 토글
   $("episodeTabLeftPanelToggle")?.addEventListener("click", () => setBinderPanelOpen(!isBinderPanelOpen()));
   $("episodeTabRightPanelToggle")?.addEventListener("click", () => setAiPanelOpen(!isAiPanelOpen()));
+  // 시작 화면에는 탭 줄이 없으므로 같은 손잡이를 시작 화면 위쪽 모서리에 둔다(접힌 쪽만 보임)
+  $("welcomeBinderOpenButton")?.addEventListener("click", () => setBinderPanelOpen(true));
+  $("welcomeAiOpenButton")?.addEventListener("click", () => setAiPanelOpen(true));
   $("episodePrevButton")?.addEventListener("click", () => {
     const sequence = getEpisodeSequence();
     const idx = findEpisodeIndex(state.sceneId, sequence);
@@ -87622,8 +87625,8 @@ function getTitleBarOverlayPayload(themeId = getUiTheme()) {
   const id = normalizeUiThemeId(themeId);
   const scheme = uiThemeScheme(id);
   const fallback = {
-    light: { color: "#F8F4EC", symbolColor: "#2C2523" },
-    sand: { color: "#FEFDF8", symbolColor: "#2C2523" },
+    light: { color: "#ECEEF1", symbolColor: "#1F2429" },
+    sand: { color: "#F8F4EC", symbolColor: "#2C2523" },
     dark: { color: "#1E1B17", symbolColor: "#ECE6DC" },
     cabin: { color: "#EDF2E9", symbolColor: "#2C3A2E" },
     study: { color: "#EAE0D3", symbolColor: "#4A3B32" },
