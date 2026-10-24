@@ -358,6 +358,7 @@ def _start_run(
             (project_id,),
         ).fetchone()
         project_dict = dict(project_row) if project_row else {}
+        genre_options: dict | None = None
         track = literary_form.literary_track(project_dict)
         if genre_track.engine_choice_available(project_dict):
             # 실험장르: 실행할 때 문학/웹소설 줄을 고른다. 고르지 않았고 단편/장편도 안 골랐다면 웹소설 줄로 간다.
@@ -468,6 +469,13 @@ def _start_run(
                 "explanation_lens": lens or None,
                 "fake": bool(is_fake_mode()),
             }
+            # 장르문학 수수께끼형은 웹소설 러너 안에서 장르 진단 단계를 더 돈다.
+            if genre_track.genre_group(project_dict) == genre_track.GROUP_PUZZLE:
+                genre_options = {
+                    "group": genre_track.GROUP_PUZZLE,
+                    "main_genre": str(project_dict.get("main_genre") or ""),
+                }
+                params["genre_group"] = genre_track.GROUP_PUZZLE
             run_id = feedback_store.create_run(
                 conn,
                 project_id,
@@ -497,6 +505,8 @@ def _start_run(
     }
     if lens:
         options["explanation_lens"] = lens
+    if genre_options:
+        options["genre"] = genre_options
     if body.get("fresh_cards"):
         options["fresh_cards"] = True
     event = _cancel_event(run_id)

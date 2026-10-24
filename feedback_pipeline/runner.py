@@ -348,6 +348,11 @@ def render_report_md(report: dict[str, Any] | None) -> str:
             if body:
                 parts.append(body)
             parts.append("")
+    genre = report.get("genre")
+    if isinstance(genre, dict) and genre.get("items"):
+        from feedback_pipeline.genre_puzzle import render_genre_md
+
+        parts.append(render_genre_md(genre))
     return "\n".join(parts).rstrip() + "\n"
 
 
@@ -829,6 +834,36 @@ def run_feedback(
         _commit(conn, options)
         _raise_if_cancelled(cancel_event)
 
+        genre_report = None
+        genre_opts = options.get("genre") if isinstance(options.get("genre"), dict) else {}
+        if genre_opts.get("group") == "puzzle":
+            # 수수께끼형: 정보 공개 지도와 장르 진단. 실패해도 일반 리포트와 카드는 계속 만든다.
+            from feedback_pipeline import genre_puzzle
+
+            _set_progress(conn, run_id, params, "genre", 2, 5)
+            _commit(conn, options)
+            try:
+                genre_report = genre_puzzle.run_puzzle_report(
+                    conn,
+                    project_id,
+                    paras,
+                    shared_prefix=shared_prefix,
+                    caller=caller,
+                    model=model,
+                    params=params,
+                    max_cost=max_cost,
+                    add_usage=_add_usage,
+                    check_cost=_check_cost,
+                    invoke_parsed=_invoke_parsed,
+                )
+            except (CostLimitExceeded, Cancelled):
+                raise
+            except Exception as error:  # noqa: BLE001 - 장르 진단 실패는 기록만 하고 이어 간다
+                params["genre_error"] = str(error)[:200]
+            _save_params(conn, run_id, params)
+            _commit(conn, options)
+            _raise_if_cancelled(cancel_event)
+
         sure_text = _format_consistency_sure(kept_issues)
         findings = _merge_findings(format_dup_findings(blocks), sure_text)
         report_user = prompt_loader.fill_template(
@@ -867,6 +902,8 @@ def run_feedback(
         for row in post_changes:
             if row.get("step") == "P2":
                 _drop(params, row, "p2_filtered")
+        if genre_report and isinstance(report, dict):
+            report["genre"] = genre_report
         maybe_issues = [
             i for i in kept_issues if str(i.get("certainty") or "").strip() == "maybe"
         ]

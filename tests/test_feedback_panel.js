@@ -1249,6 +1249,43 @@ const limitedTalk = FP.renderCommentThread({ id: 2, comment_count: 20 }, {
 assert(limitedTalk.indexOf("대화를 너무 많이") >= 0, "limit copy");
 assert(limitedTalk.indexOf("fb-comment-input") < 0, "limit hides composer");
 
+const genreHtml = FP.renderGenreReport({
+  group: "puzzle",
+  summary: "단서가 공정하다.",
+  top_tasks: [{ title: "의문 회수", why: "흔들림을 풀어야 한다." }],
+  items: [
+    { key: "clue_fairness", verdict: "works", intentional: false, note: "좋다.", evidence: [] },
+    {
+      key: "deception",
+      verdict: "room",
+      intentional: true,
+      note: "<b>전달이 약하다</b>",
+      evidence: [{ para: 3, quote: "정원이 손을 내밀었다" }],
+    },
+    { key: "payoff", verdict: "problem", intentional: false, note: "방치됨", evidence: [], unverified: true },
+  ],
+  clue_map: {
+    events: [{ para: 1, kind: "clue", what: "손을 내민다", quote: "" }],
+    reader_knows_at_end: ["숨긴다"],
+    reader_does_not_know: [],
+    open_questions: [{ question: "왜 흔들렸나", para: 2 }],
+    resolved_questions: [],
+    turns: [],
+  },
+}, null);
+assert(genreHtml.indexOf("단서의 공정성") > genreHtml.indexOf("속임수"), "genre: 보완·문제 항목이 먼저, 잘 작동함은 접힘");
+assert(genreHtml.indexOf("<details>") >= 0, "genre: 접힌 항목");
+assert(genreHtml.indexOf("의도라면 유지") >= 0, "genre: 의도 표시");
+assert(genreHtml.indexOf("<b>") < 0 && genreHtml.indexOf("&lt;b&gt;") >= 0, "genre: 글 이스케이프");
+assert(genreHtml.indexOf("근거 위치를 확인하지 못했어요") >= 0, "genre: 근거 미확인 안내");
+assert(genreHtml.indexOf("정보 공개 지도") >= 0 && genreHtml.indexOf("왜 흔들렸나") >= 0, "genre: 정보 공개 지도");
+assert(FP.renderGenreReport(null, null) === "", "genre: 없으면 비어 있음");
+assert(
+  FP.renderGenreReport(null, { params: { genre_error: "x" } }).indexOf("장르 진단을 만들지 못했어요") >= 0,
+  "genre: 실패 안내"
+);
+assert(FP.stageLabel({ stage: "genre" }, 0, 0) === "장르 진단", "genre: 단계 이름");
+
 if (failed) {
   console.error("test_feedback_panel: failed", failed);
   process.exit(1);

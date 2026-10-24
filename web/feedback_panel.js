@@ -93,6 +93,7 @@
     signals: ["app.단계_규칙_신호", "규칙 신호"],
     scene_map: ["app.단계_장면_지도", "장면 지도"],
     rubric: ["app.단계_루브릭", "루브릭"],
+    genre: ["app.단계_장르_진단", "장르 진단"],
     report: ["app.단계_리포트", "리포트"],
     cards: ["app.단계_카드_생성", "카드 생성"],
     priority: ["app.단계_마무리", "마무리"],
@@ -5765,6 +5766,106 @@
     }
   }
 
+  /* ── 장르문학 수수께끼형 장르 진단 (report.genre) ── */
+  const GENRE_ITEM_KEYS = {
+    clue_fairness: ["app.장르_진단_항목_clue_fairness", "단서의 공정성"],
+    disclosure_order: ["app.장르_진단_항목_disclosure_order", "정보 공개 순서"],
+    payoff: ["app.장르_진단_항목_payoff", "복선·의문 회수"],
+    twist_plausibility: ["app.장르_진단_항목_twist_plausibility", "반전의 개연성"],
+    tension_curve: ["app.장르_진단_항목_tension_curve", "긴장 곡선"],
+    threat_motive: ["app.장르_진단_항목_threat_motive", "위협·동기 일관성"],
+    deception: ["app.장르_진단_항목_deception", "속임수"],
+    kept_promise: ["app.장르_진단_항목_kept_promise", "지키고 싶은 약속"],
+  };
+  const GENRE_VERDICT_KEYS = {
+    works: ["app.장르_진단_판정_works", "잘 작동함"],
+    room: ["app.장르_진단_판정_room", "보완 여지"],
+    problem: ["app.장르_진단_판정_problem", "문제"],
+    none: ["app.장르_진단_판정_none", "해당 없음"],
+  };
+
+  function genreItemHtml(item) {
+    const pair = GENRE_ITEM_KEYS[item.key] || [item.key, item.key];
+    const verdict = GENRE_VERDICT_KEYS[item.verdict] || GENRE_VERDICT_KEYS.none;
+    let html = "<li class=\"fb-genre-item is-" + esc(item.verdict) + "\"><strong>"
+      + esc(litText(pair[0], pair[1])) + "</strong> <span class=\"fb-badge\">"
+      + esc(litText(verdict[0], verdict[1])) + "</span>";
+    if (item.intentional) {
+      html += " <span class=\"fb-badge\">" + esc(litText("app.장르_진단_의도라면_유지", "의도라면 유지")) + "</span>";
+    }
+    if (item.note) html += "<p>" + esc(item.note) + "</p>";
+    const evidence = Array.isArray(item.evidence) ? item.evidence : [];
+    if (evidence.length) {
+      html += "<ul class=\"fb-genre-evidence\">" + evidence.map(function (ev) {
+        return "<li><span class=\"hint\">P" + esc(ev.para) + "</span> " + esc(ev.quote) + "</li>";
+      }).join("") + "</ul>";
+    } else if (item.unverified) {
+      html += "<p class=\"hint\">" + esc(litText("app.장르_진단_근거_미확인", "근거 위치를 확인하지 못했어요")) + "</p>";
+    }
+    return html + "</li>";
+  }
+
+  function genreListHtml(titleKey, titleFallback, rows) {
+    if (!rows || !rows.length) return "";
+    return "<h5>" + esc(litText(titleKey, titleFallback)) + "</h5><ul class=\"fb-list\">"
+      + rows.map(function (row) { return "<li>" + esc(row) + "</li>"; }).join("") + "</ul>";
+  }
+
+  function genreClueMapHtml(map) {
+    if (!map) return "";
+    const events = (Array.isArray(map.events) ? map.events : []).map(function (ev) {
+      return "P" + ev.para + " · " + ev.what;
+    });
+    const open = (Array.isArray(map.open_questions) ? map.open_questions : []).map(function (q) {
+      return "P" + q.para + " · " + q.question;
+    });
+    const resolved = (Array.isArray(map.resolved_questions) ? map.resolved_questions : []).map(function (q) {
+      return "P" + q.para + " · " + q.question;
+    });
+    const turns = (Array.isArray(map.turns) ? map.turns : []).map(function (t) {
+      return "P" + t.para + " · " + t.what;
+    });
+    const body = genreListHtml("app.장르_진단_공개_순서", "공개 순서", events)
+      + genreListHtml("app.장르_진단_독자가_아는_것", "독자가 아는 것", map.reader_knows_at_end)
+      + genreListHtml("app.장르_진단_독자에게_숨긴_것", "독자에게 숨긴 것", map.reader_does_not_know)
+      + genreListHtml("app.장르_진단_열린_의문", "열린 의문", open)
+      + genreListHtml("app.장르_진단_회수된_의문", "회수된 의문", resolved)
+      + genreListHtml("app.장르_진단_전환점", "전환점", turns);
+    if (!body) return "";
+    return "<details class=\"fb-genre-map\"><summary>"
+      + esc(litText("app.장르_진단_정보_공개_지도", "정보 공개 지도")) + "</summary>" + body + "</details>";
+  }
+
+  function renderGenreReport(genre, run) {
+    if (!genre || !Array.isArray(genre.items) || !genre.items.length) {
+      const failed = run && run.params && run.params.genre_error;
+      return failed
+        ? "<p class=\"hint\">" + esc(litText("app.장르_진단_실패", "장르 진단을 만들지 못했어요. 일반 리포트는 그대로 볼 수 있어요.")) + "</p>"
+        : "";
+    }
+    const open = genre.items.filter(function (item) { return item.verdict === "room" || item.verdict === "problem"; });
+    const rest = genre.items.filter(function (item) { return item.verdict !== "room" && item.verdict !== "problem"; });
+    const tasks = Array.isArray(genre.top_tasks) ? genre.top_tasks : [];
+    let html = "<section class=\"fb-genre\"><h4>"
+      + esc(litText("app.장르_진단_수수께끼형", "장르 진단 · 수수께끼형")) + "</h4>";
+    if (genre.summary) html += "<p class=\"fb-summary\">" + esc(genre.summary) + "</p>";
+    if (tasks.length) {
+      html += "<h5>" + esc(litText("app.장르_진단_우선_과제", "우선 퇴고 과제")) + "</h5><ol class=\"fb-list\">"
+        + tasks.map(function (task) {
+          return "<li><strong>" + esc(task.title) + "</strong>" + (task.why ? "<p>" + esc(task.why) + "</p>" : "") + "</li>";
+        }).join("") + "</ol>";
+    }
+    html += "<h5>" + esc(litText("app.장르_진단_항목별", "항목별 진단")) + "</h5>";
+    if (open.length) html += "<ul class=\"fb-list\">" + open.map(genreItemHtml).join("") + "</ul>";
+    if (rest.length) {
+      html += "<details><summary>" + esc(litText(
+        "app.장르_진단_접힌_항목", "잘 작동함·해당 없음 (${count})", { count: rest.length }
+      )) + "</summary><ul class=\"fb-list\">" + rest.map(genreItemHtml).join("") + "</ul></details>";
+    }
+    html += genreClueMapHtml(genre.clue_map);
+    return html + "</section>";
+  }
+
   function renderReport() {
     const panel = panelEl();
     const el = panel && panel.querySelector("[data-role='fb-report']");
@@ -5825,6 +5926,7 @@
       + (stateBox.reportOpen ? "true" : "false") + "\">리포트</button>"
       + "<div class=\"fb-report-body\"" + (stateBox.reportOpen ? "" : " hidden") + ">"
       + "<p class=\"fb-summary\">" + esc(report.summary || "") + "</p>"
+      + renderGenreReport(report.genre, run)
       + (scoreRows
         ? "<table class=\"fb-scores\"><thead><tr><th>항목</th><th>점수</th><th>코멘트</th></tr></thead><tbody>"
           + scoreRows + "</tbody></table>"
@@ -7032,6 +7134,7 @@
     formatReportCollectText: formatReportCollectText,
     formatCardCollectText: formatCardCollectText,
     stageLabel: stageLabel,
+    renderGenreReport: renderGenreReport,
     styleTypeLabel: styleTypeLabel,
     locationLabel: locationLabel,
     referenceNotes: referenceNotes,

@@ -65,6 +65,7 @@ hiddenimports = [
     "feedback_pipeline.cli",
     "feedback_pipeline.claude_client",
     "feedback_pipeline.config",
+    "feedback_pipeline.genre_puzzle",
     "feedback_pipeline.context",
     "feedback_pipeline.checks",
     "feedback_pipeline.dup_blocks",
