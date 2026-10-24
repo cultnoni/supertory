@@ -66,10 +66,14 @@ class StartScreenPanelHandleTests(unittest.TestCase):
         self.assertIn('$("welcomeBinderOpenButton")?.addEventListener("click", () => setBinderPanelOpen(true))', self.app_js)
         self.assertIn('$("welcomeAiOpenButton")?.addEventListener("click", () => setAiPanelOpen(true))', self.app_js)
 
-    def test_bar_does_not_move_the_start_screen_layout(self) -> None:
-        self.assertIn("#welcome > .welcome-panel-bar", self.css)
+    def test_handles_sit_at_the_island_corners_level_with_the_panel_buttons(self) -> None:
+        # 흐름 밖(absolute)이라 시작 화면 가운데 정렬·배치를 건드리지 않는다
+        self.assertIn("#welcome { position: relative; }", self.css)
+        self.assertRegex(self.css, r"#welcome > \.welcome-panel-bar \{[^}]*position: absolute;")
         self.assertRegex(self.css, r"#welcome > \.welcome-panel-bar \{[^}]*height: 0;")
-        self.assertRegex(self.css, r"#welcome > \.welcome-panel-bar \{[^}]*position: sticky;")
+        # 패널 머리의 접기 버튼과 같은 끝 간격(11px = 섬 테두리 1px + 10px)과 같은 높이
+        self.assertIn("#welcome #welcomeBinderOpenButton { left: 10px; top: 10px; }", self.css)
+        self.assertIn("#welcome #welcomeAiOpenButton { right: 10px; top: 14px; }", self.css)
 
 
 if __name__ == "__main__":
