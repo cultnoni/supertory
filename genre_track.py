@@ -36,6 +36,12 @@ GROUP_BY_MAIN = {
     "romance": GROUP_RELATION,
 }
 
+# 설정집 「장르 약속」 칸. 작가만 쓴다. 문체 6칸처럼 칸마다 따로 저장한다.
+PROMISE_BROKEN = "promise_broken"  # 일부러 깬 약속: 카드로 만들지 않는다
+PROMISE_KEPT = "promise_kept"      # 지키고 싶은 약속: 판정 기준으로 올린다
+PROMISE_FIELDS = (PROMISE_BROKEN, PROMISE_KEPT)
+PROMISE_FIELD_MAX_CHARS = 8000
+
 # 실행할 때 고르는 읽기 방식(엔진). 실험장르만 고를 수 있다.
 ENGINE_LITERARY = "literary"
 ENGINE_WEB = "web"
@@ -51,6 +57,14 @@ def genre_group(project: object) -> str | None:
     if _text(literary_form._lookup(project, "cluster_id")) != GENRE_LITERATURE_CLUSTER:
         return None
     return GROUP_BY_MAIN.get(_text(literary_form._lookup(project, "main_genre")))
+
+
+def promise_values(project: object) -> dict:
+    """저장된 「장르 약속」 칸 값(없으면 빈 문자열)."""
+    return {
+        key: _text(literary_form._lookup(project, key))[:PROMISE_FIELD_MAX_CHARS]
+        for key in PROMISE_FIELDS
+    }
 
 
 def engine_choice_available(project: object) -> bool:

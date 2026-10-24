@@ -328,6 +328,7 @@ _BACKEND_CRASH_LOG_LOCK = Lock()
 from routes import (  # noqa: E402
     account_api,
     ambient_api,
+    genre_promise_api,
     gitsi_api,
     glump_api,
     reader_api,
@@ -6383,6 +6384,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(gemini_client.status())
                 return
 
+            if genre_promise_api.try_handle_get(self, path):
+                return
+
             if gitsi_api.try_handle_get(self, path):
                 return
 
@@ -6930,6 +6934,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if feedback_api.try_handle_post(self, path, body):
                 return
             if account_api.try_handle_post(self, path, body):
+                return
+
+            if genre_promise_api.try_handle_post(self, path, body):
                 return
 
             if gitsi_api.try_handle_post(self, path, body):

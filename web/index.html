@@ -1014,6 +1014,34 @@
                 </div>
               </section>
 
+              <section class="settings-box hidden" data-settings-section="promise" id="promiseBank" draggable="true" hidden>
+                <div class="settings-box-header">
+                  <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
+                  <button type="button" class="settings-box-toggle" data-settings-toggle="promise" aria-expanded="false">
+                    <span class="settings-box-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                        <path d="M20 6 9 17l-5-5"/>
+                      </svg>
+                    </span>
+                    <span class="settings-box-title" data-i18n="app.장르_약속">장르 약속</span>
+                  </button>
+                </div>
+                <div class="settings-box-preview" id="promisePreview"></div>
+                <div class="settings-box-body" id="promiseBody" hidden>
+                  <div class="style-fields" id="promiseFields">
+                  <p class="hint" data-i18n="app.장르_약속_안내">독자가 장르에 기대하는 약속을 지키는지 첨삭에서 살펴봐요. 일부러 깬 약속은 지적하지 않아요.</p>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.일부러_깬_약속">일부러 깬 약속</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
+                    <textarea data-promise-field="promise_broken" rows="3" placeholder="이 장르의 관습 중 일부러 깬 것이 있다면 적어주세요. 예: 서술자가 독자를 속인다, 열린 결말" data-i18n-placeholder="app.장르_약속_깬_예시"></textarea>
+                  </label>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.지키고_싶은_약속">지키고 싶은 약속</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
+                    <textarea data-promise-field="promise_kept" rows="3" placeholder="꼭 지키고 싶은 약속을 적어주세요. 예: 독자가 풀 수 있게 단서를 먼저 보여 준다" data-i18n-placeholder="app.장르_약속_지킬_예시"></textarea>
+                  </label>
+                  </div>
+                </div>
+              </section>
+
               <section class="settings-box" data-settings-section="logsyn" draggable="true">
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>

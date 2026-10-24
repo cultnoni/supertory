@@ -270,6 +270,9 @@ const state = {
     style_choice: "",
     style_habit: "",
   },
+  /** 장르문학 「장르 약속」 두 칸(작가만 씀). 서버: /api/projects/{id}/genre-promise */
+  genrePromise: { promise_broken: "", promise_kept: "" },
+  genrePromiseProjectId: 0,
   /** Independent of genre: "" or a content_rating key such as 19_soft / 19_hard. */
   contentRating: "",
   /** Per-project: first-complete guide card already shown */
@@ -8660,6 +8663,7 @@ function applyLiteraryTrackUi() {
   fillStyleFields();
   applyLiteraryLengthTagDisplay();
   syncLiteraryMotifUi();
+  applyGenrePromiseUi();
 }
 
 function applyLiteraryFormChoice(next) {
@@ -8799,6 +8803,94 @@ function syncContestSynopsisOrder() {
     if (world?.parentElement) world.parentElement.insertBefore(opt, world.nextSibling);
     delete opt.dataset.contestLifted;
   }
+}
+
+/* ── 장르 약속 (장르문학 4묶음 공통, 작가만 쓰는 칸 2개) ── */
+const PROMISE_FIELD_KEYS = ["promise_broken", "promise_kept"];
+const GENRE_PROMISE_MAINS = new Set([
+  "mystery", "mystery_detective", "detective", "thriller", "sf", "traditional", "experimental", "romance",
+]);
+const promiseFieldSaveTimers = {};
+
+function isGenrePromiseTarget(clusterId = getProjectClusterId(), mainGenre = state.mainGenre) {
+  const cluster = typeof normalizeClusterId === "function" ? normalizeClusterId(clusterId) : String(clusterId || "");
+  return cluster === "genre_literature" && GENRE_PROMISE_MAINS.has(String(mainGenre || "").trim());
+}
+
+function fillGenrePromiseFields() {
+  PROMISE_FIELD_KEYS.forEach((key) => {
+    const el = document.querySelector(`[data-promise-field="${key}"]`);
+    if (!el || document.activeElement === el) return;
+    el.value = String(state.genrePromise?.[key] || "");
+  });
+  const lines = PROMISE_FIELD_KEYS
+    .map((key) => String(state.genrePromise?.[key] || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  renderPreviewElement($("promisePreview"), lines, i18n.t("app.장르_약속을_적어_보세요"));
+}
+
+async function loadGenrePromise() {
+  const projectId = state.projectId;
+  if (!projectId || !isGenrePromiseTarget()) return;
+  try {
+    const data = await api(`/api/projects/${projectId}/genre-promise`);
+    if (state.projectId !== projectId) return;
+    state.genrePromise = {
+      promise_broken: String(data?.promise_broken || ""),
+      promise_kept: String(data?.promise_kept || ""),
+    };
+    state.genrePromiseProjectId = projectId;
+  } catch (_) {
+    /* 서버가 아직 못 줘도 편집은 막지 않는다 */
+  }
+  fillGenrePromiseFields();
+}
+
+function applyGenrePromiseUi() {
+  const show = Boolean(state.projectId) && isGenrePromiseTarget();
+  document.querySelectorAll('[data-settings-section="promise"]').forEach((el) => {
+    setClusterFeatureHidden(el, !show);
+  });
+  if (!show) return;
+  if (state.genrePromiseProjectId !== state.projectId) {
+    state.genrePromise = { promise_broken: "", promise_kept: "" };
+    fillGenrePromiseFields();
+    loadGenrePromise();
+  } else {
+    fillGenrePromiseFields();
+  }
+}
+
+function scheduleGenrePromiseSave(field) {
+  window.clearTimeout(promiseFieldSaveTimers[field]);
+  promiseFieldSaveTimers[field] = window.setTimeout(() => {
+    saveGenrePromiseField(field).catch(handleError);
+  }, 700);
+}
+
+async function saveGenrePromiseField(field) {
+  if (!PROMISE_FIELD_KEYS.includes(field)) return;
+  if (!state.projectId || !isGenrePromiseTarget()) return;
+  const projectId = state.projectId;
+  const el = document.querySelector(`[data-promise-field="${field}"]`);
+  const value = String(el?.value || "");
+  state.genrePromise = { ...(state.genrePromise || {}), [field]: value };
+  await api(`/api/projects/${projectId}/genre-promise`, {
+    method: "POST",
+    body: JSON.stringify({ [field]: value }),
+  });
+}
+
+function setupGenrePromiseFields() {
+  const root = $("promiseBank");
+  if (!root || root.dataset.promiseBound === "1") return;
+  root.dataset.promiseBound = "1";
+  root.querySelectorAll("[data-promise-field]").forEach((el) => {
+    el.addEventListener("input", () => {
+      scheduleGenrePromiseSave(el.getAttribute("data-promise-field") || "");
+    });
+  });
 }
 
 function emptyStyleFields() {
@@ -41563,7 +41655,7 @@ const BAIT_STORAGE_PREFIX = "supertory.baits.";
 const SETTINGS_ORDER_PREFIX = "supertory.settingsOrder.";
 // Default 설정집 폴더 순서 (흥행작 프로파일 연결 = 떡밥모음 아래)
 const DEFAULT_SETTINGS_ORDER = [
-  "ideas", "intro", "style", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
+  "ideas", "intro", "style", "promise", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
 ];
 /** Prior factory defaults — snap exact matches once to the current DEFAULT. */
 const LEGACY_SETTINGS_ORDERS = [
@@ -51896,6 +51988,13 @@ function loadSettingsOrder() {
     ) {
       ordered.splice(dictAt, 1);
       ordered.splice(ordered.indexOf("items") + 1, 0, "dictionary");
+    }
+    // 장르 약속은 새 상자라 저장된 순서에서는 맨 끝에 붙는다 → 문체 바로 뒤로 한 번 옮긴다.
+    const promiseAt = ordered.indexOf("promise");
+    const styleForPromise = ordered.indexOf("style");
+    if (promiseAt >= 0 && styleForPromise >= 0 && promiseAt === ordered.length - 1 && promiseAt !== styleForPromise + 1) {
+      ordered.splice(promiseAt, 1);
+      ordered.splice(ordered.indexOf("style") + 1, 0, "promise");
     }
     const styleAt = ordered.indexOf("style");
     const introAt = ordered.indexOf("intro");
@@ -88997,6 +89096,7 @@ setupGenreClusterPicker("import");
 bindLiteraryFormRadios();
 bindContestControls();
 setupStyleFields();
+setupGenrePromiseFields();
 setupWelcomeScreen();
 setupAdminMode();
 setupCharacterPortraitUi();
