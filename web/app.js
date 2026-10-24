@@ -8508,7 +8508,14 @@ const STYLE_FIELD_KEYS = [
 ];
 const styleFieldSaveTimers = {};
 
+/** 장르문학 실험장르는 단편/장편을 안 골라도 된다(고르지 않으면 웹소설 줄로만 첨삭). */
+function isLiteraryFormOptional(clusterId, mainGenre) {
+  const cluster = typeof normalizeClusterId === "function" ? normalizeClusterId(clusterId) : String(clusterId || "");
+  return cluster === "genre_literature" && String(mainGenre || "").trim() === "experimental";
+}
+
 function isLiteraryTrackSelection(clusterId, mainGenre, subGenre) {
+  if (isLiteraryFormOptional(clusterId, mainGenre)) return true;
   if ((typeof normalizeClusterId === "function" ? normalizeClusterId(clusterId) : String(clusterId || "")) !== "general_literature") {
     return false;
   }
@@ -8553,6 +8560,13 @@ function setModalSubmitGate(prefix, enabled) {
   submit.disabled = !enabled;
 }
 
+function modalLiteraryFormOptional(prefix) {
+  const clusterId = getModalClusterId(prefix);
+  const picked = $(`${prefix}MainGenre`)?.value || "";
+  const mapped = mapClusterSubgenre(clusterId, picked);
+  return isLiteraryFormOptional(clusterId, mapped?.main || picked);
+}
+
 function syncModalLiteraryForm(prefix) {
   const block = $(`${prefix}LiteraryForm`);
   const applies = modalLiteraryTrackApplies(prefix);
@@ -8564,13 +8578,18 @@ function syncModalLiteraryForm(prefix) {
     setModalSubmitGate(prefix, true);
     return;
   }
-  setModalSubmitGate(prefix, Boolean(readModalLiteraryForm(prefix)));
+  const optional = modalLiteraryFormOptional(prefix);
+  block?.querySelectorAll(".literary-form-optional-hint").forEach((el) => {
+    el.hidden = !optional;
+  });
+  setModalSubmitGate(prefix, optional || Boolean(readModalLiteraryForm(prefix)));
 }
 
 function finishModalGenre(prefix, result) {
   if (!result?.ok) return result;
   if (!modalLiteraryTrackApplies(prefix)) return result;
   const form = readModalLiteraryForm(prefix);
+  if (!form && modalLiteraryFormOptional(prefix)) return result;
   if (!form) {
     return {
       ok: false,
@@ -8594,9 +8613,13 @@ function syncLiteraryFormControls() {
       input.checked = Boolean(form) && input.value === form;
     });
   });
-  const needsChoice = isLiteraryTrackTarget() && !form;
+  const optional = isLiteraryFormOptional(getProjectClusterId(), state.mainGenre);
+  const needsChoice = isLiteraryTrackTarget() && !form && !optional;
   document.querySelectorAll(".literary-form-needed").forEach((el) => {
     el.hidden = !needsChoice;
+  });
+  document.querySelectorAll(".literary-form-field .literary-form-optional-hint").forEach((el) => {
+    el.hidden = !(isLiteraryTrackTarget() && optional);
   });
 }
 
@@ -10730,7 +10753,7 @@ async function persistProjectGenre({ quiet = true, projectId: projectIdOpt } = {
   );
   const target = isLiteraryTrackSelection(clusterId, main, sub);
   const form = target ? readSettingsLiteraryForm() : "";
-  if (target && !form && !wasTarget) {
+  if (target && !form && !wasTarget && !isLiteraryFormOptional(clusterId, main)) {
     state.mainGenre = main;
     state.subGenre = sub;
     state.clusterId = clusterId;

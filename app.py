@@ -18526,6 +18526,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 target=literary_target,
                 stored_form=literary_form_before,
                 body=body,
+                form_optional=literary_form.literary_form_optional(cluster_id, main_genre),
             )
             write_project_literary_form(
                 connection,
@@ -22754,6 +22755,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         target=literary_target,
                         stored_form=_stored_literary_form(current_lit),
                         body=body,
+                        form_optional=literary_form.literary_form_optional(cluster_id, eff_main),
                     )
                     write_project_literary_form(
                         connection,

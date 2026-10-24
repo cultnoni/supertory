@@ -1098,6 +1098,7 @@
                       </label>
                     </div>
                     <p class="hint" data-i18n="app.중편은_장편을_권장합니다">중편은 장편을 권장합니다</p>
+                    <p class="hint literary-form-optional-hint" hidden data-i18n="app.실험장르_분량은_나중에_골라도_돼요">실험장르는 나중에 골라도 돼요. 고르지 않으면 웹소설 방식으로만 첨삭해요.</p>
                     <p class="hint literary-form-needed" hidden data-i18n="app.단편_또는_장편을_골라_주세요">단편 또는 장편을 골라 주세요. 고르기 전에는 이후 단계 기능이 잠깁니다.</p>
                     <button type="button" class="secondary compact-btn" data-literary-finale hidden data-i18n="app.마지막_장으로_표시">지금 연 회차를 마지막 장으로</button>
                     <p class="hint" data-literary-finale-label hidden></p>
@@ -4970,6 +4971,19 @@
               <button type="button" class="primary compact-btn fb-ctrl-primary" data-role="fb-start" title="새 분석을 시작하기 전에 강도를 고를 수 있어요" aria-label="새로 분석" aria-haspopup="dialog" aria-expanded="false">새로 분석</button>
               <div class="fb-pop fb-start-pop" data-role="fb-start-pop" hidden role="dialog" aria-label="새 분석">
                 <p class="fb-pop-title">새 분석</p>
+                <div class="fb-engine-wrap" data-role="fb-engine-wrap" hidden>
+                  <div class="fb-lens-cards" role="radiogroup" aria-label="읽는 방식" data-i18n-aria-label="index.읽는_방식">
+                    <button type="button" class="fb-lens-card" data-role="fb-engine" data-engine="literary" role="radio" aria-checked="false">
+                      <strong data-i18n="index.문학으로_읽기">문학으로 읽기</strong>
+                      <span data-i18n="index.문학으로_읽기_설명">문체와 작가의 의도를 지키며 구조를 읽어요. 단편 또는 장편을 고른 작품에서 쓸 수 있어요.</span>
+                    </button>
+                    <button type="button" class="fb-lens-card" data-role="fb-engine" data-engine="web" role="radio" aria-checked="false">
+                      <strong data-i18n="index.웹소설로_읽기">웹소설로 읽기</strong>
+                      <span data-i18n="index.웹소설로_읽기_설명">회차 단위로 읽힘과 전개를 보고 카드로 짚어 줘요.</span>
+                    </button>
+                  </div>
+                  <p class="hint" data-role="fb-engine-need-form" hidden data-i18n="index.문학으로_읽으려면_분량을_골라_주세요">설정에서 단편 또는 장편을 고르면 문학으로 읽을 수 있어요.</p>
+                </div>
                 <div class="fb-lens-cards" role="radiogroup" aria-label="분석 강도">
                   <button type="button" class="fb-lens-card" data-role="fb-lens" data-lens="normal" role="radio" aria-checked="false">
                     <strong>보통 <span class="fb-lens-rec" data-rec="normal" hidden>이 작품 장르 기준 추천</span></strong>
@@ -6338,6 +6352,7 @@
                 </label>
               </div>
               <p class="hint" data-i18n="app.중편은_장편을_권장합니다">중편은 장편을 권장합니다</p>
+              <p class="hint literary-form-optional-hint" hidden data-i18n="app.실험장르_분량은_나중에_골라도_돼요">실험장르는 나중에 골라도 돼요. 고르지 않으면 웹소설 방식으로만 첨삭해요.</p>
             </div>
             <div id="newProjectRomanceAxes" class="modal-romance-axes hidden" hidden>
               <label id="newProjectRomanceStructureWrap">

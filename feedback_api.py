@@ -10,6 +10,7 @@ from http import HTTPStatus
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import genre_track
 import literary_form
 import feedback_store
 from feedback_pipeline.card_reply import (
@@ -356,7 +357,18 @@ def _start_run(
             "SELECT cluster_id, main_genre, sub_genre, literary_form FROM project WHERE id = ?",
             (project_id,),
         ).fetchone()
-        track = literary_form.literary_track(dict(project_row) if project_row else {})
+        project_dict = dict(project_row) if project_row else {}
+        track = literary_form.literary_track(project_dict)
+        if genre_track.engine_choice_available(project_dict):
+            # 실험장르: 실행할 때 문학/웹소설 줄을 고른다. 고르지 않았고 단편/장편도 안 골랐다면 웹소설 줄로 간다.
+            requested_engine = genre_track.normalize_engine(body.get("engine"))
+            engine = genre_track.resolve_engine(project_dict, requested_engine)
+            if engine == genre_track.ENGINE_LITERARY and track is None:
+                if requested_engine == genre_track.ENGINE_LITERARY:
+                    raise ValueError(literary_form.FORM_REQUIRED_MESSAGE)
+                engine = genre_track.ENGINE_WEB
+            if engine == genre_track.ENGINE_WEB:
+                track = None
         if want_midcheck:
             if track != "long":
                 raise ValueError("작품 중간 점검은 일반문학 장편에서만 사용할 수 있습니다.")

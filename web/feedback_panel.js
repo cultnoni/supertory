@@ -2861,8 +2861,74 @@
     } catch (_) { /* ignore */ }
   }
 
+  function engineStorageKey(projectId) {
+    return "supertory.feedbackEngine." + String(projectId || 0);
+  }
+
+  function readStoredEngine(projectId) {
+    try {
+      const value = localStorage.getItem(engineStorageKey(projectId));
+      return value === "web" || value === "literary" ? value : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function writeStoredEngine(projectId, engine) {
+    if (!projectId) return;
+    try {
+      localStorage.setItem(engineStorageKey(projectId), engine);
+    } catch (_) { /* ignore */ }
+  }
+
+  /** 실험장르 작품만 새 분석 때 문학/웹소설 줄을 고른다. */
+  function engineChoiceAvailable() {
+    return typeof state !== "undefined" && typeof getProjectClusterId === "function"
+      && Number(state.projectId) > 0
+      && getProjectClusterId() === "genre_literature"
+      && String(state.mainGenre || "") === "experimental";
+  }
+
+  function hasLiteraryForm() {
+    return typeof literaryTrack === "function" && Boolean(literaryTrack());
+  }
+
+  /** 저장된 선택(없으면 문학). 단편/장편을 안 골랐다면 문학 줄은 못 쓰므로 웹소설로 본다. */
+  function effectiveEngine() {
+    const projectId = stateBox.projectId || currentScene().projectId;
+    const chosen = readStoredEngine(projectId) || "literary";
+    return chosen === "literary" && !hasLiteraryForm() ? "web" : chosen;
+  }
+
+  function paintEngineControls(panel) {
+    const wrap = panel.querySelector("[data-role='fb-engine-wrap']");
+    if (!wrap) return;
+    const available = engineChoiceAvailable();
+    wrap.hidden = !available;
+    if (!available) return;
+    const current = effectiveEngine();
+    const needForm = !hasLiteraryForm();
+    const buttons = wrap.querySelectorAll("[data-role='fb-engine']");
+    for (let i = 0; i < buttons.length; i += 1) {
+      const engine = buttons[i].getAttribute("data-engine");
+      const on = engine === current;
+      buttons[i].classList.toggle("is-on", on);
+      buttons[i].setAttribute("aria-checked", on ? "true" : "false");
+      buttons[i].disabled = engine === "literary" && needForm;
+    }
+    const hint = wrap.querySelector("[data-role='fb-engine-need-form']");
+    if (hint) hint.hidden = !needForm;
+  }
+
+  function setEngine(engine) {
+    if (engine !== "literary" && engine !== "web") return;
+    writeStoredEngine(stateBox.projectId || currentScene().projectId, engine);
+    renderToolbar();
+  }
+
   function analysisRequestBody(sceneId, lens) {
     const body = { scene_id: sceneId, explanation_lens: lens || null };
+    if (engineChoiceAvailable()) body.engine = effectiveEngine();
     const panel = panelEl();
     const fresh = panel && panel.querySelector("[data-role='fb-fresh-cards']");
     if (fresh && fresh.checked) {
@@ -5096,6 +5162,7 @@
     paintSegmentButtons(panel.querySelectorAll("[data-role='fb-sort']"), "data-sort", display.sort);
     paintSegmentButtons(panel.querySelectorAll("[data-role='fb-ul-level']"), "data-level", display.underline);
     paintSegmentButtons(panel.querySelectorAll("[data-role='fb-lens']"), "data-lens", display.lensCards);
+    paintEngineControls(panel);
     const underline = panel.querySelector("[data-role='fb-underline']");
     if (underline) underline.setAttribute("aria-checked", display.underlineOn ? "true" : "false");
     const hideDict = panel.querySelector("[data-role='fb-hide-dict']");
@@ -6350,6 +6417,11 @@
     }
     if (role === "fb-lens") {
       setLens(btn.getAttribute("data-lens"));
+      return;
+    }
+    if (role === "fb-engine") {
+      if (btn.disabled) return;
+      setEngine(btn.getAttribute("data-engine"));
       return;
     }
     if (role === "fb-close-chrome") {
