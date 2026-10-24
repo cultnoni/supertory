@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["events", "rules", "terms", "changes"],
+  "properties": {
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["para", "kind", "what", "quote"],
+        "properties": {
+          "para": {"type": "integer"},
+          "kind": {"type": "string", "enum": ["rule", "term", "setting", "consequence", "exposition", "change", "other"]},
+          "what": {"type": "string"},
+          "quote": {"type": "string"}
+        }
+      }
+    },
+    "rules": {"type": "array", "items": {"type": "string"}},
+    "terms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["term", "meaning", "para"],
+        "properties": {"term": {"type": "string"}, "meaning": {"type": "string"}, "para": {"type": "integer"}}
+      }
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["para", "what"],
+        "properties": {"para": {"type": "integer"}, "what": {"type": "string"}}
+      }
+    }
+  }
+}

@@ -2470,6 +2470,14 @@
     motive_gap: ["app.장르_카드_motive_gap", "위협·동기 불일치"],
     narration_trick: ["app.장르_카드_narration_trick", "서술 속임수"],
     promise_gap: ["app.장르_카드_promise_gap", "지키고 싶은 약속"],
+    rule_break: ["app.장르_카드_rule_break", "규칙 위반"],
+    info_dump: ["app.장르_카드_info_dump", "설정 덤프"],
+    plausibility_gap: ["app.장르_카드_plausibility_gap", "개연성의 틈"],
+    ripple_gap: ["app.장르_카드_ripple_gap", "파급 누락"],
+    term_mismatch: ["app.장르_카드_term_mismatch", "용어 불일치"],
+    power_rule_break: ["app.장르_카드_power_rule_break", "힘의 규칙 위반"],
+    setting_ornament: ["app.장르_카드_setting_ornament", "장식뿐인 설정"],
+    scale_stall: ["app.장르_카드_scale_stall", "서사 규모 정체"],
   };
 
   function styleTypeLabel(card) {
@@ -5792,6 +5800,14 @@
     threat_motive: ["app.장르_진단_항목_threat_motive", "위협·동기 일관성"],
     deception: ["app.장르_진단_항목_deception", "속임수"],
     kept_promise: ["app.장르_진단_항목_kept_promise", "지키고 싶은 약속"],
+    rule_consistency: ["app.장르_진단_항목_rule_consistency", "세계 규칙의 일관성"],
+    exposition: ["app.장르_진단_항목_exposition", "설정 풀어 주기"],
+    plausibility: ["app.장르_진단_항목_plausibility", "개연성"],
+    ripple: ["app.장르_진단_항목_ripple", "파급"],
+    term_consistency: ["app.장르_진단_항목_term_consistency", "용어 일관성"],
+    power_rules: ["app.장르_진단_항목_power_rules", "마법·힘의 규칙"],
+    setting_depth: ["app.장르_진단_항목_setting_depth", "설정의 깊이"],
+    scale: ["app.장르_진단_항목_scale", "서사 규모"],
   };
   const GENRE_VERDICT_KEYS = {
     works: ["app.장르_진단_판정_works", "잘 작동함"],
@@ -5852,6 +5868,21 @@
       + esc(litText("app.장르_진단_정보_공개_지도", "정보 공개 지도")) + "</summary>" + body + "</details>";
   }
 
+  function genreWorldMapHtml(map) {
+    if (!map) return "";
+    const rows = function (list, fn) { return (Array.isArray(list) ? list : []).map(fn); };
+    const body = genreListHtml("app.장르_진단_설정_드러나는_순서", "설정이 드러나는 순서",
+        rows(map.events, function (ev) { return "P" + ev.para + " · " + ev.what; }))
+      + genreListHtml("app.장르_진단_세계의_규칙", "세계의 규칙", map.rules)
+      + genreListHtml("app.장르_진단_용어", "용어",
+        rows(map.terms, function (t) { return t.term + " — " + t.meaning; }))
+      + genreListHtml("app.장르_진단_바뀐_곳", "규칙이 바뀐 곳",
+        rows(map.changes, function (c) { return "P" + c.para + " · " + c.what; }));
+    if (!body) return "";
+    return "<details class=\"fb-genre-map\"><summary>"
+      + esc(litText("app.장르_진단_설정_지도", "설정 지도")) + "</summary>" + body + "</details>";
+  }
+
   function renderGenreReport(genre, run) {
     if (!genre || !Array.isArray(genre.items) || !genre.items.length) {
       const failed = run && run.params && run.params.genre_error;
@@ -5862,8 +5893,11 @@
     const open = genre.items.filter(function (item) { return item.verdict === "room" || item.verdict === "problem"; });
     const rest = genre.items.filter(function (item) { return item.verdict !== "room" && item.verdict !== "problem"; });
     const tasks = Array.isArray(genre.top_tasks) ? genre.top_tasks : [];
+    const isWorld = genre.group === "world";
     let html = "<section class=\"fb-genre\"><h4>"
-      + esc(litText("app.장르_진단_수수께끼형", "장르 진단 · 수수께끼형")) + "</h4>";
+      + esc(isWorld
+        ? litText("app.장르_진단_세계형", "장르 진단 · 세계형")
+        : litText("app.장르_진단_수수께끼형", "장르 진단 · 수수께끼형")) + "</h4>";
     if (genre.summary) html += "<p class=\"fb-summary\">" + esc(genre.summary) + "</p>";
     if (tasks.length) {
       html += "<h5>" + esc(litText("app.장르_진단_우선_과제", "우선 퇴고 과제")) + "</h5><ol class=\"fb-list\">"
@@ -5878,7 +5912,7 @@
         "app.장르_진단_접힌_항목", "잘 작동함·해당 없음 (${count})", { count: rest.length }
       )) + "</summary><ul class=\"fb-list\">" + rest.map(genreItemHtml).join("") + "</ul></details>";
     }
-    html += genreClueMapHtml(genre.clue_map);
+    html += isWorld ? genreWorldMapHtml(genre.world_map) : genreClueMapHtml(genre.clue_map);
     return html + "</section>";
   }
 

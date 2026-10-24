@@ -1,0 +1,57 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "items", "strengths", "top_tasks"],
+  "properties": {
+    "summary": {"type": "string"},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "verdict", "intentional", "note", "evidence"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": ["rule_consistency", "exposition", "plausibility", "ripple", "term_consistency", "power_rules", "setting_depth", "scale", "kept_promise"]
+          },
+          "verdict": {"type": "string", "enum": ["works", "room", "problem", "none"]},
+          "intentional": {"type": "boolean"},
+          "note": {"type": "string"},
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["para", "quote"],
+              "properties": {"para": {"type": "integer"}, "quote": {"type": "string"}}
+            }
+          }
+        }
+      }
+    },
+    "strengths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "body", "para", "quote"],
+        "properties": {
+          "title": {"type": "string"},
+          "body": {"type": "string"},
+          "para": {"type": "integer"},
+          "quote": {"type": "string"}
+        }
+      }
+    },
+    "top_tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "why"],
+        "properties": {"title": {"type": "string"}, "why": {"type": "string"}}
+      }
+    }
+  }
+}

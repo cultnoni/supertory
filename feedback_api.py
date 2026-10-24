@@ -469,13 +469,14 @@ def _start_run(
                 "explanation_lens": lens or None,
                 "fake": bool(is_fake_mode()),
             }
-            # 장르문학 수수께끼형은 웹소설 러너 안에서 장르 진단 단계를 더 돈다.
-            if genre_track.genre_group(project_dict) == genre_track.GROUP_PUZZLE:
+            # 장르문학 수수께끼형·세계형은 웹소설 러너 안에서 장르 진단 단계를 더 돈다.
+            group = genre_track.genre_group(project_dict)
+            if group in (genre_track.GROUP_PUZZLE, genre_track.GROUP_WORLD):
                 genre_options = {
-                    "group": genre_track.GROUP_PUZZLE,
+                    "group": group,
                     "main_genre": str(project_dict.get("main_genre") or ""),
                 }
-                params["genre_group"] = genre_track.GROUP_PUZZLE
+                params["genre_group"] = group
             run_id = feedback_store.create_run(
                 conn,
                 project_id,

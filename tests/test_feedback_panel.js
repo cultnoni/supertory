@@ -1293,6 +1293,30 @@ assert(
   FP.styleTypeLabel({ kind: "structure", style_type: "clue_gap", report_ref: "W2" }) !== "단서 누락·모호",
   "genre: 웹소설 카드는 영향 없음"
 );
+assert(
+  FP.styleTypeLabel({ kind: "structure", style_type: "rule_break", report_ref: "GENRE:rule_consistency" }) === "규칙 위반",
+  "genre: 세계형 카드 유형 이름"
+);
+const worldHtml = FP.renderGenreReport({
+  group: "world",
+  summary: "규칙이 일관되다.",
+  top_tasks: [],
+  items: [
+    { key: "power_rules", verdict: "room", intentional: false, note: "비용이 사라진다", evidence: [{ para: 2, quote: "q" }] },
+    { key: "ripple", verdict: "works", intentional: false, note: "", evidence: [] },
+  ],
+  world_map: {
+    events: [{ para: 1, kind: "rule", what: "손짓이 열쇠", quote: "" }],
+    rules: ["손짓으로 문이 열린다"],
+    terms: [{ term: "정원", meaning: "이름", para: 1 }],
+    changes: [{ para: 3, what: "예외가 생긴다" }],
+  },
+}, null);
+assert(worldHtml.indexOf("장르 진단 · 세계형") >= 0, "world: 제목");
+assert(worldHtml.indexOf("마법·힘의 규칙") >= 0 && worldHtml.indexOf("파급") >= 0, "world: 항목 이름");
+assert(worldHtml.indexOf("설정 지도") >= 0 && worldHtml.indexOf("손짓으로 문이 열린다") >= 0, "world: 설정 지도");
+assert(worldHtml.indexOf("정원 — 이름") >= 0 && worldHtml.indexOf("예외가 생긴다") >= 0, "world: 용어와 바뀐 곳");
+assert(worldHtml.indexOf("정보 공개 지도") < 0, "world: 수수께끼형 지도는 안 나옴");
 
 if (failed) {
   console.error("test_feedback_panel: failed", failed);

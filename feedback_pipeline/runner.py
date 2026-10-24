@@ -37,7 +37,7 @@ from feedback_pipeline.config import (
     SUGGESTION_ENABLED_TYPES,
 )
 from feedback_pipeline.context import build_project_context, explanation_lens_for_project
-from feedback_pipeline import genre_puzzle
+from feedback_pipeline import genre_common, genre_layers
 from feedback_pipeline.dup_blocks import dup_reason, find_dup_blocks, format_dup_findings
 from feedback_pipeline.literature_cache import (
     build_cached_system,
@@ -351,7 +351,7 @@ def render_report_md(report: dict[str, Any] | None) -> str:
             parts.append("")
     genre = report.get("genre")
     if isinstance(genre, dict) and genre.get("items"):
-        from feedback_pipeline.genre_puzzle import render_genre_md
+        from feedback_pipeline.genre_layers import render_genre_md
 
         parts.append(render_genre_md(genre))
     return "\n".join(parts).rstrip() + "\n"
@@ -837,15 +837,17 @@ def run_feedback(
 
         genre_report = None
         genre_broken = ""  # 작가가 「일부러 깬 약속」으로 적은 글
-        clue_paras: set[int] = set()  # 정보 공개 지도에서 단서·반전이 걸린 문단
+        clue_paras: set[int] = set()  # 단서·반전·세계 규칙이 걸린 문단. 수정안으로 건드리지 않는다
         genre_opts = options.get("genre") if isinstance(options.get("genre"), dict) else {}
-        if genre_opts.get("group") == "puzzle":
-            # 수수께끼형: 정보 공개 지도와 장르 진단. 실패해도 일반 리포트와 카드는 계속 만든다.
-            genre_broken = genre_puzzle.broken_promise_text(conn, project_id)
+        genre_layer = genre_layers.layer_for(genre_opts.get("group"))
+        if genre_layer is not None:
+            # 장르문학(수수께끼형·세계형): 장르별 지도와 장르 진단. 실패해도 일반 리포트와 카드는 계속 만든다.
+            genre_broken = genre_common.broken_promise_text(conn, project_id)
             _set_progress(conn, run_id, params, "genre", 2, 5)
             _commit(conn, options)
             try:
-                genre_report = genre_puzzle.run_puzzle_report(
+                genre_report = genre_layers.run_report(
+                    genre_opts.get("group"),
                     conn,
                     project_id,
                     paras,
@@ -862,7 +864,7 @@ def run_feedback(
                 raise
             except Exception as error:  # noqa: BLE001 - 장르 진단 실패는 기록만 하고 이어 간다
                 params["genre_error"] = str(error)[:200]
-            clue_paras = genre_puzzle.clue_paragraphs(genre_report)
+            clue_paras = genre_layer.protected_paragraphs(genre_report)
             _save_params(conn, run_id, params)
             _commit(conn, options)
             _raise_if_cancelled(cancel_event)
@@ -932,7 +934,7 @@ def run_feedback(
             if not isinstance(item, dict):
                 continue
             prepared, quote_ok = _range_check(item, paras)
-            if genre_broken and genre_puzzle.promise_covers(
+            if genre_broken and genre_common.promise_covers(
                 f"{prepared.get('title') or ''} {prepared.get('body') or ''}",
                 genre_broken,
             ):
@@ -963,7 +965,7 @@ def run_feedback(
             cardable = cardable[:keep_n]
         genre_cards: list[dict[str, Any]] = []
         if genre_report:
-            genre_cards, genre_dropped = genre_puzzle.build_genre_cards(
+            genre_cards, genre_dropped = genre_layer.build_cards(
                 genre_report, paras, scene_id, promise_broken=genre_broken
             )
             params.setdefault("dropped", []).extend(genre_dropped)
@@ -1143,7 +1145,7 @@ def run_feedback(
             card = _apply_card_rules(card, paras, check_project)
             if clue_paras:
                 # 단서·반전에 닿는 수정안은 쓰지 않는다. 지적만 남긴다.
-                genre_puzzle.strip_suggestion_near_clues(card, clue_paras)
+                genre_common.strip_suggestion_near(card, clue_paras, genre_layer.TOUCH_WARNING)
             feedback_store.add_cards(conn, run_id, [card])
             _commit(conn, options)
             finished_indexes.add(index)
