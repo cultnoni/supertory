@@ -31,11 +31,13 @@
   --isl-cat-amber: #d9a85f;
   --isl-switch-off: #d5dae0;
 }
-/* 기본(라이트)·샌드 팔레트 — 시안 main-design-c-variations #c1 (섬과 종이)의 색을 그대로 */
-html[data-theme="sand"],
-html[data-ui-theme="sand"],
-body[data-theme="sand"],
-body[data-ui-theme="sand"] {
+/* 기본(id: light) 팔레트 — 시안 main-design-c-variations #c1 (섬과 종이)의 색을 그대로.
+   화면에 보이는 이름은 id light = 「기본」, id sand = 「라이트」다(app.js UI_THEME_PRESETS).
+   처음 켰을 때 나오는 테마가 기본이므로 이 회색·청록이 기본값이다. */
+html[data-theme="light"],
+html[data-ui-theme="light"],
+body[data-theme="light"],
+body[data-ui-theme="light"] {
   /* C1 reference palette. Other themes keep their own semantic colors. */
   --bg-main: #eceef1;
   --chrome-bg: #eceef1;
@@ -76,11 +78,11 @@ body[data-ui-theme="sand"] {
   --isl-st-revision: hsl(345 70% 85%);
   --isl-st-complete: #4f9b7d;
 }
-/* 라이트 — 아주 옅은 베이지 + 진갈색 강조 (시안 theme-light-beige 의 B안) */
-html[data-theme="light"],
-html[data-ui-theme="light"],
-body[data-theme="light"],
-body[data-ui-theme="light"] {
+/* 라이트(id: sand) — 아주 옅은 베이지 + 진갈색 강조 (시안 theme-light-beige 의 B안) */
+html[data-theme="sand"],
+html[data-ui-theme="sand"],
+body[data-theme="sand"],
+body[data-ui-theme="sand"] {
   --bg-main: #f8f4ec;
   --chrome-bg: #f8f4ec;
   --header-bg: #f8f4ec;
@@ -4931,6 +4933,36 @@ body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
   color: var(--text-primary); font-size: 12px; line-height: 1.45;
 }
 .offline-mode-hint.hidden { display: none !important; }
+
+/* ── 시작 화면: 접어 둔 패널을 다시 여는 손잡이 ─────────────────────────────────────
+   시작 화면에는 회차 탭 줄이 없어 탭 줄의 손잡이가 안 보인다. 같은 손잡이(.episode-tab-row-toggle)를
+   시작 화면 섬의 위쪽 양 모서리 끝에 두고, 그 쪽 패널이 접혔을 때만 보인다(위 .episode-tab-row-toggle-* 규칙 공용).
+   자리는 패널 머리의 접기 버튼과 대칭이다: 왼쪽 패널의 접기 버튼이 패널 오른쪽 끝에서 11px,
+   오른쪽 패널의 접기 버튼이 패널 왼쪽 끝에서 11px 떨어져 있으므로, 여기서는 섬의 왼쪽·오른쪽 끝에서 11px.
+   세로 높이도 각 패널의 접기 버튼 중심과 같다(왼쪽 +22px, 오른쪽 +26px — 섬 위에서부터).
+   흐름 밖(absolute)이라 시작 화면 가운데 정렬·배치는 그대로다. */
+#welcome { position: relative; }
+#welcome > .welcome-panel-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+#welcome .welcome-panel-toggle {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  pointer-events: auto;
+}
+#welcome #welcomeBinderOpenButton { left: 10px; top: 14px; }
+#welcome #welcomeAiOpenButton { right: 10px; top: 14px; }
+
+/* 패널 머리의 접기 버튼 높이 맞춤: 오른쪽 머리줄(종 30px)의 가운데에 왼쪽 작품줄(22px)도 맞춘다 */
+.binder-work-meta .binder-work-row-project { margin-top: 4px; }
 
 /* ── 문학 전용 입력(분량·공모전·문체 라벨)을 다른 상자와 같은 글자 크기로 ─────────────
    문제: 단편/장편·공모전 항목이 기본 글자 크기(16px)로 남아 12px 라벨들 사이에서 혼자 컸고,
