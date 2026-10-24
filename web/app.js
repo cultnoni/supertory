@@ -8348,8 +8348,7 @@ const CLUSTER_FEATURE_TARGETS = {
     { id: "readerDebatePane" },
   ],
   reader_comments: [
-    { id: "viewerReaderCommentsButton" },
-    { id: "viewerReaderCommentsHistoryButton" },
+    { id: "aiResultReaderCommentsButton" },
     { id: "viewerReaderCommentsPanel" },
   ],
 };
@@ -31690,6 +31689,7 @@ function openAiPanelHistoryDetail(entryId) {
 function setAiPanelHistoryOpen(open) {
   const next = Boolean(open);
   if (next) {
+    if (viewerCommentsOpen) setViewerCommentsOpen(false);
     setAiPanelOpen(true);
     try { setAiPanelTab("tools"); } catch (_) { /* ignore */ }
     try { setAiHelperPane("result"); } catch (_) { /* ignore */ }
@@ -35057,6 +35057,7 @@ function ensureAiResultVisible() {
   }
   const wrap = $("aiResultWrap");
   wrap?.classList.remove("hidden", "is-empty");
+  if (viewerCommentsOpen) setViewerCommentsOpen(false);
   try { setAiHelperPane("result"); } catch (_) { /* ignore */ }
 }
 
@@ -38215,6 +38216,17 @@ function getUnifiedToryNotifs() {
   for (const item of state.serverToryNotifs || []) {
     items.push(item);
   }
+  if (isReaderCommentsUnusedForOpenScene() && isClusterFeatureVisible("reader_comments")) {
+    items.push({
+      id: `readercomments:${state.sceneId}`,
+      type: "reader_comments",
+      title: i18n.t("app.가상독자_댓글_알림_제목"),
+      message: i18n.t("app.가상독자_댓글_알림_본문"),
+      sceneId: Number(state.sceneId),
+      enabled: true,
+      createdAt: "",
+    });
+  }
   items.sort((a, b) => {
     // Due for current scene first, then enabled, then newest
     const aDue = state.sceneId && Number(a.sceneId) === Number(state.sceneId) ? 1 : 0;
@@ -38344,6 +38356,20 @@ function renderToryNotifyDueBanner(items) {
   );
   banner.innerHTML = `${i18n.t('app.strong_지금_회차_알림_due_len', {'due.length': due.length, sceneName: sceneName})}`;
   banner.classList.remove("hidden");
+}
+
+function renderReaderCommentsNotifyCard(item) {
+  return `
+    <article class="tory-notify-card is-on is-server" data-tory-notif-id="${escapeHtml(item.id)}" data-type="reader_comments">
+      <div class="tory-notify-card-top">
+        <span class="tory-notify-type is-server">${escapeHtml(i18n.t("app.토리_알림"))}</span>
+      </div>
+      <div class="tory-notify-card-title">${escapeHtml(item.title)}</div>
+      <p class="tory-notify-card-msg">${escapeHtml(item.message)}</p>
+      <div class="tory-notify-card-foot">
+        <button type="button" class="secondary" data-tory-reader-comments-open="1">${escapeHtml(i18n.t("app.가상독자_댓글_보러_가기"))}</button>
+      </div>
+    </article>`;
 }
 
 function renderServerToryNotifyCard(item) {
@@ -38584,9 +38610,11 @@ function renderToryNotifyList() {
       </div>`;
     return;
   }
-  list.innerHTML = items.map((item) => (
-    item.type === "server" ? renderServerToryNotifyCard(item) : renderToryNotifyCard(item)
-  )).join("");
+  list.innerHTML = items.map((item) => {
+    if (item.type === "server") return renderServerToryNotifyCard(item);
+    if (item.type === "reader_comments") return renderReaderCommentsNotifyCard(item);
+    return renderToryNotifyCard(item);
+  }).join("");
 }
 
 function fillToryNotifySceneSelect(selected = "") {
@@ -38881,6 +38909,11 @@ function setupToryNotifyCenter() {
   $("toryNotifyList")?.addEventListener("click", (event) => {
     // Ignore clicks on the switch label (handled by change)
     if (event.target.closest?.(".tory-switch")) return;
+    if (event.target.closest?.("[data-tory-reader-comments-open]")) {
+      try { setToryNotifyPopover(false); } catch (_) { /* ignore */ }
+      openReaderCommentsPane();
+      return;
+    }
     const serverAction = event.target.closest?.("[data-tory-server-action]");
     if (serverAction) {
       const notificationId = Number(serverAction.dataset.toryServerId || 0);
@@ -61673,14 +61706,11 @@ function syncTranslationViewerChrome() {
   modal?.classList.toggle("is-translation-preview", preview);
   $("viewerModeTabs")?.classList.toggle("hidden", preview);
   $("viewerScopeTabs")?.classList.toggle("hidden", preview);
-  $("viewerReaderCommentsButton")?.classList.toggle("hidden", preview);
-  $("viewerReaderCommentsHistoryButton")?.classList.toggle("hidden", preview);
   $("viewerTocToggle")?.classList.toggle("hidden", preview);
   $("viewerTranslationExportTxt")?.classList.toggle("hidden", !preview);
   $("viewerTranslationExportDocx")?.classList.toggle("hidden", !preview);
   if (preview) {
     setViewerTocOpen(false);
-    setViewerCommentsOpen(false);
   }
 }
 
@@ -61849,11 +61879,6 @@ function syncViewerScopeTabs() {
 
 function setViewerTocOpen(open) {
   viewerTocOpen = Boolean(open);
-  if (viewerTocOpen && viewerCommentsOpen) {
-    viewerCommentsOpen = false;
-    applyViewerCommentsPanelVisibility();
-    stopViewerCommentsPolling();
-  }
   const panel = $("viewerTocPanel");
   const toggle = $("viewerTocToggle");
   if (panel) panel.classList.toggle("hidden", !viewerTocOpen);
@@ -61863,24 +61888,26 @@ function setViewerTocOpen(open) {
   }
 }
 
+/** 가상독자 댓글은 오른쪽 도우미 패널의 결과보기 안에서 보여준다(뷰어에는 없음). */
 function applyViewerCommentsPanelVisibility() {
   const panel = $("viewerReaderCommentsPanel");
-  const toggle = $("viewerReaderCommentsButton");
-  const card = document.querySelector(".viewer-card");
-  if (panel) panel.classList.toggle("hidden", !viewerCommentsOpen);
-  if (toggle) {
-    toggle.setAttribute("aria-expanded", viewerCommentsOpen ? "true" : "false");
-    toggle.classList.toggle("is-active", viewerCommentsOpen);
+  const toggle = $("aiResultReaderCommentsButton");
+  const open = Boolean(viewerCommentsOpen);
+  if (panel) {
+    panel.classList.toggle("hidden", !open);
+    panel.hidden = !open;
   }
-  card?.classList.toggle("has-comments-dock", viewerCommentsOpen);
-  if (!viewerCommentsOpen) {
+  $("aiResultWrap")?.classList.toggle("is-comments-view", open);
+  $("aiResultCommentsLabel")?.classList.toggle("hidden", !open);
+  if (toggle) {
+    toggle.setAttribute("aria-pressed", open ? "true" : "false");
+    toggle.classList.toggle("is-active", open);
+  }
+  if (!open) {
     viewerCommentsHistoryOpen = false;
     syncViewerCommentsHistoryToggle(viewerCommentsBatchesCache);
-  }
-  if (typeof isViewerOpen === "function" && isViewerOpen() && typeof applyViewerLayout === "function") {
-    window.requestAnimationFrame(() => {
-      try { applyViewerLayout(); } catch (_) { /* ignore */ }
-    });
+  } else {
+    syncReaderCommentsPaneState();
   }
 }
 
@@ -61910,11 +61937,55 @@ function startViewerCommentsPolling(sceneId) {
 
 function setViewerCommentsOpen(open) {
   viewerCommentsOpen = Boolean(open);
-  if (viewerCommentsOpen && viewerTocOpen) {
-    setViewerTocOpen(false);
+  if (viewerCommentsOpen) {
+    try { setAiPanelOpen(true); } catch (_) { /* ignore */ }
+    try { setAiPanelTab("tools"); } catch (_) { /* ignore */ }
+    try { setAiHelperPane("result"); } catch (_) { /* ignore */ }
+    $("aiResultWrap")?.classList.remove("hidden");
+    if (isAiPanelHistoryOpen()) setAiPanelHistoryOpen(false);
   }
   applyViewerCommentsPanelVisibility();
   if (!viewerCommentsOpen) stopViewerCommentsPolling();
+}
+
+/** 결과보기 안 가상독자 댓글 화면 열기. start=true면 아직 안 받은 회차에서 바로 받기 시작. */
+function openReaderCommentsPane({ start = false } = {}) {
+  if (!assertClusterFeature("reader_comments")) return false;
+  setViewerCommentsOpen(true);
+  if (lastPersistedSceneStatus === "complete") {
+    if (start) markReaderCommentsStarted();
+    loadViewerReaderComments({ startIfNeeded: start }).catch(handleError);
+  }
+  return true;
+}
+
+/** 열린 회차 상태에 따라 댓글 화면의 「받기」·「잠김」·목록 영역을 맞춘다. */
+function syncReaderCommentsPaneState(data) {
+  const complete = Boolean(state.sceneId) && lastPersistedSceneStatus === "complete";
+  let needStart = false;
+  if (complete) {
+    if (data) {
+      const latest = viewerReaderCommentLatestBatch(data);
+      const ready = Array.isArray(latest?.comments) ? latest.comments.length : 0;
+      needStart = !ready && !data.generating && !data.last_error_code && !viewerCommentsHasHistory;
+      // 댓글을 실제로 열어 본 회차는 알림·빨간 점을 끈다
+      if (ready && viewerCommentsOpen && isReaderCommentsUnusedForOpenScene()) markReaderCommentsStarted();
+    } else {
+      needStart = !viewerCommentsHasHistory;
+    }
+  }
+  $("viewerReaderCommentsLocked")?.classList.toggle("hidden", complete);
+  $("viewerReaderCommentsHistoryToggle")?.classList.toggle("hidden", !complete);
+  $("viewerReaderCommentsStart")?.classList.toggle("hidden", !needStart);
+  $("viewerReaderCommentsList")?.classList.toggle("hidden", !complete || needStart);
+  if (!complete || needStart) {
+    $("viewerReaderCommentsRetryRow")?.classList.add("hidden");
+    $("viewerReaderCommentsRefreshRow")?.classList.add("hidden");
+    const hint = $("viewerReaderCommentsHint");
+    if (hint) hint.textContent = "";
+    if (!complete) $("viewerReaderCommentsHistoryList")?.classList.add("hidden");
+  }
+  return needStart;
 }
 
 function viewerCommentsQuotaExhausted(data) {
@@ -62079,7 +62150,7 @@ function syncViewerCommentsHistoryControls() {
     : i18n.t("app.이_화에서_아직_받은_댓글이_없어요");
   const expanded = Boolean(enabled && viewerCommentsHistoryOpen);
   const label = expanded ? i18n.t("app.이전_댓글_숨기기") : i18n.t("app.이전_댓글_보기");
-  ["viewerReaderCommentsHistoryButton", "viewerReaderCommentsHistoryToggle"].forEach((id) => {
+  ["viewerReaderCommentsHistoryToggle"].forEach((id) => {
     const el = $(id);
     if (!el) return;
     el.disabled = !enabled;
@@ -62210,6 +62281,7 @@ function renderViewerReaderComments(data) {
   syncViewerCommentsHistoryToggle(viewerCommentsBatchesCache);
   syncViewerCommentsRetryRow(data);
   syncViewerCommentsRefreshRow(data);
+  syncReaderCommentsPaneState(data);
 }
 
 async function loadViewerReaderComments(options = {}) {
@@ -62277,14 +62349,8 @@ async function refreshViewerReaderComments() {
 }
 
 function openViewerReaderCommentsFromCta() {
-  if (!assertClusterFeature("reader_comments")) return;
   hideToast();
-  markReaderCommentsStarted();
-  if (typeof isViewerOpen === "function" && !isViewerOpen() && typeof openViewerMode === "function") {
-    openViewerMode();
-  }
-  setViewerCommentsOpen(true);
-  loadViewerReaderComments({ startIfNeeded: true }).catch(handleError);
+  openReaderCommentsPane({ start: true });
 }
 
 function renderViewerToc() {
@@ -64603,7 +64669,7 @@ function openViewerMode(preferredMode = null, options = {}) {
     ? (String(options.previewLang || "en").trim() || "en")
     : "en";
   viewerPreviewRestore = previewSource
-    ? { tocOpen: viewerTocOpen, commentsOpen: viewerCommentsOpen }
+    ? { tocOpen: viewerTocOpen }
     : null;
 
   viewerSettings = loadViewerSettings();
@@ -64616,10 +64682,6 @@ function openViewerMode(preferredMode = null, options = {}) {
   syncViewerScopeTabs();
   setViewerTocOpen(previewSource ? false : viewerTocOpen);
   renderViewerToc();
-  setViewerCommentsOpen(previewSource ? false : viewerCommentsOpen);
-  if (!previewSource && viewerCommentsOpen && lastPersistedSceneStatus === "complete") {
-    loadViewerReaderComments({ startIfNeeded: false }).catch(handleError);
-  }
 
   const title = $("sceneTitle")?.value?.trim() || state.scene?.title || i18n.t('app.본문');
   if ($("viewerTitle")) {
@@ -64643,7 +64705,6 @@ function openViewerMode(preferredMode = null, options = {}) {
   syncTranslationViewerChrome();
   applyViewerLayout();
   applyViewerContent({ resetBook: true }).catch(handleError);
-  if (!previewSource) syncViewerReaderCommentsButton({ pulse: true });
   if (!previewSource && viewerSettings.mode === "typeset") {
     renderTypesetPlatformTabs();
     ensureTypesetPresets()
@@ -64686,7 +64747,6 @@ function closeViewerMode() {
   document.body.classList.remove("viewer-maximized");
   if (previewRestore) {
     viewerTocOpen = Boolean(previewRestore.tocOpen);
-    viewerCommentsOpen = Boolean(previewRestore.commentsOpen);
   }
   if (typeof applySplitLayout === "function") {
     applySplitLayout();
@@ -64750,19 +64810,16 @@ function setupViewerMode() {
     openViewerMode();
   });
 
-  $("viewerReaderCommentsButton")?.addEventListener("click", () => {
+  $("aiResultReaderCommentsButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
     if (!assertClusterFeature("reader_comments")) return;
-    if ($("viewerReaderCommentsButton")?.disabled) return;
-    setViewerCommentsOpen(true);
-    markReaderCommentsStarted();
-    loadViewerReaderComments({ startIfNeeded: true }).catch(handleError);
+    if ($("aiResultReaderCommentsButton")?.disabled) return;
+    if (viewerCommentsOpen) setViewerCommentsOpen(false);
+    else openReaderCommentsPane();
   });
-  $("viewerReaderCommentsClose")?.addEventListener("click", () => {
-    setViewerCommentsOpen(false);
-  });
-  $("viewerReaderCommentsHistoryButton")?.addEventListener("click", () => {
-    if ($("viewerReaderCommentsHistoryButton")?.disabled) return;
-    toggleViewerCommentsHistory();
+  $("viewerReaderCommentsStartButton")?.addEventListener("click", () => {
+    if (!assertClusterFeature("reader_comments")) return;
+    openReaderCommentsPane({ start: true });
   });
   $("viewerReaderCommentsHistoryToggle")?.addEventListener("click", () => {
     if ($("viewerReaderCommentsHistoryToggle")?.disabled) return;
@@ -77745,10 +77802,13 @@ function fillSceneEditorFields(scene) {
   syncStatusStepper();
   lastPersistedSceneStatus = scene.status || "idea";
   syncViewerReaderCommentsButton();
-  if (lastPersistedSceneStatus !== "complete") {
-    if (viewerCommentsOpen) setViewerCommentsOpen(false);
-  } else if (viewerCommentsOpen && typeof isViewerOpen === "function" && isViewerOpen()) {
-    loadViewerReaderComments({ startIfNeeded: false }).catch(() => {});
+  if (viewerCommentsOpen) {
+    if (lastPersistedSceneStatus === "complete") {
+      loadViewerReaderComments({ startIfNeeded: false }).catch(() => {});
+    } else {
+      stopViewerCommentsPolling();
+      syncReaderCommentsPaneState();
+    }
   }
   if ($("sceneSynopsis")) $("sceneSynopsis").value = scene.synopsis_md || "";
   setEditorContent(scene.content_md || "");
@@ -79194,45 +79254,6 @@ function buildSceneSaveBody(saveNote) {
   };
 }
 
-const READER_COMMENTS_PULSE_KEY = "supertory.readerCommentsPulsePlayed";
-
-function readReaderCommentsPulseMap() {
-  try {
-    const raw = localStorage.getItem(READER_COMMENTS_PULSE_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch (_) {
-    return {};
-  }
-}
-
-function hasReaderCommentsPulsePlayed(sceneId) {
-  const id = Number(sceneId);
-  if (!id) return false;
-  return Boolean(readReaderCommentsPulseMap()[String(id)]);
-}
-
-function markReaderCommentsPulsePlayed(sceneId) {
-  const id = Number(sceneId);
-  if (!id) return;
-  const map = readReaderCommentsPulseMap();
-  map[String(id)] = 1;
-  try {
-    localStorage.setItem(READER_COMMENTS_PULSE_KEY, JSON.stringify(map));
-  } catch (_) { /* quota */ }
-}
-
-function clearReaderCommentsPulsePlayed(sceneId) {
-  const id = Number(sceneId);
-  if (!id) return;
-  const map = readReaderCommentsPulseMap();
-  if (!map[String(id)]) return;
-  delete map[String(id)];
-  try {
-    localStorage.setItem(READER_COMMENTS_PULSE_KEY, JSON.stringify(map));
-  } catch (_) { /* quota */ }
-}
-
 function startVirtualReaderCommentsFlow() {
   openViewerReaderCommentsFromCta();
 }
@@ -79592,34 +79613,19 @@ function watchSceneTraitAnalysis(sceneId) {
   tick().catch(() => { /* keep quiet */ });
 }
 
-function pulseViewerReaderCommentsButtonIfNeeded() {
-  const btn = $("viewerReaderCommentsButton");
-  const sceneId = Number(state.sceneId);
-  if (!btn || !sceneId || btn.disabled) return;
-  if (typeof isViewerOpen === "function" && !isViewerOpen()) return;
-  if (hasReaderCommentsPulsePlayed(sceneId)) return;
-  markReaderCommentsPulsePlayed(sceneId);
-  btn.classList.remove("is-attention");
-  void btn.offsetWidth;
-  btn.classList.add("is-attention");
-  const clearPulse = () => btn.classList.remove("is-attention");
-  btn.addEventListener("animationend", clearPulse, { once: true });
-}
-
-function syncViewerReaderCommentsButton(options = {}) {
-  const btn = $("viewerReaderCommentsButton");
+function syncViewerReaderCommentsButton() {
+  const btn = $("aiResultReaderCommentsButton");
   const gatedOff = !isClusterFeatureVisible("reader_comments");
   const sceneId = Number(state.sceneId) || 0;
   const enabled = !gatedOff && Boolean(sceneId) && lastPersistedSceneStatus === "complete";
   if (btn) {
     setClusterFeatureHidden(btn, gatedOff);
-    btn.disabled = !enabled;
+    btn.disabled = gatedOff || !sceneId;
+    btn.classList.toggle("is-locked", !enabled);
     btn.title = enabled
-      ? i18n.t('app.이_회차에_가상독자_댓글을_받아_봐요')
-      : i18n.t('app.회차를_완성으로_바꾸면_가상독자_댓글을_받을');
+      ? i18n.t("index.가상독자_댓글_보기")
+      : i18n.t("app.회차를_완성으로_바꾸면_가상독자_댓글을_받을");
   }
-  const historyBtn = $("viewerReaderCommentsHistoryButton");
-  if (historyBtn) setClusterFeatureHidden(historyBtn, gatedOff);
   if (!enabled) {
     viewerCommentsHasHistory = false;
     viewerCommentsBatchesCache = [];
@@ -79627,7 +79633,7 @@ function syncViewerReaderCommentsButton(options = {}) {
   }
   syncViewerCommentsHistoryControls();
   syncViewerEntryCommentsBadge();
-  if (options.pulse) pulseViewerReaderCommentsButtonIfNeeded();
+  if (viewerCommentsOpen) syncReaderCommentsPaneState();
   if (enabled && sceneId && sceneId !== viewerCommentsPrefetchSceneId) {
     viewerCommentsPrefetchSceneId = sceneId;
     prefetchViewerReaderCommentBatches();
@@ -79639,11 +79645,17 @@ function isReaderCommentsUnusedForOpenScene() {
   return !Number(state.scene?.reader_comments_started || 0);
 }
 
+let readerCommentsNotifyKey = "";
+
 function syncViewerEntryCommentsBadge() {
-  const badge = $("viewerModeCommentsBadge");
-  if (!badge) return;
-  const show = isReaderCommentsUnusedForOpenScene();
-  badge.classList.toggle("hidden", !show);
+  const show = isReaderCommentsUnusedForOpenScene() && isClusterFeatureVisible("reader_comments");
+  $("aiResultCommentsDot")?.classList.toggle("hidden", !show);
+  // 완성했는데 아직 댓글을 안 받은 회차는 토리 알림에도 올린다
+  const key = show ? String(state.sceneId) : "";
+  if (key !== readerCommentsNotifyKey) {
+    readerCommentsNotifyKey = key;
+    try { renderToryNotifyList(); } catch (_) { /* ignore */ }
+  }
 }
 
 function markReaderCommentsStarted() {
@@ -79816,9 +79828,6 @@ async function persistScene(options = {}) {
     if (stillOpen) {
       const nextStatus = String(body.status || saved?.status || lastPersistedSceneStatus || "");
       const becameComplete = nextStatus === "complete" && lastPersistedSceneStatus !== "complete";
-      if (nextStatus && nextStatus !== "complete") {
-        clearReaderCommentsPulsePlayed(persistSceneId);
-      }
       lastPersistedSceneStatus = nextStatus || lastPersistedSceneStatus;
       applySceneCompleteLock();
       if (becameComplete) {
@@ -79827,7 +79836,7 @@ async function persistScene(options = {}) {
         watchSceneItemAnalysis(persistSceneId);
       }
       else if (!quiet) toast(i18n.t('app.저장했습니다'));
-      syncViewerReaderCommentsButton({ pulse: becameComplete });
+      syncViewerReaderCommentsButton();
     }
     return saved;
   } catch (error) {

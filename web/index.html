@@ -2364,7 +2364,6 @@
                     <svg xmlns="http://www.w3.org/2000/svg" class="format-viewer-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
                   </span>
                   <span class="format-tool-label" data-i18n="index.뷰어">뷰어</span>
-                  <span class="format-viewer-comments-dot hidden" id="viewerModeCommentsBadge" aria-hidden="true"></span>
                 </button>
                 <button
                   type="button"
@@ -4109,7 +4108,15 @@
               <div class="ai-result-head">
                 <span class="ai-result-label tory-helper-section-label" id="aiResultLiveLabel" data-i18n="app.결과">결과</span>
                 <span class="ai-result-label tory-helper-section-label hidden" id="aiResultHistoryLabel" data-i18n="index.히스토리">히스토리</span>
+                <span class="ai-result-label tory-helper-section-label hidden" id="aiResultCommentsLabel" data-i18n="app.가상독자_댓글">가상독자 댓글</span>
                 <div class="ai-result-head-actions">
+                  <button type="button" class="secondary ai-result-expand-btn ai-result-icon-btn" id="aiResultReaderCommentsButton" title="가상독자 댓글 보기" data-i18n-title="index.가상독자_댓글_보기" aria-label="가상독자 댓글 보기" data-i18n-aria-label="index.가상독자_댓글_보기" aria-pressed="false" aria-controls="viewerReaderCommentsPanel">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                      <path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+                      <path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/>
+                    </svg>
+                    <span class="ai-result-comments-dot hidden" id="aiResultCommentsDot" aria-hidden="true"></span>
+                  </button>
                   <button type="button" class="secondary ai-result-expand-btn ai-result-icon-btn" id="aiResultExpandButton" title="결과를 팝업으로 크게 보기" data-i18n-title="index.결과를_팝업으로_크게_보기" aria-label="크게 보기" data-i18n-aria-label="index.크게_보기" aria-haspopup="dialog" aria-controls="aiResultModal">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                       <path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"/>
@@ -4184,6 +4191,50 @@
                 </div>
                 <div class="ai-panel-history-list-actions" id="aiPanelHistoryListActions">
                   <button type="button" class="secondary compact-btn" id="aiPanelHistoryClearButton" data-i18n="index.전체_비우기">전체 비우기</button>
+                </div>
+              </div>
+              <div id="viewerReaderCommentsPanel" class="ai-result-comments-pane hidden" hidden aria-label="가상독자 댓글" data-i18n-aria-label="index.가상독자_댓글_패널">
+                <div class="ai-result-comments-head">
+                  <span class="hint" id="viewerReaderCommentsHint"></span>
+                  <button
+                    type="button"
+                    class="viewer-comments-history-toggle"
+                    id="viewerReaderCommentsHistoryToggle"
+                    title="이 화에서 아직 받은 댓글이 없어요"
+                    data-i18n-title="app.이_화에서_아직_받은_댓글이_없어요"
+                    aria-expanded="false"
+                    aria-controls="viewerReaderCommentsHistoryList"
+                    disabled
+                    data-i18n="app.이전_댓글_보기"
+                  >이전 댓글 보기</button>
+                </div>
+                <div class="ai-result-comments-start" id="viewerReaderCommentsStart">
+                  <img src="/assets/tori-mascot.png" width="64" height="56" alt="">
+                  <p data-i18n-html="app.가상독자_댓글_받기_안내">이 회차를 읽은 <strong>독자들의 반응</strong>을<br>댓글로 받아볼까요?</p>
+                  <button type="button" class="primary compact-btn" id="viewerReaderCommentsStartButton" data-i18n="app.가상독자_댓글_받아보기">가상독자 댓글 받아보기</button>
+                </div>
+                <div class="ai-result-comments-locked hidden" id="viewerReaderCommentsLocked">
+                  <p data-i18n-html="app.가상독자_댓글_잠김_안내">회차를 <strong>완성</strong>으로 바꾸면<br>가상독자 댓글을 받을 수 있어요</p>
+                </div>
+                <div class="viewer-comments-list" id="viewerReaderCommentsList"></div>
+                <div class="viewer-comments-history-list hidden" id="viewerReaderCommentsHistoryList"></div>
+                <div class="viewer-comments-retry-row hidden" id="viewerReaderCommentsRetryRow">
+                  <span class="hint viewer-comments-retry-hint" id="viewerReaderCommentsRetryHint"></span>
+                  <button type="button" class="secondary compact-btn" id="viewerReaderCommentsRetryButton" data-i18n="app.다시_시도">다시 시도</button>
+                </div>
+                <div class="viewer-comments-refresh-row hidden" id="viewerReaderCommentsRefreshRow">
+                  <button
+                    type="button"
+                    class="viewer-comments-refresh-btn"
+                    id="viewerReaderCommentsRefreshButton"
+                    title="새로고침으로 추가 댓글 받기"
+                    data-i18n-title="app.새로고침으로_추가_댓글_받기"
+                    aria-label="새로고침으로 추가 댓글 받기"
+                    data-i18n-aria-label="app.새로고침으로_추가_댓글_받기"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                  </button>
+                  <span class="hint viewer-comments-refresh-note hidden" id="viewerReaderCommentsRefreshNote" data-i18n="app.댓글은_여기까지예요">댓글은 여기까지예요</span>
                 </div>
               </div>
             </div>
@@ -5323,7 +5374,7 @@
         <li data-i18n="app.완성_안내_보호">완성된 원고는 실수로 고쳐지지 않도록 보호돼요. 작성상태는 언제든 자유롭게 바꿀 수 있어요</li>
         <li data-i18n="app.완성_안내_따옴표">따옴표가 출간용 스타일로 자동 정리돼요</li>
         <li id="completionGuideTraitItem" class="hidden"></li>
-        <li data-i18n-html="app.완성_안내_가상독자">완성되면 <strong>[뷰어]</strong>에서 가상독자 댓글을 확인할 수 있어요</li>
+        <li data-i18n-html="app.완성_안내_가상독자">완성되면 <strong>[결과보기]</strong>에서 가상독자 댓글을 확인할 수 있어요</li>
       </ul>
       <div class="completion-guide-actions">
         <button type="button" class="completion-guide-primary" id="completionGuideReaderBtn" data-i18n="app.가상독자_댓글_받아보기">가상독자 댓글 받아보기</button>
@@ -8583,26 +8634,6 @@
             <button type="button" class="viewer-scope-tab" data-viewer-scope="full" aria-pressed="false" data-i18n="index.전체_원고">전체 원고</button>
           </div>
           <div class="viewer-head-actions">
-            <button
-              type="button"
-              class="secondary compact-btn"
-              id="viewerReaderCommentsButton"
-              title="회차를 완성으로 바꾸면 가상독자 댓글을 받을 수 있어요" data-i18n-title="app.회차를_완성으로_바꾸면_가상독자_댓글을_받을"
-              aria-expanded="false"
-              aria-controls="viewerReaderCommentsPanel"
-              disabled
-              data-i18n="index.가상독자_댓글_받기">가상독자 댓글 받기</button>
-            <button
-              type="button"
-              class="secondary compact-btn"
-              id="viewerReaderCommentsHistoryButton"
-              title="이 화에서 아직 받은 댓글이 없어요"
-              data-i18n-title="app.이_화에서_아직_받은_댓글이_없어요"
-              aria-expanded="false"
-              aria-controls="viewerReaderCommentsHistoryList"
-              disabled
-              data-i18n="app.이전_댓글_보기"
-            >이전 댓글 보기</button>
             <button type="button" class="secondary compact-btn hidden" id="viewerTranslationExportTxt" data-i18n="index.텍스트로_내보내기">텍스트로 내보내기</button>
             <button type="button" class="secondary compact-btn hidden" id="viewerTranslationExportDocx" data-i18n="index.DOCX로_내보내기">DOCX로 내보내기</button>
             <button
@@ -8872,46 +8903,6 @@
             <div class="viewer-book-pager" id="viewerBookPager" aria-live="polite">1 / 1</div>
             <div class="viewer-device-home viewer-phone-home" aria-hidden="true"></div>
             <div class="viewer-resize-handle" id="viewerResizeHandle" title="드래그하여 책 크기 조절" data-i18n-title="index.드래그하여_책_크기_조절" aria-hidden="true"></div>
-          </div>
-        </div>
-        <div class="viewer-comments-dock hidden" id="viewerReaderCommentsPanel" aria-label="가상독자 댓글" data-i18n-aria-label="index.가상독자_댓글_패널">
-          <div class="viewer-comments-dock-head">
-            <div class="viewer-toc-head-text">
-              <strong data-i18n="app.가상독자_댓글">가상독자 댓글</strong>
-              <span class="hint" id="viewerReaderCommentsHint"></span>
-            </div>
-            <button
-              type="button"
-              class="viewer-comments-history-toggle"
-              id="viewerReaderCommentsHistoryToggle"
-              title="이 화에서 아직 받은 댓글이 없어요"
-              data-i18n-title="app.이_화에서_아직_받은_댓글이_없어요"
-              aria-expanded="false"
-              aria-controls="viewerReaderCommentsHistoryList"
-              disabled
-              data-i18n="app.이전_댓글_보기"
-            >이전 댓글 보기</button>
-            <button type="button" class="secondary compact-btn viewer-comments-collapse" id="viewerReaderCommentsClose" title="댓글 접기" data-i18n-title="index.가상독자_댓글_접기" aria-label="댓글 접기" data-i18n-aria-label="index.가상독자_댓글_접기" data-i18n="index.접기">접기</button>
-          </div>
-          <div class="viewer-comments-list" id="viewerReaderCommentsList"></div>
-          <div class="viewer-comments-history-list hidden" id="viewerReaderCommentsHistoryList"></div>
-          <div class="viewer-comments-retry-row hidden" id="viewerReaderCommentsRetryRow">
-            <span class="hint viewer-comments-retry-hint" id="viewerReaderCommentsRetryHint"></span>
-            <button type="button" class="secondary compact-btn" id="viewerReaderCommentsRetryButton" data-i18n="app.다시_시도">다시 시도</button>
-          </div>
-          <div class="viewer-comments-refresh-row hidden" id="viewerReaderCommentsRefreshRow">
-            <button
-              type="button"
-              class="viewer-comments-refresh-btn"
-              id="viewerReaderCommentsRefreshButton"
-              title="새로고침으로 추가 댓글 받기"
-              data-i18n-title="app.새로고침으로_추가_댓글_받기"
-              aria-label="새로고침으로 추가 댓글 받기"
-              data-i18n-aria-label="app.새로고침으로_추가_댓글_받기"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
-            </button>
-            <span class="hint viewer-comments-refresh-note hidden" id="viewerReaderCommentsRefreshNote" data-i18n="app.댓글은_여기까지예요">댓글은 여기까지예요</span>
           </div>
         </div>
       </div>

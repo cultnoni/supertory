@@ -1,4 +1,4 @@
-"""Frontend contract for virtual-reader comments dock and history toggle."""
+"""Frontend contract for virtual-reader comments in the result pane and history toggle."""
 
 from __future__ import annotations
 
@@ -18,16 +18,16 @@ class ReaderCommentsUiTests(unittest.TestCase):
         es = (ROOT / "web" / "locales" / "es.json").read_text(encoding="utf-8")
 
         self.assertIn('id="viewerReaderCommentsPanel"', html)
-        self.assertIn("viewer-comments-dock", html)
+        self.assertIn('id="aiResultReaderCommentsButton"', html)
+        self.assertIn('id="viewerReaderCommentsStartButton"', html)
+        self.assertIn('id="aiResultCommentsDot"', html)
+        # 뷰어 안에는 더 이상 댓글 UI가 없다
+        self.assertNotIn("viewer-comments-dock", html)
+        self.assertNotIn('id="viewerReaderCommentsButton"', html)
+        self.assertNotIn('id="viewerModeCommentsBadge"', html)
         self.assertIn('id="viewerReaderCommentsHistoryToggle"', html)
-        self.assertIn('id="viewerReaderCommentsHistoryButton"', html)
         self.assertIn('id="viewerReaderCommentsHistoryList"', html)
-        self.assertIn("index.접기", html)
         self.assertIn("disabled", html)
-        self.assertNotIn(
-            'id="viewerReaderCommentsPanel" class="viewer-toc-panel',
-            html.replace("\n", " "),
-        )
 
         self.assertIn("function viewerReaderCommentBatches", app_js)
         self.assertIn("function viewerReaderCommentPreviousBatches", app_js)
@@ -36,17 +36,31 @@ class ReaderCommentsUiTests(unittest.TestCase):
         self.assertIn("persisted.slice(1)", app_js)
         self.assertIn("app.이전_댓글이_없어요", app_js)
         self.assertIn("viewerCommentsHistoryOpen", app_js)
-        self.assertIn("startIfNeeded: true", app_js)
-        self.assertIn("has-comments-dock", app_js)
+        self.assertIn("startIfNeeded: start", app_js)
+        self.assertIn("function openReaderCommentsPane", app_js)
+        self.assertIn("function syncReaderCommentsPaneState", app_js)
+        self.assertIn("is-comments-view", app_js)
+        self.assertIn("data-tory-reader-comments-open", app_js)
+        self.assertNotIn("has-comments-dock", app_js)
 
-        self.assertIn(".viewer-comments-dock", css)
-        self.assertIn(".viewer-card.has-comments-dock .viewer-stage", css)
+        self.assertIn(".ai-result-wrap.is-comments-view", css)
+        self.assertNotIn(".viewer-comments-dock", css)
 
         self.assertIn("이전 댓글 보기", ko)
         self.assertIn("이전 댓글이 없어요", ko)
         self.assertIn("No previous comments", en)
         self.assertIn("No hay comentarios anteriores", es)
-        self.assertIn("완성되면 <strong>[뷰어]</strong>에서 가상독자 댓글을 확인할 수 있어요", ko)
+        self.assertIn("완성되면 <strong>[결과보기]</strong>에서 가상독자 댓글을 확인할 수 있어요", ko)
+        for key in (
+            "index.가상독자_댓글_보기",
+            "app.가상독자_댓글_받기_안내",
+            "app.가상독자_댓글_잠김_안내",
+            "app.가상독자_댓글_알림_제목",
+            "app.가상독자_댓글_알림_본문",
+            "app.가상독자_댓글_보러_가기",
+        ):
+            for locale in (ko, en, es):
+                self.assertIn('"%s"' % key, locale)
 
     def test_opening_comments_panel_only_generates_when_no_batches_exist(self) -> None:
         app_js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
@@ -60,7 +74,7 @@ class ReaderCommentsUiTests(unittest.TestCase):
         self.assertIn("hasPersistedBatch", load_fn)
         self.assertIn("!hasPersistedBatch", load_fn)
         self.assertIn("/reader-comments/generate", load_fn)
-        self.assertIn("startIfNeeded: true", app_js)
+        self.assertIn("startIfNeeded: start", app_js)
         self.assertIn("/reader-comments/generate", refresh_fn)
         self.assertNotIn("hasPersistedBatch", refresh_fn)
 
