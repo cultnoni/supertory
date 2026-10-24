@@ -1868,6 +1868,9 @@ body.focus-write-open .isl-ai-badge:hover { border-color: color-mix(in srgb, var
 #formatToolbar .format-toolbar-row { min-height: 32px; padding: 3px 6px !important; }
 #formatToolbar .format-toolbar-row-body { padding: 0 !important; }
 
+/* 공지·이벤트 팝업은 접힘 마스코트(오른쪽 아래) 위로 비켜서 뜬다 — 겹쳐서 마스코트가 안 보이지 않게 */
+body.ai-panel-collapsed .welcome-ad-popups { bottom: 120px; }
+
 /* 접힘 마스코트: 동그라미 없이 마스코트만, 처음 한 번만 흔들린다 (집중/확장 모드에서도 항상 오른쪽 아래에 떠 있는다) */
 body.ai-panel-collapsed .isl-ai-badge,
 body.focus-write-open .isl-ai-badge {

@@ -12474,18 +12474,17 @@ async function restoreLastWorkspaceView() {
   showWelcome();
 }
 
-const SAMPLE_WORKS_SEEDED_KEY = "supertory.sampleWorksSeeded";
+// 사용자가 마지막 작품까지 직접 지웠을 때만 켜진다 — 그 뒤로는 예시 작품을 다시 채우지 않는다.
+// (예전 "seeded" 플래그는 DB가 비었는데도 남아 예시 작품이 안 뜨는 원인이라 더 쓰지 않는다)
+const SAMPLE_WORKS_DISMISSED_KEY = "supertory.sampleWorksDismissed";
 
-/** 처음 켰을 때(작품 0개) 장르별 예시 작품 3편을 한 번만 저장한다. 앱 언어(ko/en/es)별 샘플 파일을 쓴다. */
+/** 작품이 0개일 때(첫 실행·새 데이터 폴더) 장르별 예시 작품 3편을 저장한다. 앱 언어(ko/en/es)별 샘플 파일을 쓴다. */
 async function seedSampleWorksIfFirstRun() {
   try {
-    if (localStorage.getItem(SAMPLE_WORKS_SEEDED_KEY)) return false;
+    if (localStorage.getItem(SAMPLE_WORKS_DISMISSED_KEY)) return false;
   } catch (_) {
     return false;
   }
-  const markSeeded = () => {
-    try { localStorage.setItem(SAMPLE_WORKS_SEEDED_KEY, "1"); } catch (_) { /* ignore */ }
-  };
   const sampleLang = typeof i18n.getLang === "function" ? i18n.getLang() : "ko";
   if (!["ko", "en", "es"].includes(sampleLang)) return false;
   let pack;
@@ -12664,7 +12663,6 @@ async function seedSampleWorksIfFirstRun() {
       console.warn("sample work seed failed", work?.title, error);
     }
   }
-  if (created > 0) markSeeded();
   return created > 0;
 }
 
@@ -12672,8 +12670,6 @@ async function loadProjects(preferredId = null) {
   let projects = await api("/api/projects");
   if (!Array.isArray(projects) || !projects.length) {
     if (await seedSampleWorksIfFirstRun()) projects = await api("/api/projects");
-  } else {
-    try { localStorage.setItem(SAMPLE_WORKS_SEEDED_KEY, "1"); } catch (_) { /* ignore */ }
   }
   applyProjectsListPayload(projects);
   pruneStaleEpisodeTabStorage(state.projects);
@@ -34722,12 +34718,21 @@ function islWdockDraggable() {
   const cls = document.body.classList;
   return cls.contains("ai-panel-collapsed") && !cls.contains("focus-write-open");
 }
+/** 독·마스코트가 내려갈 수 있는 아래 한계(px) — 하단 글자수 상태줄이 보이면 그 위, 아니면 화면 아래 40px */
+function islWdockBottomLimit() {
+  const bar = $("manuscriptStatusBar");
+  if (bar && bar.offsetParent !== null) {
+    const top = bar.getBoundingClientRect().top;
+    if (top > 0 && top < window.innerHeight) return top - 0.4;
+  }
+  return window.innerHeight - 40;
+}
 /** 중심 좌표(px)를 화면 안(타이틀바 아래~상태줄 위)으로 가둔다 */
 function clampIslWdockCenter(x, y, halfW, halfH) {
   const minX = 8 + halfW;
   const maxX = window.innerWidth - 8 - halfW;
   const minY = 48 + halfH;
-  const maxY = window.innerHeight - 40 - halfH;
+  const maxY = islWdockBottomLimit() - halfH;
   return {
     x: Math.min(Math.max(x, minX), Math.max(minX, maxX)),
     y: Math.min(Math.max(y, minY), Math.max(minY, maxY)),
@@ -34912,8 +34917,8 @@ function layoutIslWidgetDock() {
   dock.style.right = `${Math.round(window.innerWidth - anchor.right)}px`;
   dock.style.removeProperty("top");
   dock.style.top = `${Math.round(anchor.top)}px`;
-  dock.style.bottom = `${Math.round(window.innerHeight - anchor.bottom)}px`;
-  const available = anchor.height;
+  dock.style.bottom = `${(window.innerHeight - Math.min(anchor.bottom, islWdockBottomLimit())).toFixed(2)}px`;
+  const available = Math.min(anchor.bottom, islWdockBottomLimit()) - anchor.top;
   if (dock.scrollHeight > available) dock.classList.add("is-compact");
 }
 function closeIslWidgetDock() {
@@ -84808,6 +84813,9 @@ async function deleteProjectFromAdmin(projectId) {
   );
   if (!ok) return;
   await api(`/api/projects/${id}`, { method: "DELETE" });
+  if ((state.projects || []).filter((p) => Number(p.id) !== id).length === 0) {
+    try { localStorage.setItem(SAMPLE_WORKS_DISMISSED_KEY, "1"); } catch (_) { /* ignore */ }
+  }
   const wasCurrent = Number(state.projectId) === id;
   toast(`${i18n.t('app.title_을_를_삭제했어요', {title: title})}`);
   if (wasCurrent) {
