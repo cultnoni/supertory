@@ -280,19 +280,17 @@ class FeedbackApiTests(unittest.TestCase):
         )
         self.assertIn(status, (200, 201), created)
         run_id = int(created["run_id"])
-        deadline = time.time() + 4
+        # 진행 단계만 보고 바로 취소하면, 느린 컴퓨터에서 카드가 저장되기 전에 취소돼 flaky하다.
+        # 저장된 카드가 실제로 보일 때까지 기다린 뒤 취소한다.
+        deadline = time.time() + 10
         saw_saved = False
         while time.time() < deadline:
             _st, body = self.request("GET", f"/api/feedback/runs/{run_id}")
-            if isinstance(body, dict) and (
-                body.get("cards")
-                or str((body.get("progress") or {}).get("stage") or "")
-                in {"dup", "consistency", "report", "cards"}
-            ):
+            if isinstance(body, dict) and body.get("cards"):
                 saw_saved = True
                 break
             time.sleep(0.03)
-        self.assertTrue(saw_saved, "취소 전에 진행 상태를 보지 못했습니다.")
+        self.assertTrue(saw_saved, "취소 전에 저장된 카드를 보지 못했습니다.")
         status, cancelled = self.request("POST", f"/api/feedback/runs/{run_id}/cancel", {})
         self.assertEqual(status, 200, cancelled)
         run = self.poll_run(run_id, "partial", "failed")
