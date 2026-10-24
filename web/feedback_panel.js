@@ -93,6 +93,7 @@
     signals: ["app.단계_규칙_신호", "규칙 신호"],
     scene_map: ["app.단계_장면_지도", "장면 지도"],
     rubric: ["app.단계_루브릭", "루브릭"],
+    genre: ["app.단계_장르_진단", "장르 진단"],
     report: ["app.단계_리포트", "리포트"],
     cards: ["app.단계_카드_생성", "카드 생성"],
     priority: ["app.단계_마무리", "마무리"],
@@ -2459,7 +2460,35 @@
     return pair ? litText(pair[0], pair[1]) : "";
   }
 
+  /* 장르문학 수수께끼형 장르 카드(report_ref가 GENRE:로 시작) 유형 이름 */
+  const GENRE_CARD_TAGS = {
+    clue_gap: ["app.장르_카드_clue_gap", "단서 누락·모호"],
+    reveal_timing: ["app.장르_카드_reveal_timing", "정보 노출 시점"],
+    dangling_thread: ["app.장르_카드_dangling_thread", "방치된 복선"],
+    twist_logic: ["app.장르_카드_twist_logic", "반전의 개연성"],
+    tension_slack: ["app.장르_카드_tension_slack", "늘어지는 긴장"],
+    motive_gap: ["app.장르_카드_motive_gap", "위협·동기 불일치"],
+    narration_trick: ["app.장르_카드_narration_trick", "서술 속임수"],
+    promise_gap: ["app.장르_카드_promise_gap", "지키고 싶은 약속"],
+    rule_break: ["app.장르_카드_rule_break", "규칙 위반"],
+    info_dump: ["app.장르_카드_info_dump", "설정 덤프"],
+    plausibility_gap: ["app.장르_카드_plausibility_gap", "개연성의 틈"],
+    ripple_gap: ["app.장르_카드_ripple_gap", "파급 누락"],
+    term_mismatch: ["app.장르_카드_term_mismatch", "용어 불일치"],
+    power_rule_break: ["app.장르_카드_power_rule_break", "힘의 규칙 위반"],
+    setting_ornament: ["app.장르_카드_setting_ornament", "장식뿐인 설정"],
+    scale_stall: ["app.장르_카드_scale_stall", "서사 규모 정체"],
+    arc_leap: ["app.장르_카드_arc_leap", "관계 전개 비약"],
+    emotion_telling: ["app.장르_카드_emotion_telling", "감정 설명 과잉"],
+    conflict_weak: ["app.장르_카드_conflict_weak", "갈등 동력 약함"],
+    pacing_off: ["app.장르_카드_pacing_off", "호흡 어긋남"],
+  };
+
   function styleTypeLabel(card) {
+    const genrePair = card && String(card.report_ref || "").indexOf("GENRE:") === 0
+      ? GENRE_CARD_TAGS[String(card.style_type || "")]
+      : null;
+    if (genrePair) return litText(genrePair[0], genrePair[1]);
     const tags = (card && (card.issue_tags || card.issue_tags_json)) || [];
     if ((card && (card.card_form === "suggest" || card.card_form === "note")) && tags.length) {
       return tags.map(function (tag) { return literatureTagLabel(tag) || tag; }).join(" · ");
@@ -2861,8 +2890,74 @@
     } catch (_) { /* ignore */ }
   }
 
+  function engineStorageKey(projectId) {
+    return "supertory.feedbackEngine." + String(projectId || 0);
+  }
+
+  function readStoredEngine(projectId) {
+    try {
+      const value = localStorage.getItem(engineStorageKey(projectId));
+      return value === "web" || value === "literary" ? value : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function writeStoredEngine(projectId, engine) {
+    if (!projectId) return;
+    try {
+      localStorage.setItem(engineStorageKey(projectId), engine);
+    } catch (_) { /* ignore */ }
+  }
+
+  /** 실험장르 작품만 새 분석 때 문학/웹소설 줄을 고른다. */
+  function engineChoiceAvailable() {
+    return typeof state !== "undefined" && typeof getProjectClusterId === "function"
+      && Number(state.projectId) > 0
+      && getProjectClusterId() === "genre_literature"
+      && String(state.mainGenre || "") === "experimental";
+  }
+
+  function hasLiteraryForm() {
+    return typeof literaryTrack === "function" && Boolean(literaryTrack());
+  }
+
+  /** 저장된 선택(없으면 문학). 단편/장편을 안 골랐다면 문학 줄은 못 쓰므로 웹소설로 본다. */
+  function effectiveEngine() {
+    const projectId = stateBox.projectId || currentScene().projectId;
+    const chosen = readStoredEngine(projectId) || "literary";
+    return chosen === "literary" && !hasLiteraryForm() ? "web" : chosen;
+  }
+
+  function paintEngineControls(panel) {
+    const wrap = panel.querySelector("[data-role='fb-engine-wrap']");
+    if (!wrap) return;
+    const available = engineChoiceAvailable();
+    wrap.hidden = !available;
+    if (!available) return;
+    const current = effectiveEngine();
+    const needForm = !hasLiteraryForm();
+    const buttons = wrap.querySelectorAll("[data-role='fb-engine']");
+    for (let i = 0; i < buttons.length; i += 1) {
+      const engine = buttons[i].getAttribute("data-engine");
+      const on = engine === current;
+      buttons[i].classList.toggle("is-on", on);
+      buttons[i].setAttribute("aria-checked", on ? "true" : "false");
+      buttons[i].disabled = engine === "literary" && needForm;
+    }
+    const hint = wrap.querySelector("[data-role='fb-engine-need-form']");
+    if (hint) hint.hidden = !needForm;
+  }
+
+  function setEngine(engine) {
+    if (engine !== "literary" && engine !== "web") return;
+    writeStoredEngine(stateBox.projectId || currentScene().projectId, engine);
+    renderToolbar();
+  }
+
   function analysisRequestBody(sceneId, lens) {
     const body = { scene_id: sceneId, explanation_lens: lens || null };
+    if (engineChoiceAvailable()) body.engine = effectiveEngine();
     const panel = panelEl();
     const fresh = panel && panel.querySelector("[data-role='fb-fresh-cards']");
     if (fresh && fresh.checked) {
@@ -5096,6 +5191,7 @@
     paintSegmentButtons(panel.querySelectorAll("[data-role='fb-sort']"), "data-sort", display.sort);
     paintSegmentButtons(panel.querySelectorAll("[data-role='fb-ul-level']"), "data-level", display.underline);
     paintSegmentButtons(panel.querySelectorAll("[data-role='fb-lens']"), "data-lens", display.lensCards);
+    paintEngineControls(panel);
     const underline = panel.querySelector("[data-role='fb-underline']");
     if (underline) underline.setAttribute("aria-checked", display.underlineOn ? "true" : "false");
     const hideDict = panel.querySelector("[data-role='fb-hide-dict']");
@@ -5698,6 +5794,159 @@
     }
   }
 
+  /* ── 장르문학 수수께끼형 장르 진단 (report.genre) ── */
+  const GENRE_ITEM_KEYS = {
+    clue_fairness: ["app.장르_진단_항목_clue_fairness", "단서의 공정성"],
+    disclosure_order: ["app.장르_진단_항목_disclosure_order", "정보 공개 순서"],
+    payoff: ["app.장르_진단_항목_payoff", "복선·의문 회수"],
+    twist_plausibility: ["app.장르_진단_항목_twist_plausibility", "반전의 개연성"],
+    tension_curve: ["app.장르_진단_항목_tension_curve", "긴장 곡선"],
+    threat_motive: ["app.장르_진단_항목_threat_motive", "위협·동기 일관성"],
+    deception: ["app.장르_진단_항목_deception", "속임수"],
+    kept_promise: ["app.장르_진단_항목_kept_promise", "지키고 싶은 약속"],
+    rule_consistency: ["app.장르_진단_항목_rule_consistency", "세계 규칙의 일관성"],
+    exposition: ["app.장르_진단_항목_exposition", "설정 풀어 주기"],
+    plausibility: ["app.장르_진단_항목_plausibility", "개연성"],
+    ripple: ["app.장르_진단_항목_ripple", "파급"],
+    term_consistency: ["app.장르_진단_항목_term_consistency", "용어 일관성"],
+    power_rules: ["app.장르_진단_항목_power_rules", "마법·힘의 규칙"],
+    setting_depth: ["app.장르_진단_항목_setting_depth", "설정의 깊이"],
+    scale: ["app.장르_진단_항목_scale", "서사 규모"],
+    relationship_arc: ["app.장르_진단_항목_relationship_arc", "관계의 전개"],
+    emotion_line: ["app.장르_진단_항목_emotion_line", "감정선"],
+    conflict_drive: ["app.장르_진단_항목_conflict_drive", "갈등의 동력"],
+    pacing: ["app.장르_진단_항목_pacing", "호흡"],
+  };
+  const GENRE_VERDICT_KEYS = {
+    works: ["app.장르_진단_판정_works", "잘 작동함"],
+    room: ["app.장르_진단_판정_room", "보완 여지"],
+    problem: ["app.장르_진단_판정_problem", "문제"],
+    none: ["app.장르_진단_판정_none", "해당 없음"],
+  };
+
+  function genreItemHtml(item) {
+    const pair = GENRE_ITEM_KEYS[item.key] || [item.key, item.key];
+    const verdict = GENRE_VERDICT_KEYS[item.verdict] || GENRE_VERDICT_KEYS.none;
+    let html = "<li class=\"fb-genre-item is-" + esc(item.verdict) + "\"><strong>"
+      + esc(litText(pair[0], pair[1])) + "</strong> <span class=\"fb-badge\">"
+      + esc(litText(verdict[0], verdict[1])) + "</span>";
+    if (item.intentional) {
+      html += " <span class=\"fb-badge\">" + esc(litText("app.장르_진단_의도라면_유지", "의도라면 유지")) + "</span>";
+    }
+    if (item.note) html += "<p>" + esc(item.note) + "</p>";
+    const evidence = Array.isArray(item.evidence) ? item.evidence : [];
+    if (evidence.length) {
+      html += "<ul class=\"fb-genre-evidence\">" + evidence.map(function (ev) {
+        return "<li><span class=\"hint\">P" + esc(ev.para) + "</span> " + esc(ev.quote) + "</li>";
+      }).join("") + "</ul>";
+    } else if (item.unverified) {
+      html += "<p class=\"hint\">" + esc(litText("app.장르_진단_근거_미확인", "근거 위치를 확인하지 못했어요")) + "</p>";
+    }
+    return html + "</li>";
+  }
+
+  function genreListHtml(titleKey, titleFallback, rows) {
+    if (!rows || !rows.length) return "";
+    return "<h5>" + esc(litText(titleKey, titleFallback)) + "</h5><ul class=\"fb-list\">"
+      + rows.map(function (row) { return "<li>" + esc(row) + "</li>"; }).join("") + "</ul>";
+  }
+
+  function genreClueMapHtml(map) {
+    if (!map) return "";
+    const events = (Array.isArray(map.events) ? map.events : []).map(function (ev) {
+      return "P" + ev.para + " · " + ev.what;
+    });
+    const open = (Array.isArray(map.open_questions) ? map.open_questions : []).map(function (q) {
+      return "P" + q.para + " · " + q.question;
+    });
+    const resolved = (Array.isArray(map.resolved_questions) ? map.resolved_questions : []).map(function (q) {
+      return "P" + q.para + " · " + q.question;
+    });
+    const turns = (Array.isArray(map.turns) ? map.turns : []).map(function (t) {
+      return "P" + t.para + " · " + t.what;
+    });
+    const body = genreListHtml("app.장르_진단_공개_순서", "공개 순서", events)
+      + genreListHtml("app.장르_진단_독자가_아는_것", "독자가 아는 것", map.reader_knows_at_end)
+      + genreListHtml("app.장르_진단_독자에게_숨긴_것", "독자에게 숨긴 것", map.reader_does_not_know)
+      + genreListHtml("app.장르_진단_열린_의문", "열린 의문", open)
+      + genreListHtml("app.장르_진단_회수된_의문", "회수된 의문", resolved)
+      + genreListHtml("app.장르_진단_전환점", "전환점", turns);
+    if (!body) return "";
+    return "<details class=\"fb-genre-map\"><summary>"
+      + esc(litText("app.장르_진단_정보_공개_지도", "정보 공개 지도")) + "</summary>" + body + "</details>";
+  }
+
+  function genreWorldMapHtml(map) {
+    if (!map) return "";
+    const rows = function (list, fn) { return (Array.isArray(list) ? list : []).map(fn); };
+    const body = genreListHtml("app.장르_진단_설정_드러나는_순서", "설정이 드러나는 순서",
+        rows(map.events, function (ev) { return "P" + ev.para + " · " + ev.what; }))
+      + genreListHtml("app.장르_진단_세계의_규칙", "세계의 규칙", map.rules)
+      + genreListHtml("app.장르_진단_용어", "용어",
+        rows(map.terms, function (t) { return t.term + " — " + t.meaning; }))
+      + genreListHtml("app.장르_진단_바뀐_곳", "규칙이 바뀐 곳",
+        rows(map.changes, function (c) { return "P" + c.para + " · " + c.what; }));
+    if (!body) return "";
+    return "<details class=\"fb-genre-map\"><summary>"
+      + esc(litText("app.장르_진단_설정_지도", "설정 지도")) + "</summary>" + body + "</details>";
+  }
+
+  function genreRelationMapHtml(map) {
+    if (!map) return "";
+    const rows = function (list, fn) { return (Array.isArray(list) ? list : []).map(fn); };
+    const body = genreListHtml("app.장르_진단_관계가_움직인_곳", "관계가 움직인 곳",
+        rows(map.events, function (ev) { return "P" + ev.para + " · " + ev.what; }))
+      + genreListHtml("app.장르_진단_관계_변화", "관계의 변화",
+        rows(map.pairs, function (p) { return p.who + ": " + p.at_start + " → " + p.at_end; }))
+      + genreListHtml("app.장르_진단_장애", "가로막는 장애", map.obstacles)
+      + genreListHtml("app.장르_진단_회차_끝_감정", "회차 끝의 감정", map.ends_on ? [map.ends_on] : []);
+    if (!body) return "";
+    return "<details class=\"fb-genre-map\"><summary>"
+      + esc(litText("app.장르_진단_관계_지도", "관계 지도")) + "</summary>" + body + "</details>";
+  }
+
+  const GENRE_TITLES = {
+    puzzle: ["app.장르_진단_수수께끼형", "장르 진단 · 수수께끼형"],
+    world: ["app.장르_진단_세계형", "장르 진단 · 세계형"],
+    relation: ["app.장르_진단_관계형", "장르 진단 · 관계형"],
+  };
+
+  function genreMapHtml(genre) {
+    if (genre.group === "world") return genreWorldMapHtml(genre.world_map);
+    if (genre.group === "relation") return genreRelationMapHtml(genre.relation_map);
+    return genreClueMapHtml(genre.clue_map);
+  }
+
+  function renderGenreReport(genre, run) {
+    if (!genre || !Array.isArray(genre.items) || !genre.items.length) {
+      const failed = run && run.params && run.params.genre_error;
+      return failed
+        ? "<p class=\"hint\">" + esc(litText("app.장르_진단_실패", "장르 진단을 만들지 못했어요. 일반 리포트는 그대로 볼 수 있어요.")) + "</p>"
+        : "";
+    }
+    const open = genre.items.filter(function (item) { return item.verdict === "room" || item.verdict === "problem"; });
+    const rest = genre.items.filter(function (item) { return item.verdict !== "room" && item.verdict !== "problem"; });
+    const tasks = Array.isArray(genre.top_tasks) ? genre.top_tasks : [];
+    const titlePair = GENRE_TITLES[genre.group] || GENRE_TITLES.puzzle;
+    let html = "<section class=\"fb-genre\"><h4>" + esc(litText(titlePair[0], titlePair[1])) + "</h4>";
+    if (genre.summary) html += "<p class=\"fb-summary\">" + esc(genre.summary) + "</p>";
+    if (tasks.length) {
+      html += "<h5>" + esc(litText("app.장르_진단_우선_과제", "우선 퇴고 과제")) + "</h5><ol class=\"fb-list\">"
+        + tasks.map(function (task) {
+          return "<li><strong>" + esc(task.title) + "</strong>" + (task.why ? "<p>" + esc(task.why) + "</p>" : "") + "</li>";
+        }).join("") + "</ol>";
+    }
+    html += "<h5>" + esc(litText("app.장르_진단_항목별", "항목별 진단")) + "</h5>";
+    if (open.length) html += "<ul class=\"fb-list\">" + open.map(genreItemHtml).join("") + "</ul>";
+    if (rest.length) {
+      html += "<details><summary>" + esc(litText(
+        "app.장르_진단_접힌_항목", "잘 작동함·해당 없음 (${count})", { count: rest.length }
+      )) + "</summary><ul class=\"fb-list\">" + rest.map(genreItemHtml).join("") + "</ul></details>";
+    }
+    html += genreMapHtml(genre);
+    return html + "</section>";
+  }
+
   function renderReport() {
     const panel = panelEl();
     const el = panel && panel.querySelector("[data-role='fb-report']");
@@ -5758,6 +6007,7 @@
       + (stateBox.reportOpen ? "true" : "false") + "\">리포트</button>"
       + "<div class=\"fb-report-body\"" + (stateBox.reportOpen ? "" : " hidden") + ">"
       + "<p class=\"fb-summary\">" + esc(report.summary || "") + "</p>"
+      + renderGenreReport(report.genre, run)
       + (scoreRows
         ? "<table class=\"fb-scores\"><thead><tr><th>항목</th><th>점수</th><th>코멘트</th></tr></thead><tbody>"
           + scoreRows + "</tbody></table>"
@@ -6350,6 +6600,11 @@
     }
     if (role === "fb-lens") {
       setLens(btn.getAttribute("data-lens"));
+      return;
+    }
+    if (role === "fb-engine") {
+      if (btn.disabled) return;
+      setEngine(btn.getAttribute("data-engine"));
       return;
     }
     if (role === "fb-close-chrome") {
@@ -6960,6 +7215,7 @@
     formatReportCollectText: formatReportCollectText,
     formatCardCollectText: formatCardCollectText,
     stageLabel: stageLabel,
+    renderGenreReport: renderGenreReport,
     styleTypeLabel: styleTypeLabel,
     locationLabel: locationLabel,
     referenceNotes: referenceNotes,

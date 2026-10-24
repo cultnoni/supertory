@@ -10,7 +10,9 @@ from http import HTTPStatus
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import genre_track
 import literary_form
+from feedback_pipeline import genre_layers
 import feedback_store
 from feedback_pipeline.card_reply import (
     CardCommentLimit,
@@ -356,7 +358,19 @@ def _start_run(
             "SELECT cluster_id, main_genre, sub_genre, literary_form FROM project WHERE id = ?",
             (project_id,),
         ).fetchone()
-        track = literary_form.literary_track(dict(project_row) if project_row else {})
+        project_dict = dict(project_row) if project_row else {}
+        genre_options: dict | None = None
+        track = literary_form.literary_track(project_dict)
+        if genre_track.engine_choice_available(project_dict):
+            # 실험장르: 실행할 때 문학/웹소설 줄을 고른다. 고르지 않았고 단편/장편도 안 골랐다면 웹소설 줄로 간다.
+            requested_engine = genre_track.normalize_engine(body.get("engine"))
+            engine = genre_track.resolve_engine(project_dict, requested_engine)
+            if engine == genre_track.ENGINE_LITERARY and track is None:
+                if requested_engine == genre_track.ENGINE_LITERARY:
+                    raise ValueError(literary_form.FORM_REQUIRED_MESSAGE)
+                engine = genre_track.ENGINE_WEB
+            if engine == genre_track.ENGINE_WEB:
+                track = None
         if want_midcheck:
             if track != "long":
                 raise ValueError("작품 중간 점검은 일반문학 장편에서만 사용할 수 있습니다.")
@@ -456,6 +470,14 @@ def _start_run(
                 "explanation_lens": lens or None,
                 "fake": bool(is_fake_mode()),
             }
+            # 장르문학 수수께끼형·세계형·관계형은 웹소설 러너 안에서 장르 진단 단계를 더 돈다.
+            group = genre_track.genre_group(project_dict)
+            if genre_layers.layer_for(group) is not None:
+                genre_options = {
+                    "group": group,
+                    "main_genre": str(project_dict.get("main_genre") or ""),
+                }
+                params["genre_group"] = group
             run_id = feedback_store.create_run(
                 conn,
                 project_id,
@@ -485,6 +507,8 @@ def _start_run(
     }
     if lens:
         options["explanation_lens"] = lens
+    if genre_options:
+        options["genre"] = genre_options
     if body.get("fresh_cards"):
         options["fresh_cards"] = True
     event = _cancel_event(run_id)

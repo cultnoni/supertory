@@ -38174,6 +38174,42 @@ html[data-ui-scheme="dark"] .translation-pass-tab.is-active {
   margin: 2px 0 8px;
   color: var(--muted);
 }
+/* 장르문학 장르 진단 (report.genre) */
+.fb-genre {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line, #e0e4e8);
+  border-radius: 10px;
+  background: var(--surface-2, var(--surface));
+}
+.fb-genre h4,
+.fb-genre h5 {
+  margin: 10px 0 4px;
+  font-size: 13px;
+}
+.fb-genre h4 {
+  margin-top: 0;
+}
+.fb-genre details {
+  margin-top: 8px;
+}
+.fb-genre summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 12.5px;
+}
+.fb-genre-item {
+  margin-bottom: 8px;
+}
+.fb-genre-item.is-problem > strong {
+  color: var(--danger, #c0392b);
+}
+.fb-genre-evidence {
+  margin: 2px 0 4px;
+  padding-left: 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
 .fb-count {
   margin: 0 0 8px;
   color: var(--muted);

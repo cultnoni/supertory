@@ -12,6 +12,10 @@ not the category name, so the track looks at ``main_genre``.
 from __future__ import annotations
 
 LITERARY_CLUSTER = "general_literature"
+# 장르문학 실험장르만 일반문학 엔진에도 이어진다. 웹소설 엔진으로도 읽을 수 있어서
+# 단편/장편은 고르지 않아도 된다(form_optional).
+GENRE_LITERATURE_CLUSTER = "genre_literature"
+EXPERIMENTAL_MAIN = "experimental"
 LITERARY_TRACK_MAINS = frozenset({"general_lit", "literary"})
 # Accepted if a caller still sends the UI label in sub_genre.
 LITERARY_TRACK_SUB_LABELS = frozenset({"일반문학", "순문학", "general_lit", "literary"})
@@ -73,7 +77,9 @@ def is_literary_track_target(
     sub_genre: object = "",
     main_genre: object = "",
 ) -> bool:
-    """True only for 일반문학 and 순문학. Essay is not on the track."""
+    """True for 일반문학, 순문학, and 장르문학 실험. Essay is not on the track."""
+    if _text(cluster_id) == GENRE_LITERATURE_CLUSTER:
+        return _text(main_genre) == EXPERIMENTAL_MAIN
     if _text(cluster_id) != LITERARY_CLUSTER:
         return False
     main = _text(main_genre)
@@ -83,6 +89,14 @@ def is_literary_track_target(
     if main in LITERARY_TRACK_MAINS:
         return True
     return sub in LITERARY_TRACK_SUB_LABELS
+
+
+def literary_form_optional(cluster_id: object = "", main_genre: object = "") -> bool:
+    """실험장르는 단편/장편을 안 골라도 된다. 고르지 않으면 웹소설 줄로만 첨삭한다."""
+    return (
+        _text(cluster_id) == GENRE_LITERATURE_CLUSTER
+        and _text(main_genre) == EXPERIMENTAL_MAIN
+    )
 
 
 def normalize_literary_form(value: object) -> str | None:
@@ -121,6 +135,8 @@ def resolve_required_literary_form(
         return None
     form = normalize_literary_form(raw)
     if form is None:
+        if literary_form_optional(cluster_id, main_genre):
+            return None
         raise ValueError(FORM_REQUIRED_MESSAGE)
     return form
 
@@ -131,6 +147,7 @@ def resolve_settings_literary_form(
     target: bool,
     stored_form: object,
     body: dict,
+    form_optional: bool = False,
 ) -> str | None:
     """Settings save.
 
@@ -142,9 +159,13 @@ def resolve_settings_literary_form(
     if "literary_form" in body:
         form = normalize_literary_form(body.get("literary_form"))
         if form is None:
+            if form_optional:
+                return None
             raise ValueError(FORM_REQUIRED_MESSAGE)
         return form
     if not was_target:
+        if form_optional:
+            return None
         raise ValueError(FORM_REQUIRED_MESSAGE)
     return normalize_literary_form(stored_form)
 
