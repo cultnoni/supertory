@@ -4958,5 +4958,8 @@ body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
   margin: 0;
   pointer-events: auto;
 }
-#welcome #welcomeBinderOpenButton { left: 10px; top: 10px; }
+#welcome #welcomeBinderOpenButton { left: 10px; top: 14px; }
 #welcome #welcomeAiOpenButton { right: 10px; top: 14px; }
+
+/* 패널 머리의 접기 버튼 높이 맞춤: 오른쪽 머리줄(종 30px)의 가운데에 왼쪽 작품줄(22px)도 맞춘다 */
+.binder-work-meta .binder-work-row-project { margin-top: 4px; }

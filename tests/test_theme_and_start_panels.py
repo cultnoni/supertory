@@ -72,8 +72,11 @@ class StartScreenPanelHandleTests(unittest.TestCase):
         self.assertRegex(self.css, r"#welcome > \.welcome-panel-bar \{[^}]*position: absolute;")
         self.assertRegex(self.css, r"#welcome > \.welcome-panel-bar \{[^}]*height: 0;")
         # 패널 머리의 접기 버튼과 같은 끝 간격(11px = 섬 테두리 1px + 10px)과 같은 높이
-        self.assertIn("#welcome #welcomeBinderOpenButton { left: 10px; top: 10px; }", self.css)
+        self.assertIn("#welcome #welcomeBinderOpenButton { left: 10px; top: 14px; }", self.css)
         self.assertIn("#welcome #welcomeAiOpenButton { right: 10px; top: 14px; }", self.css)
+
+    def test_left_panel_header_row_is_lowered_to_match_the_right_one(self) -> None:
+        self.assertIn(".binder-work-meta .binder-work-row-project { margin-top: 4px; }", self.css)
 
 
 if __name__ == "__main__":
