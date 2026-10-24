@@ -8862,6 +8862,20 @@ function applyGenrePromiseUi() {
   }
 }
 
+/** 알림에서 온 초안을 칸에 덧붙인다. 작가가 이미 쓴 글은 지우지 않고, 바로 저장해 알림을 닫아도 남게 한다. */
+async function appendGenrePromiseDraft(field, draft) {
+  if (!PROMISE_FIELD_KEYS.includes(field) || !String(draft || "").trim()) return;
+  if (state.genrePromiseProjectId !== state.projectId) await loadGenrePromise();
+  const el = document.querySelector(`[data-promise-field="${field}"]`);
+  if (!el) return;
+  const existing = String(el.value || "").trim();
+  const next = existing ? `${existing}\n${String(draft).trim()}` : String(draft).trim();
+  el.value = next;
+  state.genrePromise = { ...(state.genrePromise || {}), [field]: next };
+  el.focus();
+  await saveGenrePromiseField(field);
+}
+
 function scheduleGenrePromiseSave(field) {
   window.clearTimeout(promiseFieldSaveTimers[field]);
   promiseFieldSaveTimers[field] = window.setTimeout(() => {
@@ -38539,6 +38553,11 @@ async function applyToryNotifNavigate(target = {}) {
     const field = String(target.field || "");
     setActiveBinder("settings");
     ensureSettingsSectionOpen(section);
+    if (section === "promise") {
+      // 장르 카드 거절 제안: 「일부러 깬 약속」 칸 끝에 초안을 덧붙여 바로 저장한다
+      if (field && prefill) await appendGenrePromiseDraft(field, prefill);
+      return;
+    }
     if (field && prefill) {
       const el = document.querySelector(`[data-style-field="${field}"]`);
       if (el) {

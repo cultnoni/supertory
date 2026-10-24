@@ -66,6 +66,7 @@ hiddenimports = [
     "feedback_pipeline.claude_client",
     "feedback_pipeline.config",
     "feedback_pipeline.genre_common",
+    "feedback_pipeline.genre_intent_suggest",
     "feedback_pipeline.genre_layers",
     "feedback_pipeline.genre_puzzle",
     "feedback_pipeline.genre_relation",
