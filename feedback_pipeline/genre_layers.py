@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from feedback_pipeline import genre_common, genre_puzzle, genre_world
+from feedback_pipeline import genre_common, genre_puzzle, genre_relation, genre_world
 
 LAYERS = {
     genre_puzzle.GROUP: genre_puzzle,
     genre_world.GROUP: genre_world,
+    genre_relation.GROUP: genre_relation,
 }
 
 

@@ -155,7 +155,8 @@ def missing_keys(rubric: dict[str, Any]) -> list[str]:
 
 def project_row(conn: sqlite3.Connection, project_id: int) -> dict[str, Any]:
     row = conn.execute(
-        "SELECT cluster_id, main_genre, sub_genre, tory_priority_md, promise_broken, promise_kept "
+        "SELECT cluster_id, main_genre, sub_genre, tory_priority_md, promise_broken, promise_kept, "
+        "romance_structure, romance_setting "
         "FROM project WHERE id = ?",
         (int(project_id),),
     ).fetchone()

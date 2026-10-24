@@ -120,7 +120,8 @@ class WorldHelperTests(unittest.TestCase):
 
     def test_registry_and_markdown(self) -> None:
         self.assertIs(genre_layers.layer_for("world"), genre_world)
-        self.assertIsNone(genre_layers.layer_for("relation"))
+        self.assertIsNone(genre_layers.layer_for("style"))  # 문체형은 일반문학 엔진을 쓴다
+        self.assertIsNone(genre_layers.layer_for(""))
         md = genre_layers.render_genre_md(
             {"group": "world", "summary": "총평", "items": [_item("rule_consistency", "room")], "top_tasks": []}
         )

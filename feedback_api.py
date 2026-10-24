@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 import genre_track
 import literary_form
+from feedback_pipeline import genre_layers
 import feedback_store
 from feedback_pipeline.card_reply import (
     CardCommentLimit,
@@ -469,9 +470,9 @@ def _start_run(
                 "explanation_lens": lens or None,
                 "fake": bool(is_fake_mode()),
             }
-            # 장르문학 수수께끼형·세계형은 웹소설 러너 안에서 장르 진단 단계를 더 돈다.
+            # 장르문학 수수께끼형·세계형·관계형은 웹소설 러너 안에서 장르 진단 단계를 더 돈다.
             group = genre_track.genre_group(project_dict)
-            if group in (genre_track.GROUP_PUZZLE, genre_track.GROUP_WORLD):
+            if genre_layers.layer_for(group) is not None:
                 genre_options = {
                     "group": group,
                     "main_genre": str(project_dict.get("main_genre") or ""),

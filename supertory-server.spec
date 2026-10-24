@@ -68,6 +68,7 @@ hiddenimports = [
     "feedback_pipeline.genre_common",
     "feedback_pipeline.genre_layers",
     "feedback_pipeline.genre_puzzle",
+    "feedback_pipeline.genre_relation",
     "feedback_pipeline.genre_world",
     "feedback_pipeline.context",
     "feedback_pipeline.checks",

@@ -1317,6 +1317,30 @@ assert(worldHtml.indexOf("마법·힘의 규칙") >= 0 && worldHtml.indexOf("파
 assert(worldHtml.indexOf("설정 지도") >= 0 && worldHtml.indexOf("손짓으로 문이 열린다") >= 0, "world: 설정 지도");
 assert(worldHtml.indexOf("정원 — 이름") >= 0 && worldHtml.indexOf("예외가 생긴다") >= 0, "world: 용어와 바뀐 곳");
 assert(worldHtml.indexOf("정보 공개 지도") < 0, "world: 수수께끼형 지도는 안 나옴");
+assert(
+  FP.styleTypeLabel({ kind: "structure", style_type: "emotion_telling", report_ref: "GENRE:emotion_line" }) === "감정 설명 과잉",
+  "relation: 카드 유형 이름"
+);
+const relationHtml = FP.renderGenreReport({
+  group: "relation",
+  summary: "관계가 움직인다.",
+  top_tasks: [],
+  items: [
+    { key: "emotion_line", verdict: "room", intentional: false, note: "설명이 많다", evidence: [{ para: 2, quote: "q" }] },
+    { key: "pacing", verdict: "works", intentional: false, note: "", evidence: [] },
+  ],
+  relation_map: {
+    events: [{ para: 1, kind: "closer", what: "가까워진다", quote: "" }],
+    pairs: [{ who: "정원·승혜", at_start: "어색함", at_end: "설렘" }],
+    obstacles: ["신분 차이"],
+    ends_on: "설렘과 불안",
+  },
+}, null);
+assert(relationHtml.indexOf("장르 진단 · 관계형") >= 0, "relation: 제목");
+assert(relationHtml.indexOf("감정선") >= 0 && relationHtml.indexOf("호흡") >= 0, "relation: 항목 이름");
+assert(relationHtml.indexOf("관계 지도") >= 0 && relationHtml.indexOf("정원·승혜: 어색함 → 설렘") >= 0, "relation: 관계 지도");
+assert(relationHtml.indexOf("신분 차이") >= 0 && relationHtml.indexOf("설렘과 불안") >= 0, "relation: 장애와 회차 끝 감정");
+assert(relationHtml.indexOf("설정 지도") < 0 && relationHtml.indexOf("정보 공개 지도") < 0, "relation: 다른 묶음 지도는 안 나옴");
 
 if (failed) {
   console.error("test_feedback_panel: failed", failed);
