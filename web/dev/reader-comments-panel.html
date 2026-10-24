@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>가상독자 댓글 받기 시안</title>
+<link rel="stylesheet" href="/fonts/pretendard.css">
+<style>
+  :root {
+    --bg: #eceef1; --paper: #ffffff; --panel: #fbfbfc; --sunk: #f2f4f6;
+    --ink: #1f2429; --ink2: #5c656e; --ink3: #5f6870; --line: #e0e4e8;
+    --accent: #2f7566; --accent-soft: #e3efeb; --accent-line: #bfdad1; --accent-ink: #f2f7f5;
+    --alert: #d94c4c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Pretendard", system-ui, sans-serif; padding: 24px 16px 48px; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { font-size: 13px; color: var(--ink2); margin: 0 0 24px; line-height: 1.7; }
+  .row { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  .col { width: 292px; }
+  .cap { font-size: 12.5px; color: var(--ink2); margin: 0 0 8px; line-height: 1.6; }
+  .cap b { color: var(--ink); }
+
+  /* 오른쪽 패널(292px) 안의 결과 영역 */
+  .pane { width: 292px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; box-shadow: 0 1px 2px rgba(31,36,41,.06), 0 8px 24px rgba(31,36,41,.06); min-height: 360px; }
+  .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .head .lab { font-size: 12.5px; font-weight: 650; color: var(--ink2); }
+  .acts { display: flex; gap: 4px; }
+  .ib { position: relative; width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); display: grid; place-items: center; color: var(--ink2); }
+  .ib:hover { background: var(--sunk); }
+  .ib svg { width: 18px; height: 18px; }
+  .ib.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); }
+  .ib.off { opacity: .4; cursor: not-allowed; }
+  .ib .dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--alert); border: 2px solid var(--panel); }
+  .ib.new { outline: 2px dashed var(--accent-line); outline-offset: 2px; }
+
+  .result { border: 1px solid var(--line); background: var(--sunk); border-radius: 10px; padding: 12px; font-size: 12.5px; color: var(--ink3); min-height: 120px; }
+
+  /* 가상독자 댓글 화면 */
+  .sub { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .sub strong { font-size: 13.5px; }
+  .sub .hint { font-size: 12px; color: var(--ink3); margin-left: auto; }
+  .back { font-size: 12px; color: var(--ink2); padding: 3px 8px; border-radius: 999px; background: var(--sunk); }
+  .getbox { text-align: center; border: 1px dashed var(--accent-line); background: var(--accent-soft); border-radius: 12px; padding: 22px 14px; }
+  .getbox img { width: 64px; height: 56px; object-fit: contain; }
+  .getbox p { margin: 8px 0 12px; font-size: 12.5px; line-height: 1.65; color: var(--ink2); }
+  .getbox p b { color: var(--ink); }
+  .primary { width: 100%; padding: 10px 12px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 13.5px; font-weight: 650; }
+  .primary:hover { filter: brightness(1.06); }
+  .primary[disabled] { background: var(--sunk); color: var(--ink3); cursor: not-allowed; border: 1px solid var(--line); }
+  .locked { text-align: center; border: 1px dashed var(--line); background: var(--sunk); border-radius: 12px; padding: 22px 14px; font-size: 12.5px; line-height: 1.7; color: var(--ink3); }
+  .locked p { margin: 0 0 12px; }
+
+  .prog { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 8px 0 6px; }
+  .prog i { display: block; height: 100%; width: 60%; background: var(--accent); border-radius: 99px; }
+  .progtxt { font-size: 12px; color: var(--ink3); margin-bottom: 10px; }
+
+  .cmt { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .cmt .who { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650; }
+  .cmt .av { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; color: #fff; }
+  .cmt .who small { font-weight: 400; color: var(--ink3); margin-left: auto; }
+  .cmt p { margin: 6px 0 0; font-size: 13px; line-height: 1.65; }
+  .more { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 10px; }
+  .more button { font-size: 12px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink2); }
+  .note { font-size: 12.5px; color: var(--ink3); margin-top: 14px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<h1>가상독자 댓글 — 결과보기에서 받기</h1>
+<p class="lead">뷰어에서는 뺐어요. 오른쪽 토리 도우미 → <b>결과보기</b> 위쪽의 <b>크게 보기 · 히스토리</b> 옆에 말풍선 아이콘 하나를 더 놓고, 누르면 이 자리에서 댓글 화면으로 바뀝니다.</p>
+
+<div class="row">
+
+  <!-- 1. 아이콘 자리 -->
+  <div class="col">
+    <p class="cap"><b>① 결과보기 머리줄</b><br>점선 표시가 새 아이콘. 완성 회차에서 아직 안 받았으면 빨간 점이 떠요.</p>
+    <div class="pane">
+      <div class="head">
+        <span class="lab">결과</span>
+        <div class="acts">
+          <button class="ib new" title="가상독자 댓글 보기" aria-label="가상독자 댓글 보기">
+            <span class="dot"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/></svg>
+          </button>
+          <button class="ib" title="결과를 팝업으로 크게 보기" aria-label="크게 보기">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"/><rect width="10" height="7" x="12" y="13" rx="2"/></svg>
+          </button>
+          <button class="ib" title="이전 결과 목록" aria-label="히스토리">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="result">여기에서 답변을 보실 수 있어요</div>
+    </div>
+  </div>
+
+  <!-- 2. 아직 안 받음 -->
+  <div class="col">
+    <p class="cap"><b>② 댓글 받기 (완성 회차)</b><br>아이콘이 눌린 상태. 처음엔 받기 버튼만 보여요.</p>
+    <div class="pane">
+      <div class="head">
+        <span class="lab">가상독자 댓글</span>
+        <div class="acts">
+          <button class="ib on" aria-label="가상독자 댓글 보기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/></svg></button>
+          <button class="ib" aria-label="크게 보기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"/><rect width="10" height="7" x="12" y="13" rx="2"/></svg></button>
+          <button class="ib" aria-label="히스토리"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/></svg></button>
+        </div>
+      </div>
+      <div class="sub"><strong>3화 · 첫 만남</strong><span class="hint">완성</span></div>
+      <div class="getbox">
+        <img src="/assets/tori-mascot.png" alt="">
+        <p><b>이 회차를 읽은 독자들의 반응</b>을<br>댓글로 받아볼까요?</p>
+        <button class="primary">가상독자 댓글 받기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 받는 중 + 받은 뒤 -->
+  <div class="col">
+    <p class="cap"><b>③ 받는 중 · 받은 뒤</b><br>생성되는 대로 하나씩 쌓여요. 이전 댓글은 히스토리 아이콘으로.</p>
+    <div class="pane">
+      <div class="head">
+        <span class="lab">가상독자 댓글</span>
+        <div class="acts">
+          <button class="ib on" aria-label="가상독자 댓글 보기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/></svg></button>
+          <button class="ib" aria-label="크게 보기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"/><rect width="10" height="7" x="12" y="13" rx="2"/></svg></button>
+          <button class="ib" aria-label="히스토리"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/></svg></button>
+        </div>
+      </div>
+      <div class="sub"><strong>3화 · 첫 만남</strong><span class="hint">3 / 5</span></div>
+      <div class="prog"><i></i></div>
+      <div class="progtxt">댓글을 준비하는 중…</div>
+
+      <div class="cmt">
+        <div class="who"><span class="av" style="background:#e48b96">하</span>하루독자<small>방금</small></div>
+        <p>둘이 처음 마주치는 장면에서 숨 멈췄어요. 다음 화가 너무 궁금해요!</p>
+      </div>
+      <div class="cmt">
+        <div class="who"><span class="av" style="background:#6fa3d6">밤</span>밤샘러<small>방금</small></div>
+        <p>중반 설명이 조금 길게 느껴졌는데 마지막 대사가 다 살렸네요.</p>
+      </div>
+      <div class="cmt">
+        <div class="who"><span class="av" style="background:#62b088">솔</span>솔직한독자<small>방금</small></div>
+        <p>주인공 감정선이 자연스러워서 좋았어요. 떡밥도 기대돼요.</p>
+      </div>
+
+      <div class="more">
+        <button>새로고침으로 추가 댓글 받기</button>
+        <button>이전 댓글</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. 미완성 -->
+  <div class="col">
+    <p class="cap"><b>④ 미완성 회차</b><br>아이콘은 흐리게, 받기는 잠겨요. 완성으로 바꾸면 풀리고 토리 알림이 떠요.</p>
+    <div class="pane">
+      <div class="head">
+        <span class="lab">가상독자 댓글</span>
+        <div class="acts">
+          <button class="ib on" aria-label="가상독자 댓글 보기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/></svg></button>
+          <button class="ib" aria-label="크게 보기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"/><rect width="10" height="7" x="12" y="13" rx="2"/></svg></button>
+          <button class="ib" aria-label="히스토리"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/></svg></button>
+        </div>
+      </div>
+      <div class="sub"><strong>4화 · 새벽</strong><span class="hint">집필 중</span></div>
+      <div class="locked">
+        <p>회차를 <b>완성</b>으로 바꾸면<br>가상독자 댓글을 받을 수 있어요.</p>
+        <button class="primary" disabled>가상독자 댓글 받기</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="note">시안용 화면입니다. 댓글 내용·독자 이름은 예시예요. 실제 앱에서는 기존 `/api/scenes/{id}/reader-comments` 생성·재시도·새로고침 동작을 그대로 쓰고, 표시 위치만 이 패널로 옮겨요.</p>
+</body>
+</html>

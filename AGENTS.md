@@ -269,7 +269,7 @@ Many UX prefs use `localStorage` keys prefixed `supertory.` (theme, ink, viewer,
 
 ## User communication
 
-- Repo UI strings live in `web/locales/{ko,en,es}.json` (keep all three in sync); `README.md` is Korean; respond to the user in the language they use  
+- Repo UI strings live in `web/locales/{ko,en,es}.json` (keep all three in sync); `README.md` is Korean; always respond to the user in Korean (한국어), even when the user pastes English text or the work involves English/Spanish strings  
 - Keep explanations short: what broke, what you changed, how to verify  
 - Don’t invent product features that contradict local-only / SQLite design  
 

@@ -149,7 +149,7 @@ class CompletionGuideCopyTests(unittest.TestCase):
         self.assertIn('id="completionGuideTraitItem"', html)
         self.assertIn("data-i18n-html=\"app.완성_안내_가상독자\"", html)
         self.assertNotIn("app.완성_안내_뷰어_댓글", html)
-        self.assertIn("완성되면 <strong>[뷰어]</strong>에서 가상독자 댓글을 확인할 수 있어요", html)
+        self.assertIn("완성되면 <strong>[결과보기]</strong>에서 가상독자 댓글을 확인할 수 있어요", html)
 
         self.assertIn("function maybeShowCompletionGuideOnComplete", app_js)
         self.assertIn("function resetCurrentProjectCompletionGuide", app_js)
@@ -170,7 +170,7 @@ class CompletionGuideCopyTests(unittest.TestCase):
 
         self.assertEqual(
             ko["app.완성_안내_가상독자"],
-            "완성되면 <strong>[뷰어]</strong>에서 가상독자 댓글을 확인할 수 있어요",
+            "완성되면 <strong>[결과보기]</strong>에서 가상독자 댓글을 확인할 수 있어요",
         )
         self.assertEqual(ko["app.완성_안내_제목"], "✅ 완성 처리됐어요")
         self.assertIn("app.완성_안내_인물", ko)
