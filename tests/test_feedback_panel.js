@@ -1285,6 +1285,14 @@ assert(
   "genre: 실패 안내"
 );
 assert(FP.stageLabel({ stage: "genre" }, 0, 0) === "장르 진단", "genre: 단계 이름");
+assert(
+  FP.styleTypeLabel({ kind: "structure", style_type: "clue_gap", report_ref: "GENRE:clue_fairness" }) === "단서 누락·모호",
+  "genre: 카드 유형 이름"
+);
+assert(
+  FP.styleTypeLabel({ kind: "structure", style_type: "clue_gap", report_ref: "W2" }) !== "단서 누락·모호",
+  "genre: 웹소설 카드는 영향 없음"
+);
 
 if (failed) {
   console.error("test_feedback_panel: failed", failed);

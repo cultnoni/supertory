@@ -340,6 +340,173 @@ def run_puzzle_report(
     }
 
 
+# ── 4단계: 장르 카드와 검증 ───────────────────────────────────────────────
+
+# 루브릭 항목 → 카드 유형 태그. 단서·반전에 닿는 문제라 모두 지적형(수정안 없음)이다.
+CARD_TAGS = {
+    "clue_fairness": "clue_gap",  # 단서 누락·모호
+    "disclosure_order": "reveal_timing",  # 정보 노출 시점
+    "payoff": "dangling_thread",  # 방치된 복선·의문
+    "twist_plausibility": "twist_logic",  # 반전의 개연성
+    "tension_curve": "tension_slack",  # 늘어지는 긴장
+    "threat_motive": "motive_gap",  # 위협·동기 불일치
+    "deception": "narration_trick",  # 서술 속임수 위반
+    "kept_promise": "promise_gap",  # 지키고 싶은 약속이 흔들림
+}
+CARD_LABELS = {
+    "clue_gap": "단서 누락·모호",
+    "reveal_timing": "정보 노출 시점",
+    "dangling_thread": "방치된 복선",
+    "twist_logic": "반전의 개연성",
+    "tension_slack": "늘어지는 긴장",
+    "motive_gap": "위협·동기 불일치",
+    "narration_trick": "서술 속임수",
+    "promise_gap": "지키고 싶은 약속",
+}
+# 이 항목들은 풀이·반전에 직접 닿으므로 중요도를 한 단계 올린다(설계 문서 「중요도」).
+_CORE_KEYS = {"clue_fairness", "twist_plausibility"}
+CLUE_KINDS = {"clue", "red_herring", "reveal", "setup"}
+
+INTENT_OK_WARNING = {
+    "code": "genre_intent_ok",
+    "severity": "info",
+    "message": "의도한 설계라면 그대로 두셔도 돼요",
+}
+CLUE_TOUCH_WARNING = {
+    "code": "clue_touch",
+    "severity": "info",
+    "message": "단서나 반전에 닿는 부분이라 수정안 대신 지적만 드려요",
+}
+
+
+def broken_promise_text(conn: sqlite3.Connection, project_id: int) -> str:
+    return _text(_project_row(conn, project_id).get("promise_broken"), 800)
+
+
+def promise_covers(text: str, promise: str) -> bool:
+    """카드(원문+이유)가 작가가 「일부러 깬 약속」으로 적은 것과 같은 이야기인가.
+
+    칸에 적은 것 자체가 의도 표시이므로 별도 의도 신호어는 요구하지 않는다.
+    문학 쪽 거름과 같은 도구를 쓴다(구절이 그대로 들어 있거나 내용어가 2개 이상 겹침).
+    """
+    from feedback_pipeline.literature_cards import _choice_hits, _content_tokens
+
+    source = str(promise or "").strip()
+    if not source or not str(text or "").strip():
+        return False
+    if _choice_hits(text, source):
+        return True
+    return len(_content_tokens(source) & _content_tokens(text)) >= 2
+
+
+def clue_paragraphs(genre: dict[str, Any] | None) -> set[int]:
+    """정보 공개 지도에서 단서·반전·의문이 걸린 문단 번호."""
+    out: set[int] = set()
+    clue_map = (genre or {}).get("clue_map") if isinstance(genre, dict) else None
+    if not isinstance(clue_map, dict):
+        return out
+    for event in clue_map.get("events") or []:
+        if isinstance(event, dict) and event.get("kind") in CLUE_KINDS:
+            out.add(_int(event.get("para")))
+    for key in ("turns", "open_questions", "resolved_questions"):
+        for row in clue_map.get(key) or []:
+            if isinstance(row, dict):
+                out.add(_int(row.get("para")))
+    out.discard(0)
+    return out
+
+
+def strip_suggestion_near_clues(card: dict[str, Any], clue_paras: set[int]) -> bool:
+    """수정안 카드가 단서·반전 문단에 닿으면 수정안을 지우고 지적만 남긴다. 바꿨으면 True."""
+    if not clue_paras or not card.get("suggestion"):
+        return False
+    start = _int(card.get("start_para"))
+    end = _int(card.get("end_para"), start)
+    if not any(start <= para <= max(start, end) for para in clue_paras):
+        return False
+    card["suggestion"] = None
+    card["edit_plan"] = ""
+    warnings = list(card.get("warnings_json") or [])
+    warnings.append(dict(CLUE_TOUCH_WARNING))
+    card["warnings_json"] = warnings
+    return True
+
+
+def card_impact(key: str, verdict: str) -> int:
+    base = 5 if verdict == "problem" else 3
+    if verdict == "room" and key in _CORE_KEYS:
+        base = 4
+    return base
+
+
+def build_genre_cards(
+    genre: dict[str, Any] | None,
+    paragraphs: list[Paragraph],
+    scene_id: int,
+    *,
+    promise_broken: str = "",
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """장르 진단에서 지적형 카드를 만든다. (카드, 버린 항목)을 돌려준다.
+
+    - 보완·문제 판정에 원고에서 확인된 근거가 있을 때만 만든다.
+    - 수정안은 없다. 단서·반전에 닿는 문제는 항상 지적형이다.
+    - 작가가 「일부러 깬 약속」으로 적은 것과 같은 이야기는 만들지 않는다.
+    """
+    from feedback_pipeline.paragraphs import slice_original
+
+    cards: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    if not isinstance(genre, dict):
+        return cards, dropped
+    for item in genre.get("items") or []:
+        key = str(item.get("key") or "")
+        verdict = str(item.get("verdict") or "")
+        tag = CARD_TAGS.get(key)
+        if tag is None or verdict not in {"room", "problem"}:
+            continue
+        ref = f"GENRE:{key}"
+        label = CARD_LABELS[tag]
+        evidence = [row for row in item.get("evidence") or [] if isinstance(row, dict)]
+        if not evidence:
+            dropped.append({"id": ref, "title": label, "reason": "no_evidence"})
+            continue
+        first = evidence[0]
+        para = _int(first.get("para"))
+        quote = str(first.get("quote") or "")
+        note = str(item.get("note") or "")
+        if promise_covers(f"{quote}\n{label}\n{note}", promise_broken):
+            dropped.append({"id": ref, "title": label, "reason": "author_promise"})
+            continue
+        original = slice_original(paragraphs, para, para, quote, quote) or quote
+        cards.append(
+            {
+                "scene_id": scene_id,
+                "kind": "structure",
+                "style_type": tag,
+                "impact": card_impact(key, verdict),
+                "start_para": para,
+                "end_para": para,
+                "start_quote": quote,
+                "end_quote": quote,
+                "original_text": original,
+                "reason": note,
+                "edit_plan": "",
+                "suggestion": None,
+                "report_ref": ref,
+                "perspectives_json": ["editor"],
+                "title": label,
+                "warnings_json": [
+                    {
+                        "code": "note_only",
+                        "message": "수정안 없이 위치와 이유만 보여드리는 참고 지적이에요",
+                    },
+                    dict(INTENT_OK_WARNING),
+                ],
+            }
+        )
+    return cards, dropped
+
+
 def render_genre_md(genre: dict[str, Any] | None) -> str:
     """리포트 마크다운 뒤에 붙는 장르 진단 글."""
     if not isinstance(genre, dict) or not genre.get("items"):

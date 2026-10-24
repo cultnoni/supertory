@@ -2460,7 +2460,23 @@
     return pair ? litText(pair[0], pair[1]) : "";
   }
 
+  /* 장르문학 수수께끼형 장르 카드(report_ref가 GENRE:로 시작) 유형 이름 */
+  const GENRE_CARD_TAGS = {
+    clue_gap: ["app.장르_카드_clue_gap", "단서 누락·모호"],
+    reveal_timing: ["app.장르_카드_reveal_timing", "정보 노출 시점"],
+    dangling_thread: ["app.장르_카드_dangling_thread", "방치된 복선"],
+    twist_logic: ["app.장르_카드_twist_logic", "반전의 개연성"],
+    tension_slack: ["app.장르_카드_tension_slack", "늘어지는 긴장"],
+    motive_gap: ["app.장르_카드_motive_gap", "위협·동기 불일치"],
+    narration_trick: ["app.장르_카드_narration_trick", "서술 속임수"],
+    promise_gap: ["app.장르_카드_promise_gap", "지키고 싶은 약속"],
+  };
+
   function styleTypeLabel(card) {
+    const genrePair = card && String(card.report_ref || "").indexOf("GENRE:") === 0
+      ? GENRE_CARD_TAGS[String(card.style_type || "")]
+      : null;
+    if (genrePair) return litText(genrePair[0], genrePair[1]);
     const tags = (card && (card.issue_tags || card.issue_tags_json)) || [];
     if ((card && (card.card_form === "suggest" || card.card_form === "note")) && tags.length) {
       return tags.map(function (tag) { return literatureTagLabel(tag) || tag; }).join(" · ");

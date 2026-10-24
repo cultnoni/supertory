@@ -124,13 +124,71 @@ class NormalizeTests(unittest.TestCase):
         self.assertEqual([s["title"] for s in rubric["strengths"]], ["첫 단서"])
 
 
+class CardHelperTests(unittest.TestCase):
+    def genre(self, items: list[dict]) -> dict:
+        return {"items": items, "clue_map": _clue_map()}
+
+    def test_cards_are_note_only_with_tags_and_impact(self) -> None:
+        items = [
+            _item("deception", "room"),
+            _item("clue_fairness", "room"),
+            _item("payoff", "problem"),
+            _item("tension_curve", "works"),
+        ]
+        cards, dropped = genre_puzzle.build_genre_cards(self.genre(items), list(PARAS.values()), 7)
+        self.assertEqual([c["style_type"] for c in cards], ["narration_trick", "clue_gap", "dangling_thread"])
+        self.assertEqual([c["impact"] for c in cards], [3, 4, 5])
+        self.assertEqual(dropped, [])
+        for card in cards:
+            self.assertIsNone(card["suggestion"])
+            self.assertEqual(card["scene_id"], 7)
+            self.assertEqual(card["kind"], "structure")
+            self.assertTrue(card["report_ref"].startswith("GENRE:"))
+            codes = [w["code"] for w in card["warnings_json"]]
+            self.assertIn("note_only", codes)
+            self.assertIn("genre_intent_ok", codes)
+
+    def test_items_without_verified_evidence_make_no_card(self) -> None:
+        unverified = _item("payoff", "problem", evidence=[], unverified=True)
+        cards, dropped = genre_puzzle.build_genre_cards(self.genre([unverified]), list(PARAS.values()), 1)
+        self.assertEqual(cards, [])
+        self.assertEqual(dropped[0]["reason"], "no_evidence")
+
+    def test_broken_promise_is_not_carded(self) -> None:
+        item = _item("deception", "room", note="서술자가 독자를 속이는 장면이 약하다.")
+        cards, dropped = genre_puzzle.build_genre_cards(
+            self.genre([item]), list(PARAS.values()), 1, promise_broken="서술자가 독자를 속인다"
+        )
+        self.assertEqual(cards, [])
+        self.assertEqual(dropped[0]["reason"], "author_promise")
+
+    def test_promise_covers(self) -> None:
+        self.assertTrue(genre_puzzle.promise_covers("해설이 깁니다 감정을 직접 규정한 문장", "해설이 깁니다"))
+        self.assertTrue(genre_puzzle.promise_covers("서술자가 독자를 속이는 장면", "서술자가 독자를 속인다"))
+        self.assertFalse(genre_puzzle.promise_covers("비가 내렸다", "서술자가 독자를 속인다"))
+        self.assertFalse(genre_puzzle.promise_covers("서술자가 독자를 속인다", ""))
+
+    def test_clue_paragraphs_and_suggestion_stripping(self) -> None:
+        clue_paras = genre_puzzle.clue_paragraphs({"clue_map": _clue_map()})
+        self.assertEqual(clue_paras, {1, 2})  # 사건(1)과 열린 의문(2). tension 사건 자체는 단서가 아니다
+        near = {"start_para": 1, "end_para": 2, "suggestion": "바꾼 문장", "edit_plan": "x", "warnings_json": []}
+        self.assertTrue(genre_puzzle.strip_suggestion_near_clues(near, clue_paras))
+        self.assertIsNone(near["suggestion"])
+        self.assertEqual(near["warnings_json"][0]["code"], "clue_touch")
+        far = {"start_para": 5, "end_para": 5, "suggestion": "바꾼 문장", "warnings_json": []}
+        self.assertFalse(genre_puzzle.strip_suggestion_near_clues(far, clue_paras))
+        self.assertEqual(far["suggestion"], "바꾼 문장")
+
+
 class GenreFake(PipelineFake):
-    def __init__(self, *args, rubric_keys=None, fail_map=False, **kwargs) -> None:
+    def __init__(self, *args, rubric_keys=None, fail_map=False, rubric=None, clue_para3=False, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.rubric_keys = rubric_keys or [
             "clue_fairness", "disclosure_order", "payoff", "twist_plausibility", "tension_curve", "deception",
         ]
         self.fail_map = fail_map
+        self.rubric = rubric
+        self.clue_para3 = clue_para3
 
     def generate(self, prompt: str, **kwargs):
         if "「정보 공개 지도」를 만든다" in prompt:
@@ -138,12 +196,22 @@ class GenreFake(PipelineFake):
                 self.prompts.append(prompt)
             if self.fail_map:
                 return FakeClaude()._as_result({"parsed": None, "text": "NOT JSON", "usage": dict(self.usage)})
-            return FakeClaude()._as_result({"parsed": _clue_map(), "usage": dict(self.usage)})
+            clue_map = _clue_map()
+            if self.clue_para3:
+                clue_map["events"].append(
+                    {"para": 3, "kind": "clue", "what": "고개를 돌린다", "quote": "그녀는 고개를 돌렸다"}
+                )
+            return FakeClaude()._as_result({"parsed": clue_map, "usage": dict(self.usage)})
         if "「장르 진단 루브릭」을 판정한다" in prompt:
             with self._lock:
                 self.prompts.append(prompt)
-            return FakeClaude()._as_result({"parsed": _rubric(self.rubric_keys), "usage": dict(self.usage)})
-        return super().generate(prompt, **kwargs)
+            rubric = self.rubric or _rubric(self.rubric_keys)
+            return FakeClaude()._as_result({"parsed": rubric, "usage": dict(self.usage)})
+        result = super().generate(prompt, **kwargs)
+        if "첨삭 카드 1장" in prompt and isinstance(result.get("parsed"), dict):
+            # 원문 문단 안에서 고친 정상적인 수정안(원문 밖 문장을 베끼지 않는다)
+            result["parsed"]["suggestion"] = "세 번째 문단이다. 그냥 정원이다. 그녀는 고개를 돌렸다."
+        return result
 
     def genre_prompts(self) -> list[str]:
         return [p for p in self.prompts if "정보 공개 지도" in p]
@@ -277,6 +345,59 @@ class PuzzleRunTests(unittest.TestCase):
         self.assertEqual(run["status"], "ok", run)
         self.assertNotIn("genre", run["report"])
         self.assertEqual(fake.genre_prompts(), [])
+
+    def genre_cards(self, run: dict) -> list[dict]:
+        return [c for c in run["cards"] if str(c.get("report_ref") or "").startswith("GENRE:")]
+
+    def test_run_creates_note_only_genre_cards(self) -> None:
+        rubric = _rubric(["clue_fairness", "deception"])
+        rubric["items"][0]["verdict"] = "problem"
+        rubric["items"][1]["verdict"] = "room"
+        self.use_fake(rubric=rubric)
+        project_id, scene_id = self.create_scene("mystery")
+        run = self.run_and_wait(project_id, scene_id)
+        self.assertEqual(run["status"], "ok", run)
+        cards = self.genre_cards(run)
+        self.assertEqual(sorted(c["style_type"] for c in cards), ["clue_gap", "narration_trick"])
+        for card in cards:
+            self.assertFalse(card.get("suggestion"))
+            self.assertEqual(card["start_para"], 1)
+        self.assertEqual(int(run["planned_cards"]), len(run["cards"]))
+
+    def test_suggestion_near_a_clue_is_removed(self) -> None:
+        self.use_fake(clue_para3=True)
+        project_id, scene_id = self.create_scene("mystery")
+        run = self.run_and_wait(project_id, scene_id)
+        w1 = [c for c in run["cards"] if c.get("report_ref") == "W1"][0]
+        self.assertFalse(w1.get("suggestion"))
+        codes = [w.get("code") for w in (w1.get("warnings") or w1.get("warnings_json") or [])]
+        self.assertIn("clue_touch", codes)
+
+    def test_suggestion_stays_when_no_clue_is_touched(self) -> None:
+        self.use_fake()
+        project_id, scene_id = self.create_scene("mystery")
+        run = self.run_and_wait(project_id, scene_id)
+        w1 = [c for c in run["cards"] if c.get("report_ref") == "W1"][0]
+        self.assertTrue(w1.get("suggestion"))
+
+    def test_broken_promise_removes_matching_cards(self) -> None:
+        rubric = _rubric(["clue_fairness"])
+        rubric["items"][0].update(verdict="room", note="단서를 일부러 숨긴다는 설정이 약하다.")
+        self.use_fake(rubric=rubric)
+        project_id, scene_id = self.create_scene("mystery")
+        status, saved = self.request(
+            "POST",
+            f"/api/projects/{project_id}/genre-promise",
+            {"promise_broken": "해설이 깁니다. 단서를 일부러 숨긴다"},
+        )
+        self.assertEqual(status, 200, saved)
+        run = self.run_and_wait(project_id, scene_id)
+        refs = [c.get("report_ref") for c in run["cards"]]
+        self.assertNotIn("W1", refs)  # 웹소설 리포트의 「해설이 깁니다」
+        self.assertNotIn("GENRE:clue_fairness", refs)
+        reasons = [(row.get("id"), row.get("reason")) for row in run["params"]["dropped"]]
+        self.assertIn(("W1", "author_promise"), reasons)
+        self.assertIn(("GENRE:clue_fairness", "author_promise"), reasons)
 
     def test_genre_failure_does_not_stop_the_normal_report(self) -> None:
         self.use_fake(fail_map=True)

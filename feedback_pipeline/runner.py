@@ -37,6 +37,7 @@ from feedback_pipeline.config import (
     SUGGESTION_ENABLED_TYPES,
 )
 from feedback_pipeline.context import build_project_context, explanation_lens_for_project
+from feedback_pipeline import genre_puzzle
 from feedback_pipeline.dup_blocks import dup_reason, find_dup_blocks, format_dup_findings
 from feedback_pipeline.literature_cache import (
     build_cached_system,
@@ -835,11 +836,12 @@ def run_feedback(
         _raise_if_cancelled(cancel_event)
 
         genre_report = None
+        genre_broken = ""  # 작가가 「일부러 깬 약속」으로 적은 글
+        clue_paras: set[int] = set()  # 정보 공개 지도에서 단서·반전이 걸린 문단
         genre_opts = options.get("genre") if isinstance(options.get("genre"), dict) else {}
         if genre_opts.get("group") == "puzzle":
             # 수수께끼형: 정보 공개 지도와 장르 진단. 실패해도 일반 리포트와 카드는 계속 만든다.
-            from feedback_pipeline import genre_puzzle
-
+            genre_broken = genre_puzzle.broken_promise_text(conn, project_id)
             _set_progress(conn, run_id, params, "genre", 2, 5)
             _commit(conn, options)
             try:
@@ -860,6 +862,7 @@ def run_feedback(
                 raise
             except Exception as error:  # noqa: BLE001 - 장르 진단 실패는 기록만 하고 이어 간다
                 params["genre_error"] = str(error)[:200]
+            clue_paras = genre_puzzle.clue_paragraphs(genre_report)
             _save_params(conn, run_id, params)
             _commit(conn, options)
             _raise_if_cancelled(cancel_event)
@@ -929,6 +932,13 @@ def run_feedback(
             if not isinstance(item, dict):
                 continue
             prepared, quote_ok = _range_check(item, paras)
+            if genre_broken and genre_puzzle.promise_covers(
+                f"{prepared.get('title') or ''} {prepared.get('body') or ''}",
+                genre_broken,
+            ):
+                # 작가가 일부러 깬 약속과 같은 이야기라 카드로 만들지 않는다.
+                _drop(params, prepared, "author_promise")
+                continue
             fixable = str(prepared.get("fixable") or "").strip()
             style_type = str(prepared.get("type") or "other")
             if fixable == "none":
@@ -951,7 +961,17 @@ def run_feedback(
             for _kind, _style, extra in cardable[keep_n:]:
                 _drop(params, extra, "cap_reached")
             cardable = cardable[:keep_n]
-        planned = len(blocks) + len(cardable)
+        genre_cards: list[dict[str, Any]] = []
+        if genre_report:
+            genre_cards, genre_dropped = genre_puzzle.build_genre_cards(
+                genre_report, paras, scene_id, promise_broken=genre_broken
+            )
+            params.setdefault("dropped", []).extend(genre_dropped)
+            room = max(0, MAX_CARDS_PER_RUN - len(blocks) - len(cardable))
+            for extra in genre_cards[room:]:
+                _drop(params, {"id": extra.get("report_ref"), "title": extra.get("title")}, "cap_reached")
+            genre_cards = genre_cards[:room]
+        planned = len(blocks) + len(cardable) + len(genre_cards)
         feedback_store.update_run(
             conn,
             run_id,
@@ -1040,6 +1060,7 @@ def run_feedback(
             )
             ai_jobs.append((len(ai_jobs), kind, style_type, item, hit, prompt))
 
+        instant_cards.extend(genre_cards)
         if instant_cards:
             feedback_store.add_cards(conn, run_id, instant_cards)
             _commit(conn, options)
@@ -1120,6 +1141,9 @@ def run_feedback(
                 warnings=warnings,
             )
             card = _apply_card_rules(card, paras, check_project)
+            if clue_paras:
+                # 단서·반전에 닿는 수정안은 쓰지 않는다. 지적만 남긴다.
+                genre_puzzle.strip_suggestion_near_clues(card, clue_paras)
             feedback_store.add_cards(conn, run_id, [card])
             _commit(conn, options)
             finished_indexes.add(index)
