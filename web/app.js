@@ -270,6 +270,9 @@ const state = {
     style_choice: "",
     style_habit: "",
   },
+  /** 장르문학 「장르 약속」 두 칸(작가만 씀). 서버: /api/projects/{id}/genre-promise */
+  genrePromise: { promise_broken: "", promise_kept: "" },
+  genrePromiseProjectId: 0,
   /** Independent of genre: "" or a content_rating key such as 19_soft / 19_hard. */
   contentRating: "",
   /** Per-project: first-complete guide card already shown */
@@ -8507,7 +8510,14 @@ const STYLE_FIELD_KEYS = [
 ];
 const styleFieldSaveTimers = {};
 
+/** 장르문학 실험장르는 단편/장편을 안 골라도 된다(고르지 않으면 웹소설 줄로만 첨삭). */
+function isLiteraryFormOptional(clusterId, mainGenre) {
+  const cluster = typeof normalizeClusterId === "function" ? normalizeClusterId(clusterId) : String(clusterId || "");
+  return cluster === "genre_literature" && String(mainGenre || "").trim() === "experimental";
+}
+
 function isLiteraryTrackSelection(clusterId, mainGenre, subGenre) {
+  if (isLiteraryFormOptional(clusterId, mainGenre)) return true;
   if ((typeof normalizeClusterId === "function" ? normalizeClusterId(clusterId) : String(clusterId || "")) !== "general_literature") {
     return false;
   }
@@ -8552,6 +8562,13 @@ function setModalSubmitGate(prefix, enabled) {
   submit.disabled = !enabled;
 }
 
+function modalLiteraryFormOptional(prefix) {
+  const clusterId = getModalClusterId(prefix);
+  const picked = $(`${prefix}MainGenre`)?.value || "";
+  const mapped = mapClusterSubgenre(clusterId, picked);
+  return isLiteraryFormOptional(clusterId, mapped?.main || picked);
+}
+
 function syncModalLiteraryForm(prefix) {
   const block = $(`${prefix}LiteraryForm`);
   const applies = modalLiteraryTrackApplies(prefix);
@@ -8563,13 +8580,18 @@ function syncModalLiteraryForm(prefix) {
     setModalSubmitGate(prefix, true);
     return;
   }
-  setModalSubmitGate(prefix, Boolean(readModalLiteraryForm(prefix)));
+  const optional = modalLiteraryFormOptional(prefix);
+  block?.querySelectorAll(".literary-form-optional-hint").forEach((el) => {
+    el.hidden = !optional;
+  });
+  setModalSubmitGate(prefix, optional || Boolean(readModalLiteraryForm(prefix)));
 }
 
 function finishModalGenre(prefix, result) {
   if (!result?.ok) return result;
   if (!modalLiteraryTrackApplies(prefix)) return result;
   const form = readModalLiteraryForm(prefix);
+  if (!form && modalLiteraryFormOptional(prefix)) return result;
   if (!form) {
     return {
       ok: false,
@@ -8593,9 +8615,13 @@ function syncLiteraryFormControls() {
       input.checked = Boolean(form) && input.value === form;
     });
   });
-  const needsChoice = isLiteraryTrackTarget() && !form;
+  const optional = isLiteraryFormOptional(getProjectClusterId(), state.mainGenre);
+  const needsChoice = isLiteraryTrackTarget() && !form && !optional;
   document.querySelectorAll(".literary-form-needed").forEach((el) => {
     el.hidden = !needsChoice;
+  });
+  document.querySelectorAll(".literary-form-field .literary-form-optional-hint").forEach((el) => {
+    el.hidden = !(isLiteraryTrackTarget() && optional);
   });
 }
 
@@ -8636,6 +8662,7 @@ function applyLiteraryTrackUi() {
   fillStyleFields();
   applyLiteraryLengthTagDisplay();
   syncLiteraryMotifUi();
+  applyGenrePromiseUi();
 }
 
 function applyLiteraryFormChoice(next) {
@@ -8775,6 +8802,108 @@ function syncContestSynopsisOrder() {
     if (world?.parentElement) world.parentElement.insertBefore(opt, world.nextSibling);
     delete opt.dataset.contestLifted;
   }
+}
+
+/* ── 장르 약속 (장르문학 4묶음 공통, 작가만 쓰는 칸 2개) ── */
+const PROMISE_FIELD_KEYS = ["promise_broken", "promise_kept"];
+const GENRE_PROMISE_MAINS = new Set([
+  "mystery", "mystery_detective", "detective", "thriller", "sf", "traditional", "experimental", "romance",
+]);
+const promiseFieldSaveTimers = {};
+
+function isGenrePromiseTarget(clusterId = getProjectClusterId(), mainGenre = state.mainGenre) {
+  const cluster = typeof normalizeClusterId === "function" ? normalizeClusterId(clusterId) : String(clusterId || "");
+  return cluster === "genre_literature" && GENRE_PROMISE_MAINS.has(String(mainGenre || "").trim());
+}
+
+function fillGenrePromiseFields() {
+  PROMISE_FIELD_KEYS.forEach((key) => {
+    const el = document.querySelector(`[data-promise-field="${key}"]`);
+    if (!el || document.activeElement === el) return;
+    el.value = String(state.genrePromise?.[key] || "");
+  });
+  const lines = PROMISE_FIELD_KEYS
+    .map((key) => String(state.genrePromise?.[key] || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  renderPreviewElement($("promisePreview"), lines, i18n.t("app.장르_약속을_적어_보세요"));
+}
+
+async function loadGenrePromise() {
+  const projectId = state.projectId;
+  if (!projectId || !isGenrePromiseTarget()) return;
+  try {
+    const data = await api(`/api/projects/${projectId}/genre-promise`);
+    if (state.projectId !== projectId) return;
+    state.genrePromise = {
+      promise_broken: String(data?.promise_broken || ""),
+      promise_kept: String(data?.promise_kept || ""),
+    };
+    state.genrePromiseProjectId = projectId;
+  } catch (_) {
+    /* 서버가 아직 못 줘도 편집은 막지 않는다 */
+  }
+  fillGenrePromiseFields();
+}
+
+function applyGenrePromiseUi() {
+  const show = Boolean(state.projectId) && isGenrePromiseTarget();
+  document.querySelectorAll('[data-settings-section="promise"]').forEach((el) => {
+    setClusterFeatureHidden(el, !show);
+  });
+  if (!show) return;
+  if (state.genrePromiseProjectId !== state.projectId) {
+    state.genrePromise = { promise_broken: "", promise_kept: "" };
+    fillGenrePromiseFields();
+    loadGenrePromise();
+  } else {
+    fillGenrePromiseFields();
+  }
+}
+
+/** 알림에서 온 초안을 칸에 덧붙인다. 작가가 이미 쓴 글은 지우지 않고, 바로 저장해 알림을 닫아도 남게 한다. */
+async function appendGenrePromiseDraft(field, draft) {
+  if (!PROMISE_FIELD_KEYS.includes(field) || !String(draft || "").trim()) return;
+  if (state.genrePromiseProjectId !== state.projectId) await loadGenrePromise();
+  const el = document.querySelector(`[data-promise-field="${field}"]`);
+  if (!el) return;
+  const existing = String(el.value || "").trim();
+  const next = existing ? `${existing}\n${String(draft).trim()}` : String(draft).trim();
+  el.value = next;
+  state.genrePromise = { ...(state.genrePromise || {}), [field]: next };
+  el.focus();
+  await saveGenrePromiseField(field);
+}
+
+function scheduleGenrePromiseSave(field) {
+  window.clearTimeout(promiseFieldSaveTimers[field]);
+  promiseFieldSaveTimers[field] = window.setTimeout(() => {
+    saveGenrePromiseField(field).catch(handleError);
+  }, 700);
+}
+
+async function saveGenrePromiseField(field) {
+  if (!PROMISE_FIELD_KEYS.includes(field)) return;
+  if (!state.projectId || !isGenrePromiseTarget()) return;
+  const projectId = state.projectId;
+  const el = document.querySelector(`[data-promise-field="${field}"]`);
+  const value = String(el?.value || "");
+  state.genrePromise = { ...(state.genrePromise || {}), [field]: value };
+  await api(`/api/projects/${projectId}/genre-promise`, {
+    method: "POST",
+    body: JSON.stringify({ [field]: value }),
+  });
+}
+
+function setupGenrePromiseFields() {
+  const root = $("promiseBank");
+  if (!root || root.dataset.promiseBound === "1") return;
+  root.dataset.promiseBound = "1";
+  root.querySelectorAll("[data-promise-field]").forEach((el) => {
+    el.addEventListener("input", () => {
+      scheduleGenrePromiseSave(el.getAttribute("data-promise-field") || "");
+    });
+  });
 }
 
 function emptyStyleFields() {
@@ -10729,7 +10858,7 @@ async function persistProjectGenre({ quiet = true, projectId: projectIdOpt } = {
   );
   const target = isLiteraryTrackSelection(clusterId, main, sub);
   const form = target ? readSettingsLiteraryForm() : "";
-  if (target && !form && !wasTarget) {
+  if (target && !form && !wasTarget && !isLiteraryFormOptional(clusterId, main)) {
     state.mainGenre = main;
     state.subGenre = sub;
     state.clusterId = clusterId;
@@ -12358,18 +12487,17 @@ async function restoreLastWorkspaceView() {
   showWelcome();
 }
 
-const SAMPLE_WORKS_SEEDED_KEY = "supertory.sampleWorksSeeded";
+// 사용자가 마지막 작품까지 직접 지웠을 때만 켜진다 — 그 뒤로는 예시 작품을 다시 채우지 않는다.
+// (예전 "seeded" 플래그는 DB가 비었는데도 남아 예시 작품이 안 뜨는 원인이라 더 쓰지 않는다)
+const SAMPLE_WORKS_DISMISSED_KEY = "supertory.sampleWorksDismissed";
 
-/** 처음 켰을 때(작품 0개) 장르별 예시 작품 3편을 한 번만 저장한다. 앱 언어(ko/en/es)별 샘플 파일을 쓴다. */
+/** 작품이 0개일 때(첫 실행·새 데이터 폴더) 장르별 예시 작품 3편을 저장한다. 앱 언어(ko/en/es)별 샘플 파일을 쓴다. */
 async function seedSampleWorksIfFirstRun() {
   try {
-    if (localStorage.getItem(SAMPLE_WORKS_SEEDED_KEY)) return false;
+    if (localStorage.getItem(SAMPLE_WORKS_DISMISSED_KEY)) return false;
   } catch (_) {
     return false;
   }
-  const markSeeded = () => {
-    try { localStorage.setItem(SAMPLE_WORKS_SEEDED_KEY, "1"); } catch (_) { /* ignore */ }
-  };
   const sampleLang = typeof i18n.getLang === "function" ? i18n.getLang() : "ko";
   if (!["ko", "en", "es"].includes(sampleLang)) return false;
   let pack;
@@ -12548,7 +12676,6 @@ async function seedSampleWorksIfFirstRun() {
       console.warn("sample work seed failed", work?.title, error);
     }
   }
-  if (created > 0) markSeeded();
   return created > 0;
 }
 
@@ -12556,8 +12683,6 @@ async function loadProjects(preferredId = null) {
   let projects = await api("/api/projects");
   if (!Array.isArray(projects) || !projects.length) {
     if (await seedSampleWorksIfFirstRun()) projects = await api("/api/projects");
-  } else {
-    try { localStorage.setItem(SAMPLE_WORKS_SEEDED_KEY, "1"); } catch (_) { /* ignore */ }
   }
   applyProjectsListPayload(projects);
   pruneStaleEpisodeTabStorage(state.projects);
@@ -34607,12 +34732,21 @@ function islWdockDraggable() {
   const cls = document.body.classList;
   return cls.contains("ai-panel-collapsed") && !cls.contains("focus-write-open");
 }
+/** 독·마스코트가 내려갈 수 있는 아래 한계(px) — 하단 글자수 상태줄이 보이면 그 위, 아니면 화면 아래 40px */
+function islWdockBottomLimit() {
+  const bar = $("manuscriptStatusBar");
+  if (bar && bar.offsetParent !== null) {
+    const top = bar.getBoundingClientRect().top;
+    if (top > 0 && top < window.innerHeight) return top - 0.4;
+  }
+  return window.innerHeight - 40;
+}
 /** 중심 좌표(px)를 화면 안(타이틀바 아래~상태줄 위)으로 가둔다 */
 function clampIslWdockCenter(x, y, halfW, halfH) {
   const minX = 8 + halfW;
   const maxX = window.innerWidth - 8 - halfW;
   const minY = 48 + halfH;
-  const maxY = window.innerHeight - 40 - halfH;
+  const maxY = islWdockBottomLimit() - halfH;
   return {
     x: Math.min(Math.max(x, minX), Math.max(minX, maxX)),
     y: Math.min(Math.max(y, minY), Math.max(minY, maxY)),
@@ -34797,8 +34931,8 @@ function layoutIslWidgetDock() {
   dock.style.right = `${Math.round(window.innerWidth - anchor.right)}px`;
   dock.style.removeProperty("top");
   dock.style.top = `${Math.round(anchor.top)}px`;
-  dock.style.bottom = `${Math.round(window.innerHeight - anchor.bottom)}px`;
-  const available = anchor.height;
+  dock.style.bottom = `${(window.innerHeight - Math.min(anchor.bottom, islWdockBottomLimit())).toFixed(2)}px`;
+  const available = Math.min(anchor.bottom, islWdockBottomLimit()) - anchor.top;
   if (dock.scrollHeight > available) dock.classList.add("is-compact");
 }
 function closeIslWidgetDock() {
@@ -38445,6 +38579,11 @@ async function applyToryNotifNavigate(target = {}) {
     const field = String(target.field || "");
     setActiveBinder("settings");
     ensureSettingsSectionOpen(section);
+    if (section === "promise") {
+      // 장르 카드 거절 제안: 「일부러 깬 약속」 칸 끝에 초안을 덧붙여 바로 저장한다
+      if (field && prefill) await appendGenrePromiseDraft(field, prefill);
+      return;
+    }
     if (field && prefill) {
       const el = document.querySelector(`[data-style-field="${field}"]`);
       if (el) {
@@ -41573,7 +41712,7 @@ const BAIT_STORAGE_PREFIX = "supertory.baits.";
 const SETTINGS_ORDER_PREFIX = "supertory.settingsOrder.";
 // Default 설정집 폴더 순서 (흥행작 프로파일 연결 = 떡밥모음 아래)
 const DEFAULT_SETTINGS_ORDER = [
-  "ideas", "intro", "style", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
+  "ideas", "intro", "style", "promise", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
 ];
 /** Prior factory defaults — snap exact matches once to the current DEFAULT. */
 const LEGACY_SETTINGS_ORDERS = [
@@ -51906,6 +52045,13 @@ function loadSettingsOrder() {
     ) {
       ordered.splice(dictAt, 1);
       ordered.splice(ordered.indexOf("items") + 1, 0, "dictionary");
+    }
+    // 장르 약속은 새 상자라 저장된 순서에서는 맨 끝에 붙는다 → 문체 바로 뒤로 한 번 옮긴다.
+    const promiseAt = ordered.indexOf("promise");
+    const styleForPromise = ordered.indexOf("style");
+    if (promiseAt >= 0 && styleForPromise >= 0 && promiseAt === ordered.length - 1 && promiseAt !== styleForPromise + 1) {
+      ordered.splice(promiseAt, 1);
+      ordered.splice(ordered.indexOf("style") + 1, 0, "promise");
     }
     const styleAt = ordered.indexOf("style");
     const introAt = ordered.indexOf("intro");
@@ -84695,6 +84841,9 @@ async function deleteProjectFromAdmin(projectId) {
   );
   if (!ok) return;
   await api(`/api/projects/${id}`, { method: "DELETE" });
+  if ((state.projects || []).filter((p) => Number(p.id) !== id).length === 0) {
+    try { localStorage.setItem(SAMPLE_WORKS_DISMISSED_KEY, "1"); } catch (_) { /* ignore */ }
+  }
   const wasCurrent = Number(state.projectId) === id;
   toast(`${i18n.t('app.title_을_를_삭제했어요', {title: title})}`);
   if (wasCurrent) {
@@ -88983,6 +89132,7 @@ setupGenreClusterPicker("import");
 bindLiteraryFormRadios();
 bindContestControls();
 setupStyleFields();
+setupGenrePromiseFields();
 setupWelcomeScreen();
 setupAdminMode();
 setupCharacterPortraitUi();

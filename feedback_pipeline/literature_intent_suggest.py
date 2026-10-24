@@ -253,15 +253,23 @@ def create_or_refresh_intent_suggest(
     tag: str,
     stats: dict[str, Any],
     draft: str,
+    dedupe: str | None = None,
+    title: str | None = None,
+    body: str | None = None,
+    actions: list[dict[str, Any]] | None = None,
+    extra_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """알림을 만들거나 다시 묻는다. 기본값은 문학 문체 5번(의도적 선택) 제안이다.
+
+    장르 카드(genre_intent_suggest)는 같은 흐름을 쓰되 제목·본문·선택지·dedupe_key만 바꿔 넘긴다.
+    """
     label = tag_label(tag)
     count = int(stats.get("count") or 0)
     quotes = _quote_samples(stats.get("cards") or [])
-    dedupe = intent_suggest_dedupe_key(project_id, tag)
-    title = f"최근 피드백에서 '{label}' 제안을 {count}번 적용하지 않으셨어요"
-    body = (
-        f"의도적인 선택이라면 문체의 '의도적 선택'에 적어둘까요?"
-    )
+    dedupe = dedupe or intent_suggest_dedupe_key(project_id, tag)
+    title = title or f"최근 피드백에서 '{label}' 제안을 {count}번 적용하지 않으셨어요"
+    body = body or "의도적인 선택이라면 문체의 '의도적 선택'에 적어둘까요?"
+    action_list = actions if actions is not None else build_actions(draft)
     payload = {
         "tag": tag,
         "tag_label": label,
@@ -271,6 +279,8 @@ def create_or_refresh_intent_suggest(
         "draft": draft,
         "card_ids": [int(item["id"]) for item in (stats.get("cards") or [])[:8]],
     }
+    if extra_payload:
+        payload.update(extra_payload)
     existing = _find_notification(conn, project_id, dedupe)
     if existing is not None and int(existing["dismissed_forever"] or 0):
         return {"created": False, "updated": False, "blocked": True, "reason": "dismissed_forever"}
@@ -297,7 +307,7 @@ def create_or_refresh_intent_suggest(
                 title,
                 body,
                 json.dumps(payload, ensure_ascii=False),
-                json.dumps(build_actions(draft), ensure_ascii=False),
+                json.dumps(action_list, ensure_ascii=False),
                 stamp,
                 int(existing["id"]),
             ),
@@ -317,7 +327,7 @@ def create_or_refresh_intent_suggest(
         title=title,
         body=body,
         payload=payload,
-        actions=build_actions(draft),
+        actions=action_list,
         dedupe_key=dedupe,
     )
     result["reason"] = "created" if result.get("created") else ("updated" if result.get("updated") else "blocked")
@@ -340,7 +350,12 @@ def record_snooze_baseline(
     tag = str(payload.get("tag") or "")
     if not tag:
         return
-    stats = rejection_stats(conn, project_id, tag)
+    if payload.get("genre"):
+        from feedback_pipeline import genre_intent_suggest
+
+        stats = genre_intent_suggest.rejection_stats(conn, project_id, tag)
+    else:
+        stats = rejection_stats(conn, project_id, tag)
     payload["snooze_baseline_count"] = int(stats.get("count") or 0)
     payload["reject_count"] = int(stats.get("count") or 0)
     conn.execute(
@@ -362,7 +377,7 @@ def on_card_status_changed(
     """카드 상태 변경 후 호출. 제안 조건이면 알림을 만든다."""
     row = conn.execute(
         """
-        SELECT c.id, c.project_id, c.status, c.issue_tags_json, r.pipeline
+        SELECT c.id, c.project_id, c.status, c.issue_tags_json, c.report_ref, c.style_type, r.pipeline
         FROM feedback_card AS c
         JOIN feedback_run AS r ON r.id = c.run_id
         WHERE c.id = ?
@@ -371,6 +386,16 @@ def on_card_status_changed(
     ).fetchone()
     if row is None:
         return None
+    if str(row["report_ref"] or "").startswith("GENRE:"):
+        # 장르문학 장르 카드: 「일부러 깬 약속」 제안(같은 규칙, 다른 칸)
+        from feedback_pipeline import genre_intent_suggest
+
+        tag = str(row["style_type"] or "").strip()
+        if not tag:
+            return {"skipped": True, "reason": "no_tag"}
+        return genre_intent_suggest.propose_for_card(
+            conn, int(row["project_id"]), tag, claude=claude
+        )
     if str(row["pipeline"] or "") not in INTENT_SUGGEST_PIPELINES:
         return {"skipped": True, "reason": "not_literature"}
     tags = parse_issue_tags(row["issue_tags_json"])

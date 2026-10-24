@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["events", "reader_knows_at_end", "reader_does_not_know", "open_questions", "resolved_questions", "turns"],
+  "properties": {
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["para", "kind", "what", "quote"],
+        "properties": {
+          "para": {"type": "integer"},
+          "kind": {"type": "string", "enum": ["clue", "red_herring", "reveal", "setup", "tension", "other"]},
+          "what": {"type": "string"},
+          "quote": {"type": "string"}
+        }
+      }
+    },
+    "reader_knows_at_end": {"type": "array", "items": {"type": "string"}},
+    "reader_does_not_know": {"type": "array", "items": {"type": "string"}},
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question", "para"],
+        "properties": {"question": {"type": "string"}, "para": {"type": "integer"}}
+      }
+    },
+    "resolved_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question", "para"],
+        "properties": {"question": {"type": "string"}, "para": {"type": "integer"}}
+      }
+    },
+    "turns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["para", "what"],
+        "properties": {"para": {"type": "integer"}, "what": {"type": "string"}}
+      }
+    }
+  }
+}
