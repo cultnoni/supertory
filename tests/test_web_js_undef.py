@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP_JS = ROOT / "web" / "app.js"
 LINT_FILES = [
     "web/typeset_metrics.js",
+    "web/pagewrite_model.js",
     "web/tory-check.js",
     "web/smart-punctuation.js",
     "web/app.js",

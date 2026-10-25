@@ -60259,6 +60259,8 @@ const PAGE_WRITE_DEFAULT_SPEC = Object.freeze({
 const pageWrite = {
   spec: { ...PAGE_WRITE_DEFAULT_SPEC },
   text: "",
+  runs: [],
+  embeds: [],
   ranges: [],
   caret: 0,
   composing: false,
@@ -60415,25 +60417,43 @@ function locatePageWriteCaret(offset, ranges, textLength) {
   return { page: last, local: range.end - range.start };
 }
 
-function getPageWriteSourceText(editorEl = null) {
+/** 본문을 서식 런으로 바꿔 쪽쓰기 상태에 싣는다. 바꿀 수 없으면(되돌림 검사 실패) null. */
+function loadPageWriteFromManuscript(editorEl = null) {
   const editor = editorEl || $("sceneContent");
-  if (!editor) return "";
-  const clone = editor.cloneNode(true);
-  clone.querySelectorAll("[data-author-note], .st-author-note").forEach((el) => el.remove());
-  clone.querySelectorAll("br").forEach((br) => {
-    br.replaceWith("\n");
+  const model = window.PageWriteModel;
+  if (!editor || !model) return null;
+  const check = model.roundTripCheck(editor);
+  if (!check.ok || !check.parsed) return null;
+  pageWriteSetRuns(check.parsed.runs, check.parsed.embeds);
+  return pageWrite.text;
+}
+
+function pageWriteSetRuns(runs, embeds = null) {
+  pageWrite.runs = runs;
+  if (embeds) pageWrite.embeds = embeds;
+  pageWrite.text = window.PageWriteModel.textOf(runs);
+}
+
+function readPageWriteRuns() {
+  const model = window.PageWriteModel;
+  const all = [];
+  $("pageWritePages")?.querySelectorAll(".page-write-page").forEach((page) => {
+    all.push(...model.readPageRuns(page));
   });
-  return (clone.textContent || "").replace(/\u00a0/g, " ");
+  return model.normalizeRuns(all);
+}
+
+function pageWriteEmbedTitle(kind) {
+  const key = {
+    image: "index.쪽쓰기_삽입물_이미지",
+    footnote: "index.쪽쓰기_삽입물_각주",
+    note: "index.쪽쓰기_삽입물_작가의_말",
+  }[kind] || "index.쪽쓰기_삽입물_기타";
+  return i18n.t(key);
 }
 
 function pageWritePageText(el) {
   return (el.textContent || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-}
-
-function readPageWriteAllText() {
-  return [...($("pageWritePages")?.querySelectorAll(".page-write-page") || [])]
-    .map(pageWritePageText)
-    .join("");
 }
 
 function caretOffsetInPageWrite(page) {
@@ -60495,10 +60515,10 @@ function setPageWriteCaret(offset) {
   sel.addRange(range);
 }
 
-function syncPageWriteToManuscript(text) {
+function syncPageWriteToManuscript() {
   const editor = $("sceneContent");
   if (!editor || !state.sceneId) return;
-  editor.innerHTML = escapeHtml(text).replace(/\r\n|\r|\n/g, "<br>");
+  editor.innerHTML = window.PageWriteModel.serialize(pageWrite.runs, pageWrite.embeds);
   updateEditorPlaceholder(editor);
   updateSceneStats();
   markSceneDirty();
@@ -60533,6 +60553,7 @@ function renderPageWrite(text, caret, startedAt) {
   host.style.setProperty("--page-write-viewport", `${Math.round(viewportPx)}px`);
   const pageFont = typeof typesetCssFontFamily === "function" ? typesetCssFontFamily(draft.font_family) : "";
   host.replaceChildren();
+  const pageRuns = window.PageWriteModel.splitRuns(pageWrite.runs, pageWrite.ranges);
   pageWrite.ranges.forEach((range, index) => {
     const shell = document.createElement("div");
     shell.className = "page-write-shell";
@@ -60546,7 +60567,9 @@ function renderPageWrite(text, caret, startedAt) {
     page.setAttribute("spellcheck", "false");
     page.setAttribute("role", "textbox");
     page.setAttribute("aria-label", i18n.t("index.쪽쓰기_쪽", { n: index + 1 }));
-    page.textContent = text.slice(range.start, range.end);
+    page.append(window.PageWriteModel.renderRuns(document, pageRuns[index], pageWrite.embeds, {
+      embedTitle: pageWriteEmbedTitle,
+    }));
     if (pageFont) page.style.fontFamily = pageFont;
     if (metrics.letterSpacingCss) page.style.letterSpacing = metrics.letterSpacingCss;
     shell.append(label, page);
@@ -60562,18 +60585,18 @@ function renderPageWrite(text, caret, startedAt) {
 function commitPageWriteFromDom() {
   const started = performance.now();
   const caret = globalPageWriteCaret();
-  const text = readPageWriteAllText();
-  renderPageWrite(text, caret, started);
-  syncPageWriteToManuscript(text);
+  pageWriteSetRuns(readPageWriteRuns());
+  renderPageWrite(pageWrite.text, caret, started);
+  syncPageWriteToManuscript();
 }
 
+/** 서식을 잃지 않고 쪽쓰기로 옮길 수 없으면 true (되돌림 검사에서 원본과 달라지는 경우). */
 function manuscriptHasPageWriteUnsafeMarkup(editorEl = null) {
   const editor = editorEl || $("sceneContent");
   if (!editor) return false;
-  for (const el of editor.querySelectorAll("*")) {
-    if (el.tagName !== "BR") return true;
-  }
-  return false;
+  const model = window.PageWriteModel;
+  if (!model) return true;
+  return !model.roundTripCheck(editor).ok;
 }
 
 function openPageWrite(options = {}) {
@@ -60598,7 +60621,7 @@ function openPageWrite(options = {}) {
     pageWrite.composing = false;
     const title = $("sceneTitle")?.value?.trim() || state.scene?.title || i18n.t("index.쪽쓰기");
     if ($("pageWriteTitle")) $("pageWriteTitle").textContent = title;
-    const source = getPageWriteSourceText($("sceneContent"));
+    const source = loadPageWriteFromManuscript($("sceneContent")) ?? "";
     modal.classList.remove("hidden");
     document.body.classList.add("page-write-open");
     if (typeof setPageWriteFullscreen === "function") {
@@ -60786,7 +60809,9 @@ function closePageWrite() {
     if (typeof syncTypesetControlValues === "function") syncTypesetControlValues();
   }
   if (wasOpen) {
-    syncPageWriteToManuscript(readPageWriteAllText() || pageWrite.text);
+    const latest = readPageWriteRuns();
+    if (latest.length) pageWriteSetRuns(latest);
+    syncPageWriteToManuscript();
   }
   modal.classList.add("hidden");
   document.body.classList.remove("page-write-open");
@@ -60834,9 +60859,9 @@ function setupPageWrite() {
         const located = locatePageWriteCaret(caret, pageWrite.ranges, pageWrite.text.length);
         if (located.local === 0) {
           event.preventDefault();
-          const next = pageWrite.text.slice(0, caret - 1) + pageWrite.text.slice(caret);
-          renderPageWrite(next, caret - 1, performance.now());
-          syncPageWriteToManuscript(next);
+          pageWriteSetRuns(window.PageWriteModel.deleteRange(pageWrite.runs, caret - 1, caret));
+          renderPageWrite(pageWrite.text, caret - 1, performance.now());
+          syncPageWriteToManuscript();
         }
       }
       if (event.key === "ArrowLeft" && caret > 0) {

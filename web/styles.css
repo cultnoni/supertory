@@ -23577,6 +23577,35 @@ html.is-electron .page-write-modal.is-maximized {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
 }
+/* 서식 보존: 쪽 안의 서식은 모양(굵게·기울임·색)만 살리고 글자 격자를 깨는 크기·간격은 무시한다 */
+.page-write-page *:not(.page-write-embed) {
+  font-size: inherit !important;
+  line-height: inherit !important;
+  vertical-align: baseline !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  letter-spacing: inherit !important;
+}
+.page-write-embed {
+  display: inline-block;
+  position: relative;
+  width: 1em;
+  height: 1em;
+  overflow: hidden;
+  vertical-align: bottom;
+  color: transparent;
+  user-select: all;
+  cursor: default;
+}
+.page-write-embed::after {
+  content: attr(data-glyph);
+  position: absolute;
+  inset: 0;
+  text-align: center;
+  font-size: .8em;
+  line-height: 1.25em;
+  color: var(--accent);
+}
 .viewer-typeset-pagewrite-link {
   display: inline-flex;
   align-items: center;

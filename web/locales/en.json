@@ -3358,7 +3358,7 @@
   "index.쪽쓰기_조판_규격으로_편집": "Edit in typeset layout",
   "index.쪽쓰기_기능은_준비_중입니다": "Typeset is not ready yet.",
   "index.쪽쓰기_안내": "Edit in typeset-sized pages. Closing still saves to the manuscript.",
-  "index.쪽쓰기_서식있는_회차는_열_수_없습니다": "This episode includes formatting (bold, italic, footnotes, images, and similar), so Typeset cannot open. Typeset currently supports plain text only.",
+  "index.쪽쓰기_서식있는_회차는_열_수_없습니다": "Typeset cannot open this episode because its formatting cannot be carried over safely (an unsupported structure is mixed in). Your manuscript is unchanged.",
   "index.쪽쓰기_열기": "Open typeset",
   "index.쪽쓰기_조판_적용하지_않은_변경": "You have unapplied typeset changes. Closing will discard them.",
   "index.쪽쓰기_쪽": "Page ${n}",
@@ -5935,5 +5935,9 @@
   "app.웰컴_권수": "${n} vol.",
   "app.웰컴_화수": "${n} ep.",
   "app.웰컴_글자수": "${n} chars",
-  "island.요약_진행_글자": "${m} of ${n} done · ${w} chars"
+  "island.요약_진행_글자": "${m} of ${n} done · ${w} chars",
+  "index.쪽쓰기_삽입물_이미지": "Image (kept as is; not editable in Typeset)",
+  "index.쪽쓰기_삽입물_각주": "Footnote mark (kept as is; not editable in Typeset)",
+  "index.쪽쓰기_삽입물_작가의_말": "Author's note (kept as is; not editable in Typeset)",
+  "index.쪽쓰기_삽입물_기타": "List, table, etc. (kept as is; not editable in Typeset)"
 }
