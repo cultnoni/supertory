@@ -60845,6 +60845,12 @@ function setupPageWrite() {
       if (event.isComposing || pageWrite.composing) return;
       commitPageWriteFromDom();
     });
+    host.addEventListener("paste", (event) => {
+      // 쪽 안은 글자 격자라 붙여넣기는 평문으로만 받는다(서식은 쪽 모델이 관리)
+      event.preventDefault();
+      const raw = (event.clipboardData || window.clipboardData)?.getData("text/plain") || "";
+      if (raw) document.execCommand("insertText", false, raw.replace(/\r\n?/g, "\n"));
+    });
     host.addEventListener("mouseup", () => {
       pageWrite.caret = globalPageWriteCaret();
     });

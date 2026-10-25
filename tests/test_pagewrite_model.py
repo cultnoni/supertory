@@ -49,6 +49,11 @@ class PageWriteModelWiringTests(unittest.TestCase):
         self.assertNotIn("escapeHtml(text)", sync)
         self.assertIn("page-write-embed", self.css)
 
+    def test_paste_into_pages_is_plain_text(self) -> None:
+        setup = self.app_js.split("function setupPageWrite", 1)[1][:2500]
+        self.assertIn('addEventListener("paste"', setup)
+        self.assertIn("text/plain", setup)
+
     def test_locale_keys_in_sync(self) -> None:
         keys = (
             "index.쪽쓰기_서식있는_회차는_열_수_없습니다",
