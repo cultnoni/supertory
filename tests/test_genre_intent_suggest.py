@@ -229,6 +229,9 @@ class GenreIntentSuggestTests(unittest.TestCase):
         self.assertEqual(genre_intent_suggest.tag_label("clue_gap"), "단서 누락·모호")
         self.assertEqual(genre_intent_suggest.tag_label("rule_break"), "규칙 위반")
         self.assertEqual(genre_intent_suggest.tag_label("emotion_telling"), "감정 설명 과잉")
+        self.assertEqual(genre_intent_suggest.tag_label("chemistry_weak"), "케미 약함")
+        self.assertEqual(genre_intent_suggest.tag_label("pace_off"), "성장 템포 어긋남")
+        self.assertEqual(genre_intent_suggest.tag_label("narrative_imbalance"), "서사 균형 어긋남")
         self.assertEqual(genre_intent_suggest.tag_label("unknown"), "unknown")
 
 

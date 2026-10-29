@@ -54,12 +54,19 @@ class GenreRunHarness(unittest.TestCase):
         connection.close()
         return response.status, (json.loads(raw) if raw else {})
 
-    def create_scene(self, main_genre: str, **extra) -> tuple[int, int]:
+    def create_scene(
+        self,
+        main_genre: str,
+        *,
+        purpose: str = "genre_literature",
+        cluster_id: str = "genre_literature",
+        **extra,
+    ) -> tuple[int, int]:
         status, project = self.request(
             "POST",
             "/api/projects",
-            {"title": "추리", "purpose": "genre_literature", "main_genre": main_genre,
-             "cluster_id": "genre_literature", **extra},
+            {"title": "추리", "purpose": purpose, "main_genre": main_genre,
+             "cluster_id": cluster_id, **extra},
         )
         self.assertEqual(status, 201, project)
         project_id = int(project["id"])

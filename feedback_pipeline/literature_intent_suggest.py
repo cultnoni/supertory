@@ -387,7 +387,7 @@ def on_card_status_changed(
     if row is None:
         return None
     if str(row["report_ref"] or "").startswith("GENRE:"):
-        # 장르문학 장르 카드: 「일부러 깬 약속」 제안(같은 규칙, 다른 칸)
+        # 장르 카드: 장르문학은 「일부러 깬 약속」, 웹소설은 「의도적으로 쓴 클리셰」
         from feedback_pipeline import genre_intent_suggest
 
         tag = str(row["style_type"] or "").strip()
