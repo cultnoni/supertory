@@ -87017,6 +87017,12 @@ function startOnboardingTutorial(options = {}) {
         popover.closeButton.classList.add("driver-popover-skip-btn");
       }
     },
+    // 건너뛰기·Esc·완료는 여기로 온다. driver.js는 단계 이동 애니메이션이 끝나기 전에 닫으면
+    // onDestroyed를 부르지 않아, 회차 화면이 보드 위에 강제로 남았다.
+    onDestroyStarted: () => {
+      markTutorialCompleted();
+      destroyOnboardingDriver();
+    },
     onDestroyed: () => {
       markTutorialCompleted();
       onboardingDriver = null;
