@@ -1734,7 +1734,7 @@ def _norm_parent_id(value) -> int | None:
 
 CREATE_UNDO_BLOCKED_MSG = (
     "하위 항목이 있어 되돌릴 수 없어요. "
-    "먼저 하위 항목을 옮기거나 삭제해주세요"
+    "먼저 하위 항목을 옮기거나 삭제해 주세요"
 )
 
 

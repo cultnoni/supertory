@@ -42470,11 +42470,11 @@ function renderTempoHookRewriteCards(versions) {
   section.classList.toggle("hidden", !items.length && !tempoHookState.rewriteBusy);
   grid.innerHTML = items.map((item, index) => `
     <article class="tempo-hook-rewrite-card" data-tempo-rewrite="${index}">
-      <span class="tempo-hook-rewrite-card-label">${escapeHtml(item.label || TEMPO_HOOK_REWRITE_FALLBACK_LABELS[index] || `버전 ${index + 1}`)}</span>
+      <span class="tempo-hook-rewrite-card-label">${escapeHtml(item.label || TEMPO_HOOK_REWRITE_FALLBACK_LABELS[index] || i18n.t('app.버전_match_1', { 'match[1]': index + 1 }))}</span>
       <span class="tempo-hook-rewrite-card-text">${escapeHtml(item.text || "")}</span>
       <div class="tempo-hook-rewrite-card-actions">
-        <button type="button" class="secondary compact-btn" data-tempo-rewrite-copy>복사하기</button>
-        <button type="button" class="primary compact-btn" data-tempo-rewrite-insert>원고에 삽입하기</button>
+        <button type="button" class="secondary compact-btn" data-tempo-rewrite-copy>${escapeHtml(i18n.t('app.복사하기'))}</button>
+        <button type="button" class="primary compact-btn" data-tempo-rewrite-insert>${escapeHtml(i18n.t('app.원고에_삽입하기'))}</button>
       </div>
     </article>
   `).join("");
@@ -53009,7 +53009,8 @@ function findSceneNodeById(sceneId) {
 }
 
 /** Titles treated as “no real title” → show body first sentence in the binder. */
-const UNTITLED_SCENE_TITLES = new Set(["", i18n.t('app.제목_없음'), i18n.t('app.새_씬'), i18n.t('app.새_하위_원고')]);
+// "새 씬"은 예전 기본 제목(app.py UNTITLED_SCENE_TITLES와 같게) — 이미 그 제목인 회차도 제목 없음으로 본다
+const UNTITLED_SCENE_TITLES = new Set(["", i18n.t('app.제목_없음'), i18n.t('app.새_씬'), "새 씬", "새 회차", i18n.t('app.새_하위_원고')]);
 
 function isUntitledSceneTitle(title) {
   return UNTITLED_SCENE_TITLES.has(String(title || "").trim());
@@ -84238,8 +84239,8 @@ function openProofReportModal(report, { match = null } = {}) {
               ${reason ? `<span class="proof-diff-reason">${reason}</span>` : ""}
             </header>
             <div class="proof-diff-cols">
-              <div class="proof-diff-orig"><span class="proof-diff-label">원본</span><p>${orig}</p></div>
-              <div class="proof-diff-rev"><span class="proof-diff-label">교정</span><p>${rev}</p></div>
+              <div class="proof-diff-orig"><span class="proof-diff-label">${escapeHtml(i18n.t('app.원본'))}</span><p>${orig}</p></div>
+              <div class="proof-diff-rev"><span class="proof-diff-label">${escapeHtml(i18n.t('app.교정'))}</span><p>${rev}</p></div>
             </div>
           </article>
         `;

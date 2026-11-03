@@ -62,7 +62,7 @@ class SceneContentRepository:
         if expected_row_version:
             scene = self.get_scene_meta(scene_id)
             if scene is None:
-                raise ValueError("씬을 찾을 수 없습니다.")
+                raise ValueError("회차를 찾을 수 없습니다.")
             if scene["row_version"] != expected_row_version:
                 raise ValueError(ROW_VERSION_CONFLICT_MESSAGE)
 
@@ -166,7 +166,7 @@ class SceneContentRepository:
             )
         updated = self.get_scene_meta(scene_id)
         if updated is None:
-            raise ValueError("씬을 찾을 수 없습니다.")
+            raise ValueError("회차를 찾을 수 없습니다.")
         return updated
 
     def bump_row_version(self, scene_id: int) -> dict:
@@ -180,5 +180,5 @@ class SceneContentRepository:
         )
         updated = self.get_scene_meta(scene_id)
         if updated is None:
-            raise ValueError("씬을 찾을 수 없습니다.")
+            raise ValueError("회차를 찾을 수 없습니다.")
         return updated

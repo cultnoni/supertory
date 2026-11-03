@@ -82,6 +82,11 @@ class BinderBodyPreviewTests(unittest.TestCase):
             app.outline_body_preview("새 씬", "테스트 제목없음 테스트"),
             "테스트 제목없음 테스트",
         )
+        # 지금 기본 제목(「새 회차」)도 예전 기본 제목처럼 본문 첫 문장을 보인다
+        self.assertEqual(
+            app.outline_body_preview("새 회차", "테스트 제목없음 테스트"),
+            "테스트 제목없음 테스트",
+        )
 
     def test_titled_scene_has_empty_preview(self) -> None:
         html = _word_paste_html("", "비가 내리던 날, 두 사람은 처음 만났다.")

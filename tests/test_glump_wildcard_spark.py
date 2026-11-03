@@ -184,7 +184,7 @@ class GlumpWildcardSparkTests(unittest.TestCase):
             {"work_id": str(pid), "episode_content": SAMPLE_EPISODE},
         )
         self.assertEqual(status, 500, data)
-        self.assertEqual(data.get("error"), "다시 시도해주세요")
+        self.assertEqual(data.get("error"), "다시 시도해 주세요")
         self.assertEqual(n["count"], 2)
 
     def test_retry_recovers_on_second_call(self) -> None:

@@ -50,7 +50,7 @@ class ReaderCommentsUiTests(unittest.TestCase):
         self.assertIn("이전 댓글이 없어요", ko)
         self.assertIn("No previous comments", en)
         self.assertIn("No hay comentarios anteriores", es)
-        self.assertIn("완성되면 <strong>[결과보기]</strong>에서 가상독자 댓글을 확인할 수 있어요", ko)
+        self.assertIn("완성되면 <strong>[결과보기]</strong>에서 가상 독자 댓글을 확인할 수 있어요", ko)
         for key in (
             "index.가상독자_댓글_보기",
             "app.가상독자_댓글_받기_안내",
