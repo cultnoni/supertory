@@ -218,7 +218,9 @@ class FeedbackApiTests(unittest.TestCase):
             {"scene_id": scene_id},
         )
         self.assertEqual(status, 400, missing_key)
-        self.assertIn("ANTHROPIC_API_KEY", str(missing_key.get("error") or ""))
+        # Writers see app wording, not the developer env var name.
+        self.assertIn("AI에 연결할 수 없어요", str(missing_key.get("error") or ""))
+        self.assertNotIn("ANTHROPIC_API_KEY", str(missing_key.get("error") or ""))
         self.assertNotIn("sk-", json.dumps(missing_key))
         set_configured_for_tests(True)
 

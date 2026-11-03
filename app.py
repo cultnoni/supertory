@@ -2392,9 +2392,8 @@ def create_character_relation(project_id: int, body: dict) -> dict:
 def suggest_character_relations(project_id: int) -> dict:
     project_id = int(project_id)
     if not gemini_client.is_configured():
-        raise ValueError(
-            "Gemini API 키가 없습니다. 프로젝트 폴더의 .env 파일에 GEMINI_API_KEY를 넣어 주세요."
-        )
+        print(f"[gemini] {gemini_client.MISSING_KEY_DEV_HINT}", file=sys.stderr)
+        raise ValueError(gemini_client.AUTH_USER_MESSAGE)
     with database() as connection:
         _require_live_project(connection, project_id)
         roster = list_character_canvas_roster(connection, project_id)
@@ -6010,7 +6009,7 @@ def extract_literary_style(handler, project_id: int, body: dict | None = None) -
     from feedback_pipeline.literature_style import extract_and_apply
 
     if not is_configured():
-        raise ValueError("ANTHROPIC_API_KEY가 설정되지 않았습니다.")
+        raise ValueError(gemini_client.AUTH_USER_MESSAGE)
     mode = str((body or {}).get("mode") or "button").strip()
     if mode not in {"button", "fill_empty"}:
         raise ValueError("문체 추출 방식이 올바르지 않습니다.")
@@ -8624,7 +8623,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
         if prefer == "gemini" or (prefer == "auto" and gemini_ready):
             if not gemini_ready:
-                raise ValueError("Gemini API 키가 없습니다. .env 에 GEMINI_API_KEY 를 넣어 주세요.")
+                raise ValueError(gemini_client.AUTH_USER_MESSAGE)
             # auto+gemini: try Gemini first; on Gemini failure try public.
             try:
                 return self._spellcheck_with_gemini(text, public_error=None)
@@ -21494,7 +21493,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
     def start_index_rebuild(self, body: dict) -> dict:
         global _index_rebuild_thread
         if not gemini_client.is_configured():
-            raise ValueError("Gemini API 키가 없습니다. 관리자 → 정보 · 도움말에서 연결 상태를 확인해 주세요.")
+            raise ValueError(gemini_client.AUTH_USER_MESSAGE)
         raw_ids = body.get("project_ids") or body.get("ids") or []
         if not isinstance(raw_ids, list) or not raw_ids:
             raise ValueError("다시 인덱싱할 작품을 선택해 주세요.")

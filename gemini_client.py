@@ -31,6 +31,11 @@ GEMINI_ERROR_CODES = (
 )
 NETWORK_USER_MESSAGE = "인터넷 연결이 필요해요. 연결을 확인한 뒤 다시 시도해 주세요."
 API_USER_MESSAGE = "AI 응답을 받지 못했어요. 잠시 후 다시 시도해 주세요."
+QUOTA_USER_MESSAGE = "오늘 쓸 수 있는 AI 사용량을 다 썼어요. 내일 다시 시도해 주세요."
+RATE_LIMIT_USER_MESSAGE = "AI 요청이 잠시 몰렸어요. 1분쯤 뒤에 다시 시도해 주세요."
+# Users can't edit .env in the installed app; the developer hint goes to stderr.
+AUTH_USER_MESSAGE = "AI에 연결할 수 없어요. 앱을 최신 버전으로 업데이트한 뒤 다시 시도해 주세요."
+MISSING_KEY_DEV_HINT = "GEMINI_API_KEY가 없습니다. 프로젝트 폴더의 .env 파일에 넣어 주세요."
 DEFAULT_TIMEOUT_SECONDS = 20.0
 
 _CONNECTIVITY_ERRNOS = {
@@ -110,10 +115,8 @@ def generate_text(
 ) -> str:
     """Call Gemini generateContent and return plain text."""
     if not is_configured():
-        raise GeminiError(
-            "Gemini API 키가 없습니다. 프로젝트 폴더의 .env 파일에 GEMINI_API_KEY를 넣어 주세요.",
-            code="auth",
-        )
+        print(f"[gemini] {MISSING_KEY_DEV_HINT}", file=sys.stderr)
+        raise GeminiError(AUTH_USER_MESSAGE, code="auth")
     api_key = get_env("GEMINI_API_KEY")
     assert api_key is not None
 
@@ -374,10 +377,11 @@ def _user_message_for_code(code: str) -> str:
     if code == "network":
         return NETWORK_USER_MESSAGE
     if code == "auth":
-        return (
-            "Gemini API 키가 없거나 권한이 없습니다. "
-            "프로젝트 폴더의 .env 파일에 GEMINI_API_KEY를 확인해 주세요."
-        )
+        return AUTH_USER_MESSAGE
+    if code == "quota":
+        return QUOTA_USER_MESSAGE
+    if code == "rate_limit":
+        return RATE_LIMIT_USER_MESSAGE
     return API_USER_MESSAGE
 
 
@@ -402,9 +406,9 @@ def user_visible_message(error: BaseException) -> str:
     if isinstance(error, GeminiError):
         if error.code == "network":
             return NETWORK_USER_MESSAGE
-        if error.code == "auth":
+        if error.code in {"auth", "quota", "rate_limit"}:
             text = str(error).strip()
-            return text or _user_message_for_code("auth")
+            return text or _user_message_for_code(error.code)
         return API_USER_MESSAGE
     text = str(error or "").strip()
     return text or API_USER_MESSAGE

@@ -586,10 +586,41 @@ function isExternalServiceOfflineMessage(error) {
   return /인터넷 연결이 필요|need an internet connection|conexión a internet|연결이 끊긴 것 같아요|gemini에 연결/i.test(msg);
 }
 
+let aiResultBeforeBusy = "";
+let aiResultBusyText = null;
+
+/** Show a 「…중」 line in the AI result box; a failed run puts the previous result back. */
+function setAiResultBusy(text) {
+  const box = $("aiResult");
+  if (!box) return;
+  if (aiResultBusyText == null || box.value !== aiResultBusyText) aiResultBeforeBusy = box.value;
+  aiResultBusyText = text;
+  box.value = text;
+}
+
+function restoreAiResultAfterFailure() {
+  const box = $("aiResult");
+  if (box && aiResultBusyText != null && box.value === aiResultBusyText) box.value = aiResultBeforeBusy;
+  aiResultBusyText = null;
+}
+
+/** Server copy (gemini_client *_USER_MESSAGE) that tells the writer something a generic retry hint would hide. */
+function aiAssistSpecificMessage(error) {
+  const msg = String(error?.message || "");
+  if (/사용량을 다 썼/.test(msg)) return i18n.t('app.오늘_쓸_수_있는_AI_사용량을_다_썼어요');
+  if (/요청이 잠시 몰렸/.test(msg)) return i18n.t('app.AI_요청이_잠시_몰렸어요');
+  if (/AI에 연결할 수 없어요/.test(msg)) return i18n.t('app.AI에_연결할_수_없어요_앱을_업데이트');
+  return "";
+}
+
 /** Friendly Tory copy for /api/ai/assist failures (keeps original flags). */
 function toAiAssistError(error) {
-  const network = isAiAssistConnectionError(error);
-  const err = new Error(network ? AI_ASSIST_ERR_CONNECTION : AI_ASSIST_ERR_GENERIC);
+  // 「AI에 연결할 수 없어요」 would otherwise match the offline wording below.
+  const specific = error?.isNetwork ? "" : aiAssistSpecificMessage(error);
+  const network = !specific && isAiAssistConnectionError(error);
+  const err = new Error(
+    specific || (network ? AI_ASSIST_ERR_CONNECTION : AI_ASSIST_ERR_GENERIC),
+  );
   err.cause = error;
   err.aiAssist = true;
   err.isNetwork = Boolean(error?.isNetwork) || network;
@@ -27192,7 +27223,7 @@ async function runFocusedAnalysisForTarget(sceneId) {
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "analyze";
   updateForeshadowPanelVisibility();
-  if ($("aiResult")) $("aiResult").value = i18n.t('app.편집자_독자_관점으로_이_회차를_살펴보는_중');
+  setAiResultBusy(i18n.t('app.편집자_독자_관점으로_이_회차를_살펴보는_중'));
   ensureAiResultVisible();
   try {
     const assistBody = {
@@ -27539,7 +27570,7 @@ async function runDetailedSceneSummaryForTarget(sceneId) {
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "summarize";
   updateForeshadowPanelVisibility();
-  if ($("aiResult")) $("aiResult").value = i18n.t('app.회차를_자세히_요약하는_중');
+  setAiResultBusy(i18n.t('app.회차를_자세히_요약하는_중'));
   ensureAiResultVisible();
   try {
     const plain = base.plain.length > 12000 ? base.plain.slice(-12000) : base.plain;
@@ -27724,7 +27755,7 @@ async function runFocusedAnalysis(options = {}) {
     aiButton.disabled = true;
     aiButton.textContent = i18n.t('app.피드백_요청_중');
   }
-  if ($("aiResult")) $("aiResult").value = i18n.t('app.편집자_독자_관점으로_이_회차를_살펴보는_중');
+  setAiResultBusy(i18n.t('app.편집자_독자_관점으로_이_회차를_살펴보는_중'));
   ensureAiResultVisible();
   try {
     const assistBody = {
@@ -28559,7 +28590,7 @@ async function runBrainstormForScene(base, userTopic = "") {
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "brainstorm";
-  if ($("aiResult")) $("aiResult").value = i18n.t('app.작품_확장_아이디어를_브레인스토밍하는_중');
+  setAiResultBusy(i18n.t('app.작품_확장_아이디어를_브레인스토밍하는_중'));
   ensureAiResultVisible();
 
   try {
@@ -28622,7 +28653,7 @@ async function runBrainstormNextExists(base, next, userTopic = "") {
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "brainstorm";
-  if ($("aiResult")) $("aiResult").value = i18n.t('app.현재_다음_회차를_참고해_브레인스토밍하는_중');
+  setAiResultBusy(i18n.t('app.현재_다음_회차를_참고해_브레인스토밍하는_중'));
   ensureAiResultVisible();
 
   try {
@@ -28771,7 +28802,7 @@ async function runIdeasForScene(base) {
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "ideas";
-  if ($("aiResult")) $("aiResult").value = i18n.t('app.다음_전개_아이디어를_생각하는_중');
+  setAiResultBusy(i18n.t('app.다음_전개_아이디어를_생각하는_중'));
   ensureAiResultVisible();
 
   try {
@@ -28825,7 +28856,7 @@ async function runIdeasNextExists(base, next) {
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "ideas";
   if ($("aiResult")) {
-    $("aiResult").value = i18n.t('app.다음_회차_시작부와_대안_전개를_살펴보는_중');
+    setAiResultBusy(i18n.t('app.다음_회차_시작부와_대안_전개를_살펴보는_중'));
   }
   ensureAiResultVisible();
 
@@ -29181,7 +29212,7 @@ async function runWorldScanForTarget(sceneId) {
     aiButton.disabled = true;
     aiButton.textContent = SETTING_BREAK_SCAN_BUSY;
   }
-  if ($("aiResult")) $("aiResult").value = i18n.t('app.세계관_캐릭터_설정과_원고를_대조하는_중');
+  setAiResultBusy(i18n.t('app.세계관_캐릭터_설정과_원고를_대조하는_중'));
   ensureAiResultVisible();
   try {
     const lore = buildLoreKeeperPayload({
@@ -29379,7 +29410,7 @@ async function runWorldScan() {
     aiButton.disabled = true;
     aiButton.textContent = SETTING_BREAK_SCAN_BUSY;
   }
-  if ($("aiResult")) $("aiResult").value = i18n.t('app.세계관_캐릭터_설정과_원고를_대조하는_중');
+  setAiResultBusy(i18n.t('app.세계관_캐릭터_설정과_원고를_대조하는_중'));
   ensureAiResultVisible();
   try {
     const lore = buildLoreKeeperPayload({
@@ -30933,7 +30964,7 @@ async function submitAiAssist(event) {
           : mode === "continue"
             ? i18n.t('app.이어서_쓰는_중')
             : i18n.t('app.생각_중');
-  if ($("aiResult")) $("aiResult").value = button.textContent;
+  setAiResultBusy(button.textContent);
   ensureAiResultVisible();
   try {
     // Panel-driven dupcheck: attach ±4 neighbors when user picks mode from AI form
@@ -30978,6 +31009,8 @@ async function submitAiAssist(event) {
       method: "POST",
       body: JSON.stringify(body),
     });
+    // An empty body must not be announced as 「AI 응답을 받았어요」.
+    if (!String(result?.text || "").trim()) throw new Error(AI_ASSIST_ERR_GENERIC);
     $("aiResult").value = result.text || "";
     if (mode === "continue") {
       prepareStyleBlendOffer({
@@ -32486,7 +32519,7 @@ async function runSubmissionSynopsis(options = {}) {
     button.disabled = true;
     button.textContent = i18n.t('app.시놉시스_작성_중');
   }
-  if ($("aiResult")) $("aiResult").value = i18n.t('app.투고_공모전용_자료를_작성하는_중');
+  setAiResultBusy(i18n.t('app.투고_공모전용_자료를_작성하는_중'));
   ensureAiResultVisible();
   setSubmissionLengthWarn();
 
@@ -44465,7 +44498,7 @@ async function runSuccessFormulaFeedback() {
     button.disabled = true;
     button.textContent = i18n.t('app.흥행_공식_피드백_중');
   }
-  if ($("aiResult")) $("aiResult").value = i18n.t('app.흥행_프로파일과_현재_회차를_비교하는_중');
+  setAiResultBusy(i18n.t('app.흥행_프로파일과_현재_회차를_비교하는_중'));
   ensureAiResultVisible();
 
   try {
@@ -44557,7 +44590,7 @@ async function runSuccessPatternAnalysis() {
   });
   successPatternState.analyzing = true;
   if ($("spAnalyzeStatus")) $("spAnalyzeStatus").textContent = i18n.t('app.구조를_분석하는_중_회차가_많으면_시간이_걸');
-  if ($("aiResult")) $("aiResult").value = i18n.t('app.구조를_분석하는_중_회차가_많으면_시간이_걸');
+  setAiResultBusy(i18n.t('app.구조를_분석하는_중_회차가_많으면_시간이_걸'));
   ensureAiResultVisible();
   updateSpCharBudgetUi();
   try {
@@ -77464,7 +77497,7 @@ async function runTorySceneSummary() {
   if ($("aiMode")) $("aiMode").value = "free";
   if (typeof updateForeshadowPanelVisibility === "function") updateForeshadowPanelVisibility();
   if ($("aiPrompt")) $("aiPrompt").value = i18n.t('app.토리야_요약해_줘_본문_요약_요약_칸');
-  if ($("aiResult")) $("aiResult").value = i18n.t('app.본문을_요약하는_중');
+  setAiResultBusy(i18n.t('app.본문을_요약하는_중'));
   ensureAiResultVisible();
 
   try {
@@ -82973,6 +83006,7 @@ function setupPopupDragging() {
 }
 
 function handleError(error) {
+  restoreAiResultAfterFailure();
   if (isAbortError(error)) return;
   console.error(error);
   if (error?.aiAssist) {

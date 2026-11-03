@@ -9,6 +9,7 @@ from typing import Protocol
 
 import character_import_analysis
 import custom_dictionary
+import gemini_client
 import translation_prompts
 
 
@@ -490,7 +491,7 @@ class TranslationPreparationService:
         if source_text.strip() or index_terms:
             if not self.gemini_is_configured():
                 raise ValueError(
-                    "Gemini API 키가 없습니다. .env 에 GEMINI_API_KEY 를 넣어 주세요."
+                    gemini_client.AUTH_USER_MESSAGE
                 )
             prompt = translation_prompts.build_proper_noun_fit_prompt(
                 source_text,
