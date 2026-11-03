@@ -11556,6 +11556,9 @@ function renderKeywordBox() {
  * Center main panes. When adding a settings “open on main” view, register it here
  * and open via showMainPane(key) so peer panes stay consistent (see AGENTS.md).
  */
+/** Bumped by every main-pane open; openSettingsDocMain drops its DOM switch if stale. */
+let settingsDocOpenGen = 0;
+
 const MAIN_PANES = {
   keyword: { el: "keywordBoard", flag: "keywordBoardOpen", hide: () => hideKeywordBoard() },
   idea: {
@@ -11585,6 +11588,7 @@ const MAIN_PANES = {
 
 /** Hide every registered main pane except `key`, plus welcome / scene / editors. */
 function showMainPane(key) {
+  settingsDocOpenGen += 1; // a pending openSettingsDocMain must not cover this pane
   closeSceneToolsDrawer();
   void closeSplitView().catch(() => {});
   $("welcome")?.classList.add("hidden");
@@ -12444,6 +12448,16 @@ function preferredProjectFromUrl() {
 
 /* Remember last project + scene so relaunch opens the previous working screen. */
 const LAST_WORKSPACE_KEY = "supertory.lastWorkspace";
+const LAST_SCENE_PREFIX = "supertory.lastScene.";
+
+function loadLastSceneForProject(projectId) {
+  try {
+    const sid = Number(localStorage.getItem(`${LAST_SCENE_PREFIX}${Number(projectId)}`));
+    return Number.isFinite(sid) && sid > 0 ? sid : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 function loadLastWorkspace() {
   try {
@@ -12473,6 +12487,8 @@ function saveLastWorkspace(overrides = {}) {
       sceneId: Number.isFinite(sid) && sid > 0 ? sid : null,
       at: Date.now(),
     }));
+    // Per-work memory so the welcome card can reopen any work where it was left.
+    if (Number.isFinite(sid) && sid > 0) localStorage.setItem(`${LAST_SCENE_PREFIX}${pid}`, String(sid));
   } catch (_) {
     /* ignore quota / private mode */
   }
@@ -12499,9 +12515,9 @@ async function restoreLastWorkspaceView() {
     showWelcome();
     return;
   }
-  let sceneId = last && Number(last.projectId) === Number(state.projectId)
-    ? last.sceneId
-    : null;
+  // Going home stores sceneId null globally, so also fall back to this work's own memory.
+  let sceneId = (last && Number(last.projectId) === Number(state.projectId) ? last.sceneId : null)
+    || loadLastSceneForProject(state.projectId);
   // Upgrade path: before lastWorkspace existed, episode tabs still remember open scenes.
   if (!sceneId && Array.isArray(state.episodeTabs) && state.episodeTabs.length) {
     const tabId = Number(state.episodeTabs[state.episodeTabs.length - 1]?.sceneId);
@@ -14029,6 +14045,8 @@ async function openSettingsDocMain(kind = "synopsis", options = {}) {
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
   }
+  // The saves below take up to ~1s; a later click must win over this one.
+  const openGen = ++settingsDocOpenGen;
   const explicitReturn = options?.returnTo;
   if (explicitReturn === "settingsSearch") {
     settingsDocReturnTo = explicitReturn;
@@ -14090,6 +14108,7 @@ async function openSettingsDocMain(kind = "synopsis", options = {}) {
       /* continue */
     }
   }
+  if (openGen !== settingsDocOpenGen) return;
 
   setActiveBinder("settings");
   state.openSettingsSection = SETTINGS_DOC_TO_SECTION[kind] || kind;
@@ -69399,6 +69418,30 @@ async function fillWelcomeCardSummary(project) {
   }
 }
 
+/**
+ * Welcome card = 「이어 쓰기」: switch to the work (if needed) and open its last
+ * scene. A work with no scenes stays on the welcome screen.
+ */
+async function openWelcomeProjectToWrite(rawId) {
+  const pid = Number(rawId);
+  if (!Number.isFinite(pid) || pid <= 0) return;
+  if (Number(state.projectId) !== pid || Number(state.outlineProjectId) !== pid) {
+    const fromId = Number(state.projectId);
+    selectProjectFromList(pid);
+    // The switch in app-boot.js applies after pending saves, then loads the outline.
+    const deadline = Date.now() + 10000;
+    while (Number(state.outlineProjectId) !== pid || Number(state.projectId) !== pid) {
+      const now = Number(state.projectId);
+      if ((now !== pid && now !== fromId) || Date.now() > deadline) return;
+      await new Promise((resolve) => window.setTimeout(resolve, 80));
+    }
+  }
+  await restoreLastWorkspaceView();
+  if (state.sceneId || Number(state.projectId) !== pid) return;
+  const first = allScenes()[0];
+  if (first?.id) await openScene(first.id);
+}
+
 function setupWelcomeHome() {
   const root = $("welcome");
   if (!root || root.dataset.homeBound === "1") return;
@@ -69417,7 +69460,7 @@ function setupWelcomeHome() {
     }
     const card = event.target.closest("[data-welcome-project]");
     if (card) {
-      selectProjectFromList(card.dataset.welcomeProject);
+      openWelcomeProjectToWrite(card.dataset.welcomeProject).catch(handleError);
       return;
     }
     const create = event.target.closest("[data-welcome-create]");
@@ -78072,6 +78115,7 @@ async function openScene(sceneId, options = {}) {
     toast(i18n.t('app.씬을_열_수_없어요'));
     return;
   }
+  settingsDocOpenGen += 1; // a pending openSettingsDocMain must not cover the scene
   if (
     typeof isGlumpSprintActive === "function"
     && isGlumpSprintActive()
