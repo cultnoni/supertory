@@ -249,6 +249,11 @@ def classify_gemini_http_error(
     retry_after = _retry_after_seconds(payload, message, retry_after_header)
     if status in {401, 403}:
         return "auth", retry_after, message
+    # A revoked or rotated key comes back as 400 INVALID_ARGUMENT, not 401.
+    if status == 400 and (
+        "API_KEY_INVALID" in detail or "api key not valid" in message.lower()
+    ):
+        return "auth", retry_after, message
     if status == 429:
         quota_ids = _collect_quota_ids(payload)
         if any("perday" in token.lower() for token in quota_ids):
