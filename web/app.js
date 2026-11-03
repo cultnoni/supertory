@@ -34545,6 +34545,20 @@ function islRailAreaEl() {
 }
 /** 레일 한 칸의 최소 폭. 여백이 이보다 좁아도 화면 밖으로 잘리게 두지 않고 이 폭까지는 유지한다. */
 const ISL_RAIL_MIN_W = 180;
+/** 레일이 본문(작업 영역)을 밀어도 이 폭 아래로는 줄이지 않는다 — 좁은 창에서 원고 칸이 사라지지 않게.
+ *  남는 폭이 모자라면 레일을 좁히고, 그래도 ISL_RAIL_MIN_W가 안 나오면 위젯을 떠 있는 창으로 둔다. */
+const ISL_RAIL_MIN_WORK_W = 480;
+/** 지금 작업 영역에서 레일에 더 내줄 수 있는 폭(큰 창 모드에서는 작업 영역을 밀지 않으므로 제한 없음). */
+function islRailFreeRoom() {
+  if (islRailAreaEl() !== $("workArea")) return Infinity;
+  const area = $("workArea")?.getBoundingClientRect();
+  return area ? area.width - ISL_RAIL_MIN_WORK_W : Infinity;
+}
+/** 자동 정렬로 이 쪽 레일에 붙여도 되는지 — 이미 열린 레일은 같은 열에 쌓이므로 폭이 더 들지 않는다. */
+function islRailCanDock(side) {
+  if (islRailWindows(side).length) return true;
+  return islRailFreeRoom() >= ISL_RAIL_MIN_W + ISL_RAIL_GAP;
+}
 /** 레일 한 칸이 실제로 쓸 폭 — 레일 배치(islRailLayout)와 드롭 안내선(islSnapHint)이 같은 값을 쓴다. */
 function islRailFitWidth(side, area) {
   if (!area) return DOCK_WIDGET_STD_W;
@@ -34568,6 +34582,32 @@ function islRailLayout() {
     if (!active) return;
     widths[side] = islRailFitWidth(side, area);
   });
+  if (area && islRailAreaEl() === $("workArea")) {
+    // area는 지금 붙어 있는 레일만큼 이미 좁아져 있다 — 레일을 뺀 본래 폭에서 다시 나눈다
+    const applied = (name) => parseFloat(body.style.getPropertyValue(name)) || 0;
+    let room = area.width + applied("--isl-rail-l") + applied("--isl-rail-r") - ISL_RAIL_MIN_WORK_W;
+    ["right", "left"].forEach((side) => {
+      if (!widths[side]) return;
+      const fit = Math.min(widths[side], Math.floor(room - ISL_RAIL_GAP));
+      if (fit >= ISL_RAIL_MIN_W) {
+        widths[side] = fit;
+        room -= fit + ISL_RAIL_GAP;
+        return;
+      }
+      widths[side] = 0;
+      // 떼어 낸 위젯은 화면 안에 들어오게, 겹치지 않게 조금씩 비켜 띄운다
+      islRailWindows(side).forEach((win, index) => {
+        const r = win.getBoundingClientRect();
+        const width = Math.min(r.width, window.innerWidth - 16);
+        const height = Math.min(r.height, window.innerHeight - 16);
+        const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8) - index * 24);
+        const top = Math.max(8, Math.min(r.top + index * 24, window.innerHeight - height - 8));
+        islRailUndock(win, { left, top, width, height });
+      });
+      islRailEl(side).hidden = true;
+      body.classList.remove(`isl-rail-${side}`);
+    });
+  }
   body.style.setProperty("--isl-rail-l", widths.left ? `${widths.left + ISL_RAIL_GAP}px` : "0px");
   body.style.setProperty("--isl-rail-r", widths.right ? `${widths.right + ISL_RAIL_GAP}px` : "0px");
   if (!area) return;
@@ -34703,7 +34743,8 @@ function setupIslRail() {
   islRailObserver = new MutationObserver((records) => {
     records.forEach((rec) => {
       rec.addedNodes.forEach((node) => {
-        if (islWidgetAutoAlignOn() && rec.target === host && node.nodeType === 1 && node.classList?.contains("dock-float") && !node.classList.contains("is-railed")) islRailDock(node);
+        if (islWidgetAutoAlignOn() && rec.target === host && node.nodeType === 1 && node.classList?.contains("dock-float") && !node.classList.contains("is-railed")
+          && islRailCanDock(islRailAutoSide())) islRailDock(node);
       });
     });
     // 레일이 모두 비면 자동 붙이기도 끈다 — 새로 여는 위젯이 다시 떠 있는 창으로 열리게
