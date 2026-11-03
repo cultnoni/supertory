@@ -5186,10 +5186,13 @@ def ensure_project_package(connection: sqlite3.Connection, project_id: int) -> d
         project_id=project_id,
         existing_path=row["package_path"],
     )
-    connection.execute(
-        "UPDATE project SET uuid = ?, package_path = ? WHERE id = ?",
-        (project_uuid, str(package), project_id),
-    )
+    # Only write on change: project_touch bumps updated_at/row_version on any
+    # UPDATE, and this runs for every project at startup.
+    if row["uuid"] != project_uuid or row["package_path"] != str(package):
+        connection.execute(
+            "UPDATE project SET uuid = ?, package_path = ? WHERE id = ?",
+            (project_uuid, str(package), project_id),
+        )
     return {
         "uuid": project_uuid,
         "package_path": str(package),

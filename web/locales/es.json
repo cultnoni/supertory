@@ -2486,6 +2486,7 @@
   "app.displayName_을_를_만들고_이_회": "Se creó \"${displayName}\" y se vinculó a este episodio. Escribe los detalles del personaje.",
   "app.연결이_불안정해_이_기기에_원고를_보관했어요": "La conexión es inestable, así que el manuscrito se almacenó en este dispositivo. Se sincronizará automáticamente al reconectar.",
   "app.서버_저장에_실패해_이_기기에_원고를_보관했": "Falló el guardado en el servidor, así que el manuscrito se almacenó en este dispositivo. Se reintentará en breve.",
+  "app.저장_실패_이_기기에_보관_중_눌러서_다시_저장": "No se pudo guardar · El manuscrito está en este dispositivo · Haz clic para guardar de nuevo",
   "app.이_기기_보관본_복구됨_동기화_대기": "Copia del dispositivo recuperada — esperando sincronizar",
   "app.연결_전_편집_내용을_이_기기에서_복구했습니": "Se recuperaron las ediciones hechas antes de conectar, de este dispositivo. Sincronizando con el servidor.",
   "app.오프라인_동기화": "Sincronización sin conexión",

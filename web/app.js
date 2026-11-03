@@ -54512,9 +54512,14 @@ async function trashScene(sceneId, sceneTitle = "") {
       /* still trash */
     }
   }
+  // A failed save leaves sceneDirty set: keep that draft so restoring the
+  // scene from the trash brings the unsaved text back.
+  const unsavedDraft = sceneDirty && state.sceneId === id;
 
   await api(`/api/scenes/${id}/trash`, { method: "POST", body: "{}" });
-  try { clearLocalSceneDraft(id); } catch (_) { /* ignore */ }
+  if (!unsavedDraft) {
+    try { clearLocalSceneDraft(id); } catch (_) { /* ignore */ }
+  }
 
   try {
     savePinnedSceneIds(loadPinnedSceneIds().filter((x) => Number(x) !== id));
@@ -78010,6 +78015,7 @@ function fillSceneEditorFields(scene) {
   }
   sceneDirty = false;
   suppressSceneDirty = false;
+  setSceneSaveFailedCue(false);
   if (typeof applySceneCompleteLock === "function") applySceneCompleteLock();
 }
 
@@ -79228,6 +79234,16 @@ function resetAutoSaveFailStreak() {
   localDraftToastShownForStreak = false;
 }
 
+/** Status-bar 「저장」 keeps an amber dot while the open scene's server save is failing. */
+function setSceneSaveFailedCue(failed) {
+  const btn = $("statusSaveButton");
+  if (!btn) return;
+  btn.classList.toggle("is-save-failed", Boolean(failed));
+  btn.title = failed
+    ? i18n.t('app.저장_실패_이_기기에_보관_중_눌러서_다시_저장')
+    : i18n.t('index.저장_우클릭_목표_전체_적용');
+}
+
 /** Back off retries so a stuck server cannot spam the network / keep the screen awake. */
 function scheduleAutoSaveRetry() {
   if (autoSaveTimer) window.clearTimeout(autoSaveTimer);
@@ -79970,6 +79986,7 @@ async function persistScene(options = {}) {
       clearLocalSceneDraft(persistSceneId);
     }
     resetAutoSaveFailStreak();
+    if (stillOpen) setSceneSaveFailedCue(false);
     // Binder left rail: status / title must match the *saved* scene.
     syncOpenSceneToOutlineBinder({
       sceneId: persistSceneId,
@@ -80022,6 +80039,7 @@ async function persistScene(options = {}) {
   } catch (error) {
     // 2) Local already has the manuscript — never treat this as total loss.
     ensureLocalDraftSaved(isOfflineSafeError(error) ? "offline" : "server-error");
+    if (Number(state.sceneId) === persistSceneId) setSceneSaveFailedCue(true);
     const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     if (isOfflineSafeError(error) && !isLocalAppReachableNow()) {
       setSceneSaveStatus(`${i18n.t('app.이_기기에_보관됨_stamp_연결_시_동기화', {stamp: stamp})}`);

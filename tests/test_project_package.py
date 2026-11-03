@@ -105,6 +105,21 @@ class ProjectPackageApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(projects[0]["uuid"], data["uuid"])
 
+    def test_restart_does_not_touch_unchanged_projects(self) -> None:
+        status, project = self.request(
+            "POST",
+            "/api/projects",
+            {"title": "재시작", "purpose": "novel", "main_genre": "판타지"},
+        )
+        self.assertEqual(status, 201)
+        query = "SELECT updated_at, row_version FROM project WHERE id = ?"
+        with app.database() as connection:
+            before = tuple(connection.execute(query, (project["id"],)).fetchone())
+        app.initialise_database()
+        with app.database() as connection:
+            after = tuple(connection.execute(query, (project["id"],)).fetchone())
+        self.assertEqual(before, after)
+
 
 if __name__ == "__main__":
     unittest.main()
