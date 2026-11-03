@@ -124,6 +124,8 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+# web/dev holds design mocks only; the app never links to them.
+a.datas = [d for d in a.datas if not d[0].replace("\\", "/").startswith("web/dev/")]
 pyz = PYZ(a.pure)
 
 exe = EXE(

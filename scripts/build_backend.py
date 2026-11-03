@@ -192,7 +192,12 @@ def main() -> int:
         str(WORK),
     ]
     print("Running:", " ".join(cmd))
-    subprocess.check_call(cmd, cwd=ROOT)
+    try:
+        subprocess.check_call(cmd, cwd=ROOT)
+    finally:
+        # Left behind, it would hand real keys to source runs and tests
+        # (apply_bundled_defaults fills blank env vars from it).
+        BUNDLED_ENV_PY.unlink(missing_ok=True)
 
     exe = DIST / SERVER_NAME / f"{SERVER_NAME}.exe"
     if not exe.is_file():
