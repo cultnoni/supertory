@@ -87583,7 +87583,7 @@ const UI_THEME_SWATCH = {
   eink: { bg: "#FFFFFF", fg: "#000000" },
   "cloud-walk": { bg: "#B8D4F0", fg: "#FFFFFF" },
   "spring-garden": { bg: "#FBF0F2", fg: "#B88692" },
-  "sunset-window": { bg: "#FBF1E6", fg: "#E5A584" },
+  "sunset-window": { bg: "#FBF1E6", fg: "#A0532F" },
   "silver-fog": { bg: "#D4D8DE", fg: "#FFFFFF" },
   daydream: { bg: "#EFEFF7", fg: "#5B5A96" },
 };

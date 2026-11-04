@@ -297,6 +297,17 @@ html[data-ui-theme="classroom"] .manuscript-status-wrap[data-page-contrast="dark
 html[data-ui-theme="classroom"] .manuscript-status-wrap .status-save-btn {
   color: var(--isl-ink2) !important;
 }
+/* 다락방 — 상태줄 바탕은 어두운 섬(--panel)인데 원고 종이는 밝아서, 원고 잉크색을 따르던 글자가 거의 안 보였다(대비 1.1). 섬 글자색으로 */
+html[data-ui-theme="attic"] #manuscriptStatusWrap :is(.status-bar-counts, .status-bar-field, .status-bar-field-label, .status-reading-time, .scene-goal-progress-label, .status-view-zoom-btn, .status-seg > .status-seg-btn, .status-seg > .stat-chip, .status-seg > .stat-chip strong, .status-save-btn, span, strong),
+html[data-ui-theme="attic"] #manuscriptStatusWrap {
+  color: var(--isl-ink2) !important;
+}
+html[data-ui-theme="attic"] #manuscriptStatusWrap strong { color: var(--text-primary) !important; }
+/* 노을 창가 — 강조색(연한 살구)이 상태줄 선택 칸 글자로는 너무 옅다(대비 1.7). 선택 표시는 바탕으로 두고 글자는 본문색 */
+html[data-ui-theme="sunset-window"] .manuscript-status-bar :is(.status-seg-btn.is-active, .status-seg-btn[aria-pressed="true"]),
+html[data-ui-theme="sunset-window"] .manuscript-status-bar :is(.status-seg-btn.is-active, .status-seg-btn[aria-pressed="true"]) :is(span, strong) {
+  color: var(--text-primary) !important;
+}
 /* E ink — 순수 검정·흰색만 (회색·반투명·색 없음). 변수를 먼저 흑백으로 고정하고, 남는 회색 곳을 개별로 덮음 */
 html[data-theme="eink"],
 html[data-ui-theme="eink"] {
@@ -3623,6 +3634,13 @@ html .idea-board-grid > .idea-card { width: calc((100% - 18px) / 2); }
 #relationCanvas:not(.is-fullscreen) { position: relative; }
 #relationCanvas .character-board-toolbar { align-items: center; margin-bottom: 8px; }
 #relationCanvas .character-board-title { font-family: var(--font-ui); }
+/* 설정집 메인 보드 제목은 모두 UI 글꼴(키워드·세계관·관계도와 같게). styles.css의 Georgia가 남아 있던 곳 —
+   Georgia에는 한글이 없어 한글 제목만 시스템 명조로 바뀌어 보였다 */
+.idea-board-toolbar h2,
+.settings-collection-title,
+.synopsis-main-title,
+.character-board-title,
+.character-editor-title { font-family: var(--font-ui); }
 
 /* 바탕: 지도 이미지·테마 틴트를 걷어내고 점 격자만 */
 #relationCanvas .relation-canvas-stage {
@@ -4699,6 +4717,18 @@ body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
 /* ═════ 디자인 점검 후속(2026-10-22) — docs/design-guidelines.md §1.3·§2·§4 ═════ */
 /* 옵션 화면 머리글: 제목은 한 줄. 좁은 오른쪽 섬에서 '…검사기'의 마지막 글자가 다음 줄로 떨어지지 않게 한다 */
 .is-wide-panel-card .modal-heading { flex-wrap: nowrap; gap: 6px; }
+/* 토리 도구 창 제목: styles.css의 고정 짙은 갈색 대신 테마 글자색 — 어두운 테마(다크·딥다크·다락방)에서 제목이 안 보였다(대비 1.1) */
+.tory-helper-title,
+.tory-helper-card .modal-heading h2,
+.ai-tool-modal-card .modal-heading h2,
+.tory-helper-modal .modal-heading h2 { color: var(--text-primary); }
+/* 서사 템포 & 훅 결과: 그래프(viewBox 640) 때문에 그리드 칸이 줄지 못해 넓은 패널(약 520px)에서 가로로 넘쳤다 */
+.tempo-hook-modal-card .tempo-hook-results { grid-template-columns: minmax(0, 1fr); }
+.tempo-hook-modal-card .tempo-hook-results > * { min-width: 0; }
+/* 내보내기 범위 선택 칸: styles.css가 선택 바탕에 #fff를 섞어 어두운 테마에서 밝은 회색 위 밝은 글자(대비 1.2)가 됐다 — 가이드 §2 연한 강조 바탕으로 */
+.export-scope-option:has(input:checked) { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+/* 개작 제안 카드 3장: 칸이 좁으면(넓은 패널) 한 줄에 다 넣지 않고 아래로 내린다 */
+.tempo-hook-modal-card .tempo-hook-rewrite-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
 .is-wide-panel-card .modal-heading h2,
 .is-wide-panel-card .tory-helper-title {
   flex: 1 1 auto; min-width: 0;
