@@ -334,6 +334,7 @@ from routes import (  # noqa: E402
     reader_api,
     success_pattern_api,
     translation_api,
+    webnovel_cliche_api,
 )
 
 # Translation helpers live in routes.translation_api; re-export names still used by
@@ -6390,6 +6391,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if genre_promise_api.try_handle_get(self, path):
                 return
 
+            if webnovel_cliche_api.try_handle_get(self, path):
+                return
+
             if gitsi_api.try_handle_get(self, path):
                 return
 
@@ -6940,6 +6944,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return
 
             if genre_promise_api.try_handle_post(self, path, body):
+                return
+
+            if webnovel_cliche_api.try_handle_post(self, path, body):
                 return
 
             if gitsi_api.try_handle_post(self, path, body):

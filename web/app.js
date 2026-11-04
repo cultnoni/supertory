@@ -272,6 +272,8 @@ const state = {
   },
   /** 장르문학 「장르 약속」 두 칸(작가만 씀). 서버: /api/projects/{id}/genre-promise */
   genrePromise: { promise_broken: "", promise_kept: "" },
+  /** 웹소설 「장르 클리셰」 두 칸(작가만 씀). 서버: /api/projects/{id}/webnovel-cliche */
+  webnovelCliche: { cliche_used: "", cliche_avoid: "" },
   genrePromiseProjectId: 0,
   /** Independent of genre: "" or a content_rating key such as 19_soft / 19_hard. */
   contentRating: "",
@@ -8937,6 +8939,108 @@ function setupGenrePromiseFields() {
   });
 }
 
+/* ── 장르 클리셰 (웹소설 3묶음 공통, 작가만 쓰는 칸 2개) ── */
+const CLICHE_FIELD_KEYS = ["cliche_used", "cliche_avoid"];
+const WEBNOVEL_CLICHE_MAINS = new Set([
+  "romance", "romfant", "fantasy", "martial", "historical", "sports", "female_fantasy",
+]);
+const clicheFieldSaveTimers = {};
+
+function isWebnovelClicheTarget(clusterId = getProjectClusterId(), mainGenre = state.mainGenre) {
+  const cluster = typeof normalizeClusterId === "function" ? normalizeClusterId(clusterId) : String(clusterId || "");
+  return cluster === "webnovel" && WEBNOVEL_CLICHE_MAINS.has(String(mainGenre || "").trim());
+}
+
+function fillWebnovelClicheFields() {
+  CLICHE_FIELD_KEYS.forEach((key) => {
+    const el = document.querySelector(`[data-cliche-field="${key}"]`);
+    if (!el || document.activeElement === el) return;
+    el.value = String(state.webnovelCliche?.[key] || "");
+  });
+  const lines = CLICHE_FIELD_KEYS
+    .map((key) => String(state.webnovelCliche?.[key] || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  renderPreviewElement($("clichePreview"), lines, i18n.t("app.장르_클리셰를_적어_보세요"));
+}
+
+async function loadWebnovelCliche() {
+  const projectId = state.projectId;
+  if (!projectId || !isWebnovelClicheTarget()) return;
+  try {
+    const data = await api(`/api/projects/${projectId}/webnovel-cliche`);
+    if (state.projectId !== projectId) return;
+    state.webnovelCliche = {
+      cliche_used: String(data?.cliche_used || ""),
+      cliche_avoid: String(data?.cliche_avoid || ""),
+    };
+    state.webnovelClicheProjectId = projectId;
+  } catch (_) {
+    /* 서버가 아직 못 줘도 편집은 막지 않는다 */
+  }
+  fillWebnovelClicheFields();
+}
+
+function applyWebnovelClicheUi() {
+  const show = Boolean(state.projectId) && isWebnovelClicheTarget();
+  document.querySelectorAll('[data-settings-section="cliche"]').forEach((el) => {
+    setClusterFeatureHidden(el, !show);
+  });
+  if (!show) return;
+  if (state.webnovelClicheProjectId !== state.projectId) {
+    state.webnovelCliche = { cliche_used: "", cliche_avoid: "" };
+    fillWebnovelClicheFields();
+    loadWebnovelCliche();
+  } else {
+    fillWebnovelClicheFields();
+  }
+}
+
+function scheduleWebnovelClicheSave(field) {
+  window.clearTimeout(clicheFieldSaveTimers[field]);
+  clicheFieldSaveTimers[field] = window.setTimeout(() => {
+    saveWebnovelClicheField(field).catch(handleError);
+  }, 700);
+}
+
+async function saveWebnovelClicheField(field) {
+  if (!CLICHE_FIELD_KEYS.includes(field)) return;
+  if (!state.projectId || !isWebnovelClicheTarget()) return;
+  const projectId = state.projectId;
+  const el = document.querySelector(`[data-cliche-field="${field}"]`);
+  const value = String(el?.value || "");
+  state.webnovelCliche = { ...(state.webnovelCliche || {}), [field]: value };
+  await api(`/api/projects/${projectId}/webnovel-cliche`, {
+    method: "POST",
+    body: JSON.stringify({ [field]: value }),
+  });
+}
+
+/** 웹소설 장르 카드 거절 제안: 「의도적으로 쓴 클리셰」 칸 끝에 초안을 덧붙여 바로 저장한다. */
+async function appendWebnovelClicheDraft(field, draft) {
+  if (!CLICHE_FIELD_KEYS.includes(field) || !String(draft || "").trim()) return;
+  if (state.webnovelClicheProjectId !== state.projectId) await loadWebnovelCliche();
+  const el = document.querySelector(`[data-cliche-field="${field}"]`);
+  if (!el) return;
+  const existing = String(el.value || "").trim();
+  const next = existing ? `${existing}\n${String(draft).trim()}` : String(draft).trim();
+  el.value = next;
+  state.webnovelCliche = { ...(state.webnovelCliche || {}), [field]: next };
+  el.focus();
+  await saveWebnovelClicheField(field);
+}
+
+function setupWebnovelClicheFields() {
+  const root = $("clicheBank");
+  if (!root || root.dataset.clicheBound === "1") return;
+  root.dataset.clicheBound = "1";
+  root.querySelectorAll("[data-cliche-field]").forEach((el) => {
+    el.addEventListener("input", () => {
+      scheduleWebnovelClicheSave(el.getAttribute("data-cliche-field") || "");
+    });
+  });
+}
+
 function emptyStyleFields() {
   return {
     style_narration: "",
@@ -9788,6 +9892,7 @@ function applyClusterFeatureGating() {
   try { syncKeywordClusterUi(); } catch (_) { /* ignore */ }
   try { applyGenreToolRoutingHooks(); } catch (_) { /* ignore */ }
   try { applyLiteraryTrackUi(); } catch (_) { /* ignore */ }
+  try { applyWebnovelClicheUi(); } catch (_) { /* ignore */ }
 }
 
 /* Curated language list for 번역 (source / target). */
@@ -38677,6 +38782,11 @@ async function applyToryNotifNavigate(target = {}) {
       if (field && prefill) await appendGenrePromiseDraft(field, prefill);
       return;
     }
+    if (section === "cliche") {
+      // 웹소설 장르 카드 거절 제안: 「의도적으로 쓴 클리셰」 칸 끝에 초안을 덧붙여 바로 저장한다
+      if (field && prefill) await appendWebnovelClicheDraft(field, prefill);
+      return;
+    }
     if (field && prefill) {
       const el = document.querySelector(`[data-style-field="${field}"]`);
       if (el) {
@@ -41805,7 +41915,7 @@ const BAIT_STORAGE_PREFIX = "supertory.baits.";
 const SETTINGS_ORDER_PREFIX = "supertory.settingsOrder.";
 // Default 설정집 폴더 순서 (흥행작 프로파일 연결 = 떡밥모음 아래)
 const DEFAULT_SETTINGS_ORDER = [
-  "ideas", "intro", "style", "promise", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
+  "ideas", "intro", "style", "promise", "cliche", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
 ];
 /** Prior factory defaults — snap exact matches once to the current DEFAULT. */
 const LEGACY_SETTINGS_ORDERS = [
@@ -52145,6 +52255,14 @@ function loadSettingsOrder() {
     if (promiseAt >= 0 && styleForPromise >= 0 && promiseAt === ordered.length - 1 && promiseAt !== styleForPromise + 1) {
       ordered.splice(promiseAt, 1);
       ordered.splice(ordered.indexOf("style") + 1, 0, "promise");
+    }
+    // 장르 클리셰도 새 상자라 저장된 순서에서는 맨 끝에 붙는다 → 장르 약속(없으면 문체) 바로 뒤로 옮긴다.
+    const clicheAt = ordered.indexOf("cliche");
+    const afterForCliche = ordered.indexOf("promise") >= 0 ? "promise" : "style";
+    const afterAtForCliche = ordered.indexOf(afterForCliche);
+    if (clicheAt >= 0 && afterAtForCliche >= 0 && clicheAt === ordered.length - 1 && clicheAt !== afterAtForCliche + 1) {
+      ordered.splice(clicheAt, 1);
+      ordered.splice(ordered.indexOf(afterForCliche) + 1, 0, "cliche");
     }
     const styleAt = ordered.indexOf("style");
     const introAt = ordered.indexOf("intro");
@@ -89311,6 +89429,7 @@ bindLiteraryFormRadios();
 bindContestControls();
 setupStyleFields();
 setupGenrePromiseFields();
+setupWebnovelClicheFields();
 setupWelcomeScreen();
 setupAdminMode();
 setupCharacterPortraitUi();

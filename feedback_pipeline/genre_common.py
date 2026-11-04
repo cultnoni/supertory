@@ -153,18 +153,77 @@ def missing_keys(rubric: dict[str, Any]) -> list[str]:
     return [item["key"] for item in rubric.get("items") or [] if item.get("missing")]
 
 
+def playbook_emphasis_text(
+    project: dict[str, Any],
+    *,
+    heading: str,
+    detail_labels: dict[str, str] | None = None,
+) -> str:
+    """AI 패널 판단 기준(A그룹)과 같은 기준집에서 첨삭 루브릭에 넣을 글을 뽑는다.
+
+    도우미 설정 검사와 말이 어긋나지 않게, 점검·판정 지침·세부장르 추가 기준은
+    자르지 않고 넣는다. 톤·피할 것도 같이 넣되 세부장르의 피할 것·판정 지침을 빠뜨리지 않는다.
+    로맨스는 도우미와 같은 캐릭터/관계 참고 어휘도 붙인다.
+    """
+    try:
+        import app
+        import genre_clusters
+    except ImportError:  # CLI 등 앱 없이 쓸 때
+        return ""
+    main_genre = str(project.get("main_genre") or "")
+    sub_genre = str(project.get("sub_genre") or "")
+    detail = str(project.get("genre_detail") or "")
+    book = app.load_genre_playbook(main_genre, sub_genre)
+    if not isinstance(book, dict):
+        return ""
+    rules = book.get("group_rules") if isinstance(book.get("group_rules"), dict) else {}
+    lines = [heading]
+    for label, value in (
+        ("톤", book.get("tone")),
+        ("점검", book.get("checklist")),
+        ("피할 것", book.get("avoid")),
+        ("판정 지침", rules.get("A_judge")),
+    ):
+        blob = str(value or "").strip()
+        if blob:
+            lines.append(f"- {label}: {blob}")
+    delta = app.load_genre_playbook_delta(main_genre, sub_genre, detail)
+    if isinstance(delta, dict):
+        _main, _sub, resolved = genre_clusters.playbook_lookup_keys(main_genre, sub_genre, detail)
+        labels = dict(detail_labels or {})
+        detail_label = labels.get(resolved) or genre_clusters.genre_detail_label(resolved) or resolved or "세부 장르"
+        addition = str(delta.get("checklist_addition") or delta.get("checklist") or "").strip()
+        avoid_extra = str(delta.get("avoid_addition") or delta.get("avoid") or "").strip()
+        d_rules = app._playbook_delta_rules(delta)
+        judge_extra = str(d_rules.get("A_judge") or "").strip() if isinstance(d_rules, dict) else ""
+        if addition:
+            lines.append(f"- {detail_label} 추가 점검: {addition}")
+        if avoid_extra:
+            lines.append(f"- {detail_label} 피할 것: {avoid_extra}")
+        if judge_extra:
+            lines.append(f"- {detail_label} 판정 지침: {judge_extra}")
+    tags = app.format_genre_playbook_reference_tags_section(main_genre, book)
+    if tags:
+        lines.append(tags)
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
 def project_row(conn: sqlite3.Connection, project_id: int) -> dict[str, Any]:
     row = conn.execute(
-        "SELECT cluster_id, main_genre, sub_genre, tory_priority_md, promise_broken, promise_kept, "
-        "romance_structure, romance_setting "
+        "SELECT cluster_id, main_genre, sub_genre, genre_detail, tory_priority_md, "
+        "promise_broken, promise_kept, cliche_used, cliche_avoid, romance_structure, romance_setting "
         "FROM project WHERE id = ?",
         (int(project_id),),
     ).fetchone()
     return dict(row) if row is not None else {}
 
 
-def broken_promise_text(conn: sqlite3.Connection, project_id: int) -> str:
-    return text(project_row(conn, project_id).get("promise_broken"), 800)
+def broken_promise_text(conn: sqlite3.Connection, project_id: int, field: str = "promise_broken") -> str:
+    """작가가 「일부러 깬」 쪽 칸의 글. 묶음마다 칸 이름이 다르면 ``field``로 고른다
+
+    (장르문학은 ``promise_broken``, 웹소설은 ``cliche_used`` — ``LayerSpec.broken_field``).
+    """
+    return text(project_row(conn, project_id).get(field), 800)
 
 
 def promise_covers(blob: str, promise: str) -> bool:
@@ -288,6 +347,11 @@ class LayerSpec:
     valid_keys: tuple[str, ...]
     required_keys: Callable[[dict[str, Any], bool], list[str]]
     emphasis: Callable[[dict[str, Any]], str]
+    # 「일부러 쓴/깬」, 「지키고 싶은」 칸의 project 컬럼 이름. 장르문학은 기본값
+    # (promise_broken/promise_kept) 그대로, 웹소설은 묶음 모듈의 SPEC에서
+    # cliche_used/cliche_avoid로 바꿔 쓴다(docs/webnovel-genre-pipeline.md).
+    broken_field: str = "promise_broken"
+    kept_field: str = "promise_kept"
 
 
 def run_report(
@@ -312,8 +376,8 @@ def run_report(
     """
     project = project_row(conn, project_id)
     paras = para_map(paragraphs)
-    promise_broken = text(project.get("promise_broken"), 800)
-    promise_kept = text(project.get("promise_kept"), 800)
+    promise_broken = text(project.get(spec.broken_field), 800)
+    promise_kept = text(project.get(spec.kept_field), 800)
     needed = spec.required_keys(project, bool(promise_kept))
     guidance = text(project.get("tory_priority_md"), 800) or "(없음)"
     # invoke_parsed는 runner의 공통 시스템(system_core)을 쓰므로, 장르 지침은 단계 프롬프트 앞에 붙인다.

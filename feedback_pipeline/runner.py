@@ -842,7 +842,9 @@ def run_feedback(
         genre_layer = genre_layers.layer_for(genre_opts.get("group"))
         if genre_layer is not None:
             # 장르문학(수수께끼형·세계형): 장르별 지도와 장르 진단. 실패해도 일반 리포트와 카드는 계속 만든다.
-            genre_broken = genre_common.broken_promise_text(conn, project_id)
+            genre_broken = genre_common.broken_promise_text(
+                conn, project_id, field=genre_layer.SPEC.broken_field
+            )
             _set_progress(conn, run_id, params, "genre", 2, 5)
             _commit(conn, options)
             try:

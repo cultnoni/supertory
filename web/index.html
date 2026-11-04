@@ -1042,6 +1042,34 @@
                 </div>
               </section>
 
+              <section class="settings-box hidden" data-settings-section="cliche" id="clicheBank" draggable="true" hidden>
+                <div class="settings-box-header">
+                  <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
+                  <button type="button" class="settings-box-toggle" data-settings-toggle="cliche" aria-expanded="false">
+                    <span class="settings-box-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                        <path d="M20 6 9 17l-5-5"/>
+                      </svg>
+                    </span>
+                    <span class="settings-box-title" data-i18n="app.장르_클리셰">장르 클리셰</span>
+                  </button>
+                </div>
+                <div class="settings-box-preview" id="clichePreview"></div>
+                <div class="settings-box-body" id="clicheBody" hidden>
+                  <div class="style-fields" id="clicheFields">
+                  <p class="hint" data-i18n="app.장르_클리셰_안내">장르 클리셰를 의도적으로 썼는지 첨삭에서 살펴봐요. 의도적으로 쓴 클리셰는 지적하지 않아요.</p>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.의도적으로_쓴_클리셰">의도적으로 쓴 클리셰</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
+                    <textarea data-cliche-field="cliche_used" rows="3" placeholder="의도적으로 쓴 클리셰가 있다면 적어주세요. 예: 계약 연애, 재벌남 설정은 의도" data-i18n-placeholder="app.장르_클리셰_쓴_예시"></textarea>
+                  </label>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.피하고_싶은_클리셰">피하고 싶은 클리셰</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
+                    <textarea data-cliche-field="cliche_avoid" rows="3" placeholder="피하고 싶은 클리셰를 적어주세요. 예: 나쁜 남자 서사는 지양" data-i18n-placeholder="app.장르_클리셰_피할_예시"></textarea>
+                  </label>
+                  </div>
+                </div>
+              </section>
+
               <section class="settings-box" data-settings-section="logsyn" draggable="true">
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
