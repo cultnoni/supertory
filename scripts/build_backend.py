@@ -33,6 +33,7 @@ BUNDLE_KEYS = (
     "ANTHROPIC_API_KEY",
     "SUPABASE_URL",
     "SUPABASE_ANON_KEY",
+    "PEXELS_API_KEY",
 )
 SUPABASE_KEYS = (
     "SUPABASE_URL",
@@ -191,7 +192,12 @@ def main() -> int:
         str(WORK),
     ]
     print("Running:", " ".join(cmd))
-    subprocess.check_call(cmd, cwd=ROOT)
+    try:
+        subprocess.check_call(cmd, cwd=ROOT)
+    finally:
+        # Left behind, it would hand real keys to source runs and tests
+        # (apply_bundled_defaults fills blank env vars from it).
+        BUNDLED_ENV_PY.unlink(missing_ok=True)
 
     exe = DIST / SERVER_NAME / f"{SERVER_NAME}.exe"
     if not exe.is_file():
@@ -199,24 +205,24 @@ def main() -> int:
         alt = DIST / f"{SERVER_NAME}.exe"
         if alt.is_file():
             print(f"Backend built (onefile?): {alt}")
-            _copy_env_sidecar(alt.parent)
-            return 0
+            return 0 if _assert_no_env_files(alt.parent) else 1
         print(f"ERROR: expected backend binary not found: {exe}", file=sys.stderr)
         return 1
 
-    _copy_env_sidecar(exe.parent)
+    if not _assert_no_env_files(exe.parent):
+        return 1
     print(f"Backend ready: {exe}")
     return 0
 
 
-def _copy_env_sidecar(target_dir: Path) -> None:
-    """Also place .env next to the exe (exe-dir discovery path)."""
-    src = ROOT / ".env"
-    if not src.is_file():
-        return
-    dest = target_dir / ".env"
-    shutil.copy2(src, dest)
-    print(f"Copied .env sidecar → {dest}")
+def _assert_no_env_files(target_dir: Path) -> bool:
+    """Fail the build if any .env file ended up in the shipped output."""
+    leaked = sorted(target_dir.rglob("*.env"))  # "*" also matches the bare ".env"
+    if leaked:
+        for path in leaked:
+            print(f"ERROR: .env file must not ship with the backend: {path}", file=sys.stderr)
+        return False
+    return True
 
 
 if __name__ == "__main__":

@@ -21,9 +21,8 @@ if _persona_seed.is_file():
 _genre_playbooks = ROOT / "data" / "genre_playbooks.json"
 if _genre_playbooks.is_file():
     datas.append((str(_genre_playbooks), "data"))
-# Ship project .env into MEIPASS when present so frozen loaders find GEMINI_API_KEY.
-if (ROOT / ".env").is_file():
-    datas.append((str(ROOT / ".env"), "."))
+# Never ship the project .env: it holds developer-only secrets. Runtime keys
+# reach the frozen backend through bundled_env.py (scripts/build_backend.py).
 _feedback_prompts = ROOT / "feedback_pipeline" / "prompts"
 if _feedback_prompts.is_dir():
     datas.append((str(_feedback_prompts), "feedback_pipeline/prompts"))
@@ -125,6 +124,8 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+# web/dev holds design mocks only; the app never links to them.
+a.datas = [d for d in a.datas if not d[0].replace("\\", "/").startswith("web/dev/")]
 pyz = PYZ(a.pure)
 
 exe = EXE(
