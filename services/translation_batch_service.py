@@ -108,7 +108,7 @@ def generate_translation_text(
 ) -> str:
     if not gemini_client.is_configured():
         raise ValueError(
-            "Gemini API 키가 없습니다. .env 에 GEMINI_API_KEY 를 넣어 주세요."
+            gemini_client.AUTH_USER_MESSAGE
         )
     rate_limit_tries = 0
     while True:

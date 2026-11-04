@@ -3140,6 +3140,17 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
 
 
 class ParagraphTranslationParseTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Parse failures append to DATA_DIR/translation_paragraph_debug.log —
+        # keep that out of the real shared AppData folder.
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.original_data_dir = app.DATA_DIR
+        app.DATA_DIR = Path(self.temporary_directory.name) / "data"
+
+    def tearDown(self) -> None:
+        app.DATA_DIR = self.original_data_dir
+        self.temporary_directory.cleanup()
+
     def test_reads_standard_json(self) -> None:
         text, notes = app._parse_paragraph_translation_output(
             '{"translated_text": "Iona sighed.", "translation_notes": []}'

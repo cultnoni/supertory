@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import sys
 import threading
 from http import HTTPStatus
 from typing import Any
@@ -21,6 +22,7 @@ from feedback_pipeline.card_reply import (
     reply_to_card_comment,
 )
 from feedback_pipeline.claude_client import ClaudeError, get_client, is_configured, is_fake_mode
+from gemini_client import AUTH_USER_MESSAGE, RATE_LIMIT_USER_MESSAGE
 from feedback_pipeline.config import (
     FEEDBACK_MODEL,
     LITERATURE_LONG_PROMPT_VERSION,
@@ -322,7 +324,8 @@ def _start_run(
     body: dict[str, Any],
 ) -> None:
     if not is_configured():
-        raise ValueError("ANTHROPIC_API_KEY가 설정되지 않았습니다.")
+        print("[claude] ANTHROPIC_API_KEY가 없습니다. 프로젝트 폴더의 .env 파일에 넣어 주세요.", file=sys.stderr)
+        raise ValueError(AUTH_USER_MESSAGE)
     scene_raw = body.get("scene_id")
     want_midcheck = str(body.get("pipeline") or body.get("mode") or "").strip() in {
         "literature_midcheck",
@@ -689,9 +692,17 @@ def _post_card_comment(handler, card_id: int, body: dict[str, Any]) -> None:
                 public_comment(row)
                 for row in feedback_store.list_card_comments(conn, card_id)
             ]
+            # Raw Anthropic/SDK text is not for writers; map by code.
+            code = getattr(error, "code", "")
+            if code == "rate_limit":
+                public = RATE_LIMIT_USER_MESSAGE
+            elif code == "auth":
+                public = AUTH_USER_MESSAGE
+            else:
+                public = "답을 받지 못했어요. 잠시 후 다시 시도해 주세요."
             handler.send_json(
                 {
-                    "error": str(error) or "답을 받지 못했어요.",
+                    "error": public,
                     "comments": saved[-1:] if saved else [],
                 },
                 HTTPStatus.BAD_GATEWAY,
