@@ -37104,6 +37104,7 @@ html[lang="es"] .format-tool-label-wrap {
 .translation-result-chapter h3 {
   margin: 0 0 6px;
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 .translation-result-actions {
   flex-wrap: wrap;
