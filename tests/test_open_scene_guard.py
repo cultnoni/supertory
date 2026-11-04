@@ -73,7 +73,7 @@ class OpenSceneGuardTests(unittest.TestCase):
         for loc in (self.ko, self.en, self.es):
             self.assertIn(missing, loc)
             self.assertIn(foreign, loc)
-        self.assertIn("탭을 닫아주세요", self.ko[missing])
+        self.assertIn("탭을 닫아 주세요", self.ko[missing])
         self.assertNotEqual(self.ko[missing], "소설을 찾을 수 없습니다.")
 
     def test_local_draft_restore_checks_project_id(self) -> None:

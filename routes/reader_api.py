@@ -1215,7 +1215,7 @@ def list_scene_reader_comments(scene_id: int) -> dict:
             (scene_id,),
         ).fetchone()
         if scene is None:
-            raise LookupError("씬을 찾을 수 없습니다.")
+            raise LookupError("회차를 찾을 수 없습니다.")
         rows = connection.execute(
             """
             SELECT c.id, c.scene_id, c.persona_id, c.comment_text, c.created_at,
@@ -1342,7 +1342,7 @@ def schedule_new_scene_reader_comment_batch(scene_id: int) -> dict:
             (scene_id,),
         ).fetchone()
         if row is None:
-            raise LookupError("씬을 찾을 수 없습니다.")
+            raise LookupError("회차를 찾을 수 없습니다.")
         exclude_ids = _latest_batch_persona_ids(connection, scene_id)
         personas = select_reader_comment_personas(
             row["main_genre"],
@@ -1400,7 +1400,7 @@ def schedule_additional_scene_reader_comments(scene_id: int) -> dict:
             (scene_id,),
         ).fetchone()
         if row is None:
-            raise LookupError("씬을 찾을 수 없습니다.")
+            raise LookupError("회차를 찾을 수 없습니다.")
         extra = select_additional_reader_comment_personas(
             row["main_genre"],
             row["sub_genre"],
@@ -2228,7 +2228,7 @@ def mark_reader_comments_started(handler, scene_id: int) -> dict:
             (scene_id,),
         ).fetchone()
         if scene is None:
-            raise ValueError("씬을 찾을 수 없습니다.")
+            raise ValueError("회차를 찾을 수 없습니다.")
         connection.execute(
             "UPDATE scene SET reader_comments_started = 1, "
             "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "

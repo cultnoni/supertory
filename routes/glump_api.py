@@ -123,9 +123,9 @@ def diagnose_glump(q1_answer: object, q2_answer: object = None) -> dict:
             "show_rest_choice": True,
         }
     if not q2:
-        raise ValueError("다음 질문에 답해주세요")
+        raise ValueError("다음 질문에 답해 주세요")
     if q2 not in GLUMP_Q2_TOOLS:
-        raise ValueError("다음 질문에 답해주세요")
+        raise ValueError("다음 질문에 답해 주세요")
     return {
         "q1_answer": q1,
         "q2_answer": q2,
@@ -1729,7 +1729,7 @@ def glump_wildcard_spark(handler, body: dict) -> dict:
         except (ValueError, json.JSONDecodeError) as error:
             last_error = error
     if events is None:
-        raise GlumpRetryError("다시 시도해주세요") from last_error
+        raise GlumpRetryError("다시 시도해 주세요") from last_error
     _insert_glump_tool_log(work_id, "wildcard_spark")
     return {"events": events}
 
@@ -1764,7 +1764,7 @@ def glump_fill_blank_start(handler, body: dict) -> dict:
         except (ValueError, json.JSONDecodeError) as error:
             last_error = error
     if segments is None:
-        raise GlumpRetryError("다시 시도해주세요") from last_error
+        raise GlumpRetryError("다시 시도해 주세요") from last_error
     session_id = uuid.uuid4().hex
     stamp = _now()
     payload = {"segments": segments}
@@ -1913,7 +1913,7 @@ def glump_pingpong_turn(handler, body: dict) -> dict:
         except gemini_client.GeminiError as error:
             raise ValueError(str(error)) from error
     if not tori_text:
-        raise GlumpRetryError("다시 시도해주세요") from last_error
+        raise GlumpRetryError("다시 시도해 주세요") from last_error
     pending.append({"speaker": "tori", "text": tori_text})
     chars = int(row["chars_since_checkin"] or 0) + len(user_text) + len(tori_text)
     checkin = chars >= PINGPONG_CHECKIN_CHARS
@@ -2022,7 +2022,7 @@ def glump_lucky_sentence(handler, body: dict) -> dict:
         except gemini_client.GeminiError as error:
             raise ValueError(str(error)) from error
     if not sentence:
-        raise GlumpRetryError("다시 시도해주세요") from last_error
+        raise GlumpRetryError("다시 시도해 주세요") from last_error
     first_open = len(prior) == 0
     stamp = _now()
     with _database() as connection:
@@ -2101,7 +2101,7 @@ def glump_interrogation_start(handler, body: dict) -> dict:
         except (ValueError, json.JSONDecodeError) as error:
             last_error = error
     if questions is None:
-        raise GlumpRetryError("다시 시도해주세요") from last_error
+        raise GlumpRetryError("다시 시도해 주세요") from last_error
     qa = [{"question": item, "answer": ""} for item in questions]
     session_id = uuid.uuid4().hex
     stamp = _now()
@@ -2172,7 +2172,7 @@ def glump_interrogation_answer(handler, body: dict) -> dict:
         history=history,
     )
     if not answer:
-        raise GlumpRetryError("다시 시도해주세요")
+        raise GlumpRetryError("다시 시도해 주세요")
     qa[question_index]["answer"] = answer
     with _database() as connection:
         connection.execute(
@@ -2226,7 +2226,7 @@ def glump_interrogation_summarize(handler, body: dict) -> dict:
         except (ValueError, json.JSONDecodeError) as error:
             last_error = error
     if cards is None:
-        raise GlumpRetryError("다시 시도해주세요") from last_error
+        raise GlumpRetryError("다시 시도해 주세요") from last_error
     with _database() as connection:
         connection.execute(
             """
@@ -2266,7 +2266,7 @@ def glump_mood_color(handler, body: dict) -> dict:
         except (ValueError, json.JSONDecodeError) as error:
             last_error = error
     if colors is None:
-        raise GlumpRetryError("다시 시도해주세요") from last_error
+        raise GlumpRetryError("다시 시도해 주세요") from last_error
     _insert_glump_tool_log(work_id, "mood_color")
     return {
         "colors": colors,
@@ -2300,7 +2300,7 @@ def glump_mood_playlist(handler, body: dict) -> dict:
         except (ValueError, json.JSONDecodeError) as error:
             last_error = error
     if playlist is None:
-        raise GlumpRetryError("다시 시도해주세요") from last_error
+        raise GlumpRetryError("다시 시도해 주세요") from last_error
     _insert_glump_tool_log(work_id, "mood_playlist")
     return {**playlist, "character_name": character["name"]}
 
@@ -2331,7 +2331,7 @@ def glump_mood_board(handler, body: dict) -> dict:
             except (ValueError, json.JSONDecodeError) as error:
                 last_error = error
         if generated is None:
-            raise GlumpRetryError("다시 시도해주세요") from last_error
+            raise GlumpRetryError("다시 시도해 주세요") from last_error
         keywords = generated
     photos = _fetch_pexels_photos(keywords)
     _insert_glump_tool_log(work_id, "mood_board")
@@ -2359,7 +2359,7 @@ def glump_word_list(handler, work_id: object) -> dict:
         except (ValueError, json.JSONDecodeError) as error:
             last_error = error
     if words is None:
-        raise GlumpRetryError("다시 시도해주세요") from last_error
+        raise GlumpRetryError("다시 시도해 주세요") from last_error
     _insert_glump_tool_log(work_key, "word_list")
     return {"words": words}
 
@@ -2385,7 +2385,7 @@ def glump_sentence_list(handler, work_id: object) -> dict:
         except (ValueError, json.JSONDecodeError) as error:
             last_error = error
     if sentences is None:
-        raise GlumpRetryError("다시 시도해주세요") from last_error
+        raise GlumpRetryError("다시 시도해 주세요") from last_error
     _insert_glump_tool_log(work_key, "sentence_list")
     return {"sentences": sentences}
 
@@ -2423,7 +2423,7 @@ def glump_character_tarot(handler, body: dict) -> dict:
         except (ValueError, json.JSONDecodeError) as error:
             last_error = error
     if reading is None:
-        raise GlumpRetryError("다시 시도해주세요") from last_error
+        raise GlumpRetryError("다시 시도해 주세요") from last_error
     _insert_glump_tool_log(work_id, "character_tarot")
     return {
         **reading,
@@ -2453,7 +2453,7 @@ def glump_naming_shop(handler, body: dict) -> dict:
         except (ValueError, json.JSONDecodeError) as error:
             last_error = error
     if groups is None:
-        raise GlumpRetryError("다시 시도해주세요") from last_error
+        raise GlumpRetryError("다시 시도해 주세요") from last_error
     _insert_glump_tool_log(work_id, "naming_shop")
     return {"groups": groups}
 

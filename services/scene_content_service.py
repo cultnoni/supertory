@@ -101,7 +101,7 @@ class SceneContentService:
             repo = self.repository_factory(conn)
             scene = repo.get_scene_meta(scene_id)
             if scene is None:
-                raise ValueError("씬을 찾을 수 없습니다.")
+                raise ValueError("회차를 찾을 수 없습니다.")
             if expected_version and scene["row_version"] != expected_version:
                 raise ValueError(ROW_VERSION_CONFLICT_MESSAGE)
             previous_status = str(scene["status"] or "")
@@ -269,7 +269,7 @@ class SceneContentService:
         def run(conn: sqlite3.Connection) -> dict:
             repo = self.repository_factory(conn)
             if repo.get_scene_meta(scene_id) is None:
-                raise ValueError("씬을 찾을 수 없습니다.")
+                raise ValueError("회차를 찾을 수 없습니다.")
             self.write_scene_content(conn, scene_id, content, save_note=save_note)
             bumped = repo.bump_row_version(scene_id)
             return {

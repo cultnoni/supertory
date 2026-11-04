@@ -107,7 +107,7 @@ class GlumpDiagnosisTests(unittest.TestCase):
 
         with self.assertRaises(ValueError) as raised:
             glump_api.diagnose_glump("block")
-        self.assertEqual(str(raised.exception), "다음 질문에 답해주세요")
+        self.assertEqual(str(raised.exception), "다음 질문에 답해 주세요")
 
         self.assertEqual(
             glump_api.diagnose_glump("block", "sentence_struggle")["recommended_tool"],
@@ -192,7 +192,7 @@ class GlumpDiagnosisTests(unittest.TestCase):
             {"work_id": "1", "q1_answer": "block"},
         )
         self.assertEqual(status, 400, data)
-        self.assertEqual(data.get("error"), "다음 질문에 답해주세요")
+        self.assertEqual(data.get("error"), "다음 질문에 답해 주세요")
         with app.database() as connection:
             count = connection.execute(
                 "SELECT COUNT(*) FROM glump_diagnosis_logs"

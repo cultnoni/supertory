@@ -963,8 +963,8 @@ def database() -> sqlite3.Connection:
         connection.close()
 
 
-# Investigation-only: "씬을 찾을 수 없습니다" toast. Do not change lookup behavior.
-_SCENE_LOOKUP_MISS = "씬을 찾을 수 없습니다."
+# Investigation-only: "회차를 찾을 수 없습니다" toast. Do not change lookup behavior.
+_SCENE_LOOKUP_MISS = "회차를 찾을 수 없습니다."
 _SCENE_API_RECENT_LOCK = Lock()
 _SCENE_API_RECENT: list[dict] = []
 _SCENE_API_RECENT_MAX = 80
@@ -5017,10 +5017,11 @@ def as_dict(row: sqlite3.Row | None) -> dict | None:
 
 
 # Binder untitled labels (keep in sync with web/app.js UNTITLED_SCENE_TITLES).
-UNTITLED_SCENE_TITLES = frozenset({"", "제목 없음", "새 씬", "새 하위 원고"})
+# "새 씬"은 예전 기본 제목 — 이미 그 제목으로 저장된 회차도 제목 없음으로 본다.
+UNTITLED_SCENE_TITLES = frozenset({"", "제목 없음", "새 회차", "새 씬", "새 하위 원고"})
 BODY_PREVIEW_PLAIN_LIMIT = 1200
 _OUTLINE_CONTENT_HEAD_SQL = (
-    "CASE WHEN trim(COALESCE(s.title, '')) IN ('', '제목 없음', '새 씬', '새 하위 원고') "
+    "CASE WHEN trim(COALESCE(s.title, '')) IN ('', '제목 없음', '새 회차', '새 씬', '새 하위 원고') "
     "THEN r.content_md ELSE NULL END AS content_head"
 )
 
@@ -5538,7 +5539,7 @@ def get_scene_trait_analysis(scene_id: int) -> dict:
             (scene_id,),
         ).fetchone()
         if scene is None:
-            raise LookupError("씬을 찾을 수 없습니다.")
+            raise LookupError("회차를 찾을 수 없습니다.")
     return _trait_analysis_payload(scene_id)
 
 
@@ -6151,8 +6152,8 @@ def _run_index_rebuild_job(project_ids: list[int]) -> None:
                     if is_gemini_quota_error(error):
                         _set_index_rebuild_state(
                             status="quota",
-                            error="쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요",
-                            message="쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요",
+                            error="AI 사용량 한도에 닿았어요. 잠시 후 다시 시도해 주세요.",
+                            message="AI 사용량 한도에 닿았어요. 잠시 후 다시 시도해 주세요.",
                         )
                         return
                     _set_index_rebuild_state(
@@ -6174,8 +6175,8 @@ def _run_index_rebuild_job(project_ids: list[int]) -> None:
                 if is_gemini_quota_error(error):
                     _set_index_rebuild_state(
                         status="quota",
-                        error="쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요",
-                        message="쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요",
+                        error="AI 사용량 한도에 닿았어요. 잠시 후 다시 시도해 주세요.",
+                        message="AI 사용량 한도에 닿았어요. 잠시 후 다시 시도해 주세요.",
                     )
                     return
                 _set_index_rebuild_state(error=str(error))
@@ -6189,8 +6190,8 @@ def _run_index_rebuild_job(project_ids: list[int]) -> None:
         if is_gemini_quota_error(error):
             _set_index_rebuild_state(
                 status="quota",
-                error="쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요",
-                message="쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요",
+                error="AI 사용량 한도에 닿았어요. 잠시 후 다시 시도해 주세요.",
+                message="AI 사용량 한도에 닿았어요. 잠시 후 다시 시도해 주세요.",
             )
             return
         _set_index_rebuild_state(status="error", error=str(error), message=str(error))
@@ -19330,7 +19331,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 (scene_id,),
             ).fetchone()
         if scene is None:
-            raise ValueError("씬을 찾을 수 없습니다.")
+            raise ValueError("회차를 찾을 수 없습니다.")
         detail = as_dict(scene)  # type: ignore[assignment]
         if detail.get("goal_metric") not in GOAL_METRICS:
             detail["goal_metric"] = "chars_with_space"
@@ -19350,7 +19351,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 (scene_id,),
             ).fetchone()
             if source is None:
-                raise ValueError("씬을 찾을 수 없습니다.")
+                raise ValueError("회차를 찾을 수 없습니다.")
 
             revision = connection.execute(
                 "SELECT content_md, word_count FROM scene_revision "
@@ -19516,7 +19517,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 (scene_id,),
             ).fetchone()
             if scene is None:
-                raise ValueError("씬을 찾을 수 없습니다.")
+                raise ValueError("회차를 찾을 수 없습니다.")
             # No folder row for scenes — folder-first N/A; soft-delete scene only
             connection.execute(
                 "UPDATE scene SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
@@ -19858,7 +19859,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "SELECT id FROM scene WHERE id = ? AND deleted_at IS NULL", (scene_id,)
             ).fetchone()
             if scene is None:
-                raise ValueError("씬을 찾을 수 없습니다.")
+                raise ValueError("회차를 찾을 수 없습니다.")
             rows = connection.execute(
                 "SELECT id, project_id, scene_id, file_name, mime_type, caption_md, overlays_json, sort_order "
                 "FROM scene_illustration WHERE scene_id = ? ORDER BY sort_order, id",
@@ -19909,7 +19910,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 (scene_id,),
             ).fetchone()
             if scene is None:
-                raise ValueError("씬을 찾을 수 없습니다.")
+                raise ValueError("회차를 찾을 수 없습니다.")
             project_id = int(scene["project_id"])
             sort_order = connection.execute(
                 "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM scene_illustration WHERE scene_id = ?",
@@ -21568,7 +21569,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 (scene_id,),
             ).fetchone()
             if scene is None:
-                raise ValueError("씬을 찾을 수 없습니다.")
+                raise ValueError("회차를 찾을 수 없습니다.")
             connection.execute(
                 "UPDATE scene SET goal_word_count = ?, goal_metric = ?, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
@@ -21681,7 +21682,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "SELECT project_id FROM scene WHERE id = ? AND deleted_at IS NULL", (scene_id,)
             ).fetchone()
             if scene is None:
-                raise ValueError("씬을 찾을 수 없습니다.")
+                raise ValueError("회차를 찾을 수 없습니다.")
             valid_count = connection.execute(
                 "SELECT COUNT(*) FROM character WHERE project_id = ? AND deleted_at IS NULL "
                 f"AND id IN ({','.join('?' for _ in character_ids) or 'NULL'})",
@@ -21722,7 +21723,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 (scene_id,),
             ).fetchone()
             if scene is None:
-                raise ValueError("씬을 찾을 수 없습니다.")
+                raise ValueError("회차를 찾을 수 없습니다.")
             project_id = int(scene["project_id"])
             content = body.get("content_md")
             if content is None:
@@ -22856,7 +22857,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     (scene_id,),
                 ).fetchone()
                 if scene is None:
-                    raise ValueError("씬을 찾을 수 없습니다.")
+                    raise ValueError("회차를 찾을 수 없습니다.")
                 if scene["project_id"] != project_id:
                     raise ValueError("다른 작품의 씬에는 가져올 수 없습니다.")
                 content = sections[0].content

@@ -482,7 +482,7 @@ class ReaderChatTests(unittest.TestCase):
         self.assertIn("data-reader-fav", js)
         self.assertIn("function toggleReaderFavorite(", js)
         self.assertIn("READER_FAVORITE_MAX = 6", js)
-        self.assertIn("즐겨찾기한 가상독자가 없어요", html)
+        self.assertIn("즐겨찾기한 가상 독자가 없어요", html)
         self.assertIn("/api/projects/${projectId}/reader-favorites", js)
         chat_fn = js.split("async function openReaderChatWithPersona(", 1)[1].split(
             "function closeReaderScenePicker(", 1
