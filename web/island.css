@@ -4933,6 +4933,14 @@ body.fb-review-open.binder-panel-collapsed.ai-panel-collapsed main {
   color: var(--text-primary); font-size: 12px; line-height: 1.45;
 }
 .offline-mode-hint.hidden { display: none !important; }
+/* 원고 저장 실패: 상태줄 「저장」 오른쪽 위 점(저장되면 사라짐). 툴팁에 안내 문구 */
+.manuscript-status-wrap .status-save-btn.is-save-failed { position: relative; }
+.manuscript-status-wrap .status-save-btn.is-save-failed::after {
+  content: ""; position: absolute; top: 2px; right: 1px; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--isl-st-draft); pointer-events: none;
+}
+html[data-theme="eink"] .manuscript-status-wrap .status-save-btn.is-save-failed::after,
+html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn.is-save-failed::after { background: currentColor; }
 
 /* ── 시작 화면: 접어 둔 패널을 다시 여는 손잡이 ─────────────────────────────────────
    시작 화면에는 회차 탭 줄이 없어 탭 줄의 손잡이가 안 보인다. 같은 손잡이(.episode-tab-row-toggle)를

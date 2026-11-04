@@ -2486,6 +2486,7 @@
   "app.displayName_을_를_만들고_이_회": "Created \"${displayName}\" and linked to this episode. Write the character's details.",
   "app.연결이_불안정해_이_기기에_원고를_보관했어요": "The connection is unstable, so the manuscript was stored on this device. It will sync automatically once reconnected.",
   "app.서버_저장에_실패해_이_기기에_원고를_보관했": "Saving to the server failed, so the manuscript was stored on this device. Will retry shortly.",
+  "app.저장_실패_이_기기에_보관_중_눌러서_다시_저장": "Save failed · Manuscript kept on this device · Click to save again",
   "app.이_기기_보관본_복구됨_동기화_대기": "Recovered device copy — waiting to sync",
   "app.연결_전_편집_내용을_이_기기에서_복구했습니": "Recovered edits made before connecting, from this device. Syncing to the server.",
   "app.오프라인_동기화": "Offline sync",
