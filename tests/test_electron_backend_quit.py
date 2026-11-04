@@ -75,7 +75,7 @@ class ElectronBackendQuitTests(unittest.TestCase):
         self.assertIn("exit code:", self.main)
         self.assertIn('stdio: ["ignore", "pipe", "pipe"]', self.main)
         self.assertIn(
-            '`alert("백엔드 서버가 종료되었습니다. 앱을 다시 시작해 주세요. (code=${code})")`',
+            '`alert("저장 기능이 멈췄어요. 앱을 다시 시작해 주세요. 지금 화면의 글은 이 기기에 보관돼 있어요. (오류 코드 ${code})")`',
             self.main,
         )
         spawn_block = self.main.split("function startBackendServer()", 1)[1].split(

@@ -119,6 +119,18 @@ class GeminiErrorClassificationTests(unittest.TestCase):
         )
         self.assertEqual(code, "auth")
 
+    def test_400_invalid_key_is_auth(self) -> None:
+        code, _, _ = gemini_client.classify_gemini_http_error(
+            400,
+            '{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.",'
+            '"status":"INVALID_ARGUMENT","details":[{"reason":"API_KEY_INVALID"}]}}',
+        )
+        self.assertEqual(code, "auth")
+        code, _, _ = gemini_client.classify_gemini_http_error(
+            400, '{"error":{"message":"bad prompt","status":"INVALID_ARGUMENT"}}'
+        )
+        self.assertEqual(code, "unknown")
+
     def test_other_status_is_unknown(self) -> None:
         code, _, message = gemini_client.classify_gemini_http_error(
             500, '{"error":{"message":"boom"}}'

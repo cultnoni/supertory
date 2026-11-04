@@ -441,7 +441,7 @@ function startBackendServer() {
     if (!isQuitting && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents
         .executeJavaScript(
-          `alert("백엔드 서버가 종료되었습니다. 앱을 다시 시작해 주세요. (code=${code})")`
+          `alert("저장 기능이 멈췄어요. 앱을 다시 시작해 주세요. 지금 화면의 글은 이 기기에 보관돼 있어요. (오류 코드 ${code})")`
         )
         .catch(() => {});
     }
@@ -888,7 +888,7 @@ function setupAutoUpdater() {
     const quiet = !wasDownloading && !manualUpdateCheck && softNetwork;
     const configHint =
       /404|403|401|Not Found|Bad credentials|rate limit/i.test(msg)
-        ? " (업데이트 서버·GitHub Release·권한을 확인해 주세요.)"
+        ? " 잠시 후 다시 시도해 주세요."
         : "";
     sendUpdateStatus({
       phase: quiet ? "unavailable" : "error",
@@ -1765,10 +1765,11 @@ async function bootstrap() {
   } catch (error) {
     console.error("[supertory] bootstrap failed:", error);
     dialog.showErrorBox(
-      "SuperTory 시작 실패",
-      String(error?.message || error) +
-        "\n\n설치 파일이 손상되었거나 백엔드가 포함되지 않았을 수 있습니다.\n" +
-        "개발 중이라면: python scripts/build_backend.py 후 다시 실행해 주세요."
+      "SuperTory를 시작하지 못했어요",
+      "앱을 다시 실행해 보세요. 계속 열리지 않으면 최신 설치 파일로 다시 설치해 주세요.\n" +
+        "쓰던 원고는 이 컴퓨터에 그대로 남아 있어요.\n\n" +
+        `자세한 내용: ${String(error?.message || error)}` +
+        (app.isPackaged ? "" : "\n\n개발 중이라면: python scripts/build_backend.py 후 다시 실행해 주세요.")
     );
     isQuitting = true;
     await stopBackendServer();
