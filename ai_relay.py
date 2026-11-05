@@ -7,7 +7,7 @@ direct 모드(개발용)는 기존처럼 .env 키로 직접 부른다.
 from __future__ import annotations
 
 import json
-import os
+import sys
 import urllib.error
 import urllib.request
 from typing import Any, Iterator
@@ -47,15 +47,16 @@ class RelayError(RuntimeError):
 
 
 def mode() -> str:
-    """'relay' 또는 'direct'. 환경 변수가 우선, 없으면 AI 키가 있을 때만 direct."""
+    """'relay' 또는 'direct'.
+
+    SUPERTORY_AI_MODE가 우선한다. 없으면 설치본(frozen)은 항상 relay, 개발 실행은
+    기존처럼 direct(.env 키가 없으면 AI 미설정)다. 개발에서 창구를 쓰려면
+    SUPERTORY_AI_MODE=relay로 실행한다.
+    """
     forced = str(get_env("SUPERTORY_AI_MODE") or "").strip().lower()
     if forced in {"relay", "direct"}:
         return forced
-    for name in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY"):
-        value = str(get_env(name) or "").strip()
-        if value and value not in {"your_gemini_api_key_here", "changeme"}:
-            return "direct"
-    return "relay"
+    return "relay" if getattr(sys, "frozen", False) else "direct"
 
 
 def is_relay() -> bool:

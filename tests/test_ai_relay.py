@@ -82,14 +82,13 @@ class RelayClientTests(unittest.TestCase):
         SEEN.clear()
         BEHAVIOR["mode"] = "ok"
 
-    def test_mode_defaults_to_relay_without_keys(self) -> None:
-        with mock.patch.dict(os.environ, {"SUPERTORY_AI_MODE": ""}), \
-                mock.patch.object(ai_relay, "get_env", side_effect=lambda k, d=None: ""):
-            self.assertEqual(ai_relay.mode(), "relay")
-        with mock.patch.dict(os.environ, {"SUPERTORY_AI_MODE": ""}), \
-                mock.patch.object(ai_relay, "get_env",
-                                  side_effect=lambda k, d=None: "real-key" if k == "GEMINI_API_KEY" else ""):
+    def test_mode_default_is_relay_only_when_frozen(self) -> None:
+        with mock.patch.dict(os.environ, {"SUPERTORY_AI_MODE": ""}):
             self.assertEqual(ai_relay.mode(), "direct")
+            with mock.patch.object(ai_relay.sys, "frozen", True, create=True):
+                self.assertEqual(ai_relay.mode(), "relay")
+        with mock.patch.dict(os.environ, {"SUPERTORY_AI_MODE": "relay"}):
+            self.assertEqual(ai_relay.mode(), "relay")
 
     def test_gemini_goes_through_relay_with_feature_and_logical_model(self) -> None:
         text = gemini_client.generate_text("이어 써줘", feature="tory.continue")
