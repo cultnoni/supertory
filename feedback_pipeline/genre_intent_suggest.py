@@ -24,7 +24,7 @@ import genre_track
 import webnovel_genre_track
 from feedback_pipeline import genre_layers, prompt_loader
 from feedback_pipeline.config import (
-    HAIKU_45_MODEL,
+    HAIKU_MODEL,
     INTENT_SUGGEST_MIN_REJECTS,
     INTENT_SUGGEST_MIN_RUNS,
 )
@@ -144,7 +144,7 @@ def draft_promise_sentence(
     *,
     tag: str,
     cards: list[dict[str, Any]],
-    model: str = HAIKU_45_MODEL,
+    model: str = HAIKU_MODEL,
     prompt_file: str = "genre/intent_promise_draft_prompt.txt",
     empty_draft: str = "",
 ) -> dict[str, Any]:

@@ -139,7 +139,7 @@ python도 수 초 안에 같이 종료됩니다.
 
 ```env
 GEMINI_API_KEY=여기에_키
-GEMINI_MODEL=gemini-flash-lite-latest
+GEMINI_MODEL=gemini-3.5-flash-lite
 ```
 
 1. 상단 **AI 도움**을 누릅니다.

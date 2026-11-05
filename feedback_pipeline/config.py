@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 FEEDBACK_MODEL = "claude-sonnet-5"
-HAIKU_45_MODEL = "claude-haiku-4-5-20251001"
+# Haiku 5.5: $0.10/$0.50 (4.5의 1/10). 샘플링 고정 모델이라 temperature를 보내지 않고,
+# 서버 측 거절 대체가 없어 claude_client가 거절 시 FEEDBACK_MODEL로 한 번 다시 묻는다.
+HAIKU_MODEL = "claude-haiku-5-5"
 PROMPT_VERSION = "pipeline-v0.5"
 LITERATURE_PROMPT_VERSION = "literature-short-v0.1"
 LITERATURE_LONG_PROMPT_VERSION = "literature-long-v0.1"
 LITERATURE_MIDCHECK_PROMPT_VERSION = "literature-midcheck-v0.3"
 # 단계마다 모델을 바꿀 수 있다. 기본은 Sonnet 5.
 # 문체 추출(style)과 의미 검증(verify)만 비교할 때는 측정 옵션으로
-# stage_models={"style": HAIKU_45_MODEL, "verify": HAIKU_45_MODEL} 를 넘긴다.
+# stage_models={"style": HAIKU_MODEL, "verify": HAIKU_MODEL} 를 넘긴다.
 LITERATURE_STAGE_MODELS = {
     "style": FEEDBACK_MODEL,
     "scene_map": FEEDBACK_MODEL,
@@ -22,7 +24,7 @@ LITERATURE_STAGE_MODELS = {
 # 장편 이전 단위 요약 압축만 Haiku. 캐시 앞부분 만들기 전 별도 호출이라 Sonnet 캐시와 공유되지 않는다.
 LITERATURE_LONG_STAGE_MODELS = {
     **LITERATURE_STAGE_MODELS,
-    "compress": HAIKU_45_MODEL,
+    "compress": HAIKU_MODEL,
 }
 LITERARY_RECENT_UNITS = 5
 LITERARY_COMPRESS_GROUP = 5

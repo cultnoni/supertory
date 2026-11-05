@@ -4,7 +4,7 @@
 
 ## Gemini
 
-Gemini 호출은 모두 `gemini_client.generate_text` 하나를 거친다. 호출마다 모델을 고르는 인자가 없어서 전부 `GEMINI_MODEL` 한 개를 같이 쓴다. 기본값은 `gemini-flash-lite-latest`(`gemini_client.DEFAULT_MODEL`, `.env.example`).
+Gemini 호출은 모두 `gemini_client.generate_text` 하나를 거친다. 호출마다 모델을 고르는 인자가 없어서 전부 `GEMINI_MODEL` 한 개를 같이 쓴다. 기본값은 `gemini-3.5-flash-lite`(`gemini_client.DEFAULT_MODEL`, `.env.example`). 2026-11-04에 `gemini-flash-lite-latest` 별칭에서 버전 고정으로 바꿨다. 별칭은 새 출시마다 가리키는 모델이 바뀌어 가격·동작이 코드 수정 없이 달라진다(그때 이미 3.5 Flash-Lite, $0.30/$2.50).
 
 | 기능 | 호출 위치 | 비고 |
 |---|---|---|
@@ -33,7 +33,7 @@ Gemini 호출은 모두 `gemini_client.generate_text` 하나를 거친다. 호�
 | 기능 | 모델 |
 |---|---|
 | 웹소설·문학 첨삭 6단계 (문체, 장면 지도, 기준, 보고서, 검증, 카드) | `claude-sonnet-5` |
-| 장편 이전 단위 요약 압축 | `claude-haiku-4-5-20251001` |
+| 장편 이전 단위 요약 압축, 장 요약, 의도적 선택 제안 | `claude-haiku-5-5` (2026-11-04에 4.5에서 올림. 거절하면 `claude-sonnet-5`로 한 번 다시 묻는다) |
 | 카드 질문 답변 | `claude-sonnet-5` |
 | 카드 수정안 요청 (`feedback_api.py`) | `claude-sonnet-5` |
 

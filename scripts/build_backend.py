@@ -3,9 +3,10 @@
 Output:
   backend-dist/supertory-server/supertory-server.exe  (+ _internal/)
 
-Also embeds GEMINI_API_KEY / GEMINI_MODEL and the Supabase pairing keys
-from the project .env into ``bundled_env.py`` so the frozen server works
-without a user-supplied .env.
+Also embeds GEMINI_MODEL and the Supabase pairing keys from the project .env
+into ``bundled_env.py`` so the frozen server works without a user-supplied
+.env. Paid AI keys (SECRET_AI_KEYS) stop the build unless
+SUPERTORY_ALLOW_BUNDLED_AI_KEYS=1 is set for a local-only test build.
 
 Usage (from repo root):
   python scripts/build_backend.py
@@ -39,6 +40,19 @@ SUPABASE_KEYS = (
     "SUPABASE_URL",
     "SUPABASE_ANON_KEY",
 )
+# Paid-API secrets. Anyone with the installer can pull these out, so the build
+# refuses to embed them unless this flag is set on purpose (the Supabase anon
+# key is public by design and is not in this list).
+SECRET_AI_KEYS = (
+    "GEMINI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "PEXELS_API_KEY",
+)
+ALLOW_AI_KEYS_FLAG = "SUPERTORY_ALLOW_BUNDLED_AI_KEYS"
+
+
+class BundledSecretsBlocked(RuntimeError):
+    """The build would ship paid AI keys inside the installer."""
 
 
 def ensure_pyinstaller() -> None:
@@ -87,6 +101,24 @@ def write_bundled_env() -> dict[str, str]:
             "changeme",
         }:
             selected[key] = value
+
+    blocked = [key for key in SECRET_AI_KEYS if key in selected]
+    if blocked and os.environ.get(ALLOW_AI_KEYS_FLAG, "").strip() != "1":
+        raise BundledSecretsBlocked(
+            "빌드를 멈췄습니다: .env의 AI 키("
+            + ", ".join(blocked)
+            + ")가 설치 파일 안에 심어집니다.\n"
+            "설치 파일을 받은 사람 누구나 이 키를 꺼내 쓸 수 있습니다.\n"
+            "- 배포용 빌드: AI 중계 서버로 옮긴 뒤 빌드하세요.\n"
+            "- 내 컴퓨터에서만 쓸 시험 빌드라면: "
+            f"{ALLOW_AI_KEYS_FLAG}=1 을 설정하고 다시 빌드하세요."
+        )
+    if blocked:
+        print(
+            f"WARNING: {ALLOW_AI_KEYS_FLAG}=1 — AI keys are embedded "
+            f"({', '.join(blocked)}). Do not distribute this build.",
+            file=sys.stderr,
+        )
 
     if "GEMINI_API_KEY" not in selected:
         print(
@@ -172,8 +204,12 @@ def main() -> int:
             except Exception:
                 pass
 
+    try:
+        write_bundled_env()
+    except BundledSecretsBlocked as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
     ensure_pyinstaller()
-    write_bundled_env()
 
     _clear_path(DIST / SERVER_NAME)
     _clear_path(WORK)

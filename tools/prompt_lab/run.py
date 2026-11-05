@@ -2339,7 +2339,7 @@ def write_card_v1_v2_compare(
         f"- {left_name}: {v1.get('created_at')} / 카드 `{v1.get('card_prompt') or left_name}`",
         f"- {right_name}: {v2.get('created_at')} / 카드 `{v2.get('card_prompt') or right_name}`",
         "",
-        "lite 모델(`gemini-flash-lite-latest`) 결과만 나란히 둡니다.",
+        "lite 모델(`gemini_client.DEFAULT_MODEL`) 결과만 나란히 둡니다.",
         "",
     ]
     for case_id in ids:
