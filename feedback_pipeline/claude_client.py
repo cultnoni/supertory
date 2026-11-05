@@ -10,6 +10,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable
 
+import ai_relay
 from env_loader import apply_bundled_defaults, get_env, load_all_dotenv
 
 load_all_dotenv()
@@ -252,6 +253,8 @@ def is_configured() -> bool:
         return bool(_forced_configured)
     if is_fake_mode():
         return True
+    if ai_relay.is_relay():
+        return True
     key = anthropic_api_key()
     return bool(key) and key not in _PLACEHOLDER_KEYS
 
@@ -289,6 +292,7 @@ def generate(
     json_schema: dict[str, Any] | None = None,
     json_schema_simple: dict[str, Any] | None = None,
     cached_prefix: str | None = None,
+    feature: str = "feedback.unknown",
 ) -> dict[str, Any]:
     """POST /v1/messages. sonnet-5는 thinking 끄고 temperature를 보내지 않는다.
 
@@ -338,6 +342,7 @@ def generate(
                     thinking_disabled=thinking_disabled,
                     output_config=_output_config(schema),
                     cached_prefix=cached_prefix,
+                    feature=feature,
                 )
                 stop_reason = body.get("stop_reason") if isinstance(body, dict) else None
                 fallback = REFUSAL_FALLBACK_MODELS.get(chosen)
@@ -353,6 +358,7 @@ def generate(
                         json_schema=json_schema,
                         json_schema_simple=json_schema_simple,
                         cached_prefix=cached_prefix,
+                        feature=feature,
                     )
                 parsed, raw = parse_model_json(text)
                 usage = _usage_from_body(body)
@@ -485,6 +491,7 @@ def _generate_once(
     thinking_disabled: bool,
     output_config: dict[str, Any] | None = None,
     cached_prefix: str | None = None,
+    feature: str = "feedback.unknown",
 ) -> tuple[str, dict[str, Any]]:
     payload = _payload(
         model=model,
@@ -497,12 +504,45 @@ def _generate_once(
         output_config=output_config,
         cached_prefix=cached_prefix,
     )
+    if ai_relay.is_relay():
+        return _generate_relay(payload, feature=feature, timeout=timeout)
     try:
         import anthropic  # type: ignore
 
         return _generate_sdk(payload, timeout=timeout)
     except ImportError:
         return _generate_urllib(payload, timeout=timeout)
+
+
+def _generate_relay(
+    payload: dict[str, Any], *, feature: str, timeout: float
+) -> tuple[str, dict[str, Any]]:
+    """AI 중계 창구로 보낸다(스트리밍). 창구 오류를 ClaudeError로 옮긴다."""
+    try:
+        return ai_relay.call_claude(
+            feature, str(payload.get("model") or ""), payload,
+            timeout=float(timeout or DEFAULT_TIMEOUT),
+        )
+    except ai_relay.RelayError as error:
+        if error.code in ai_relay.RELAY_CODES:
+            raise ClaudeError(
+                str(error), code=error.code,
+                retry_after=error.retry_after,
+            ) from None
+        status = error.provider_status
+        code = "rate_limit" if status == 429 else ("overloaded" if status == 529 else "unknown")
+        if status == 400:
+            code = "bad_request"
+        if status in {401, 403}:
+            code = "auth"
+        raise ClaudeError(
+            _short_http_message(status or 502, error.detail),
+            code=code, http_status=status, retry_after=error.retry_after,
+        ) from None
+    except (TimeoutError, urllib.error.URLError, OSError):
+        raise ClaudeError(
+            "Anthropic 응답 시간이 초과되었거나 네트워크 오류입니다.", code="timeout"
+        ) from None
 
 
 def _generate_sdk(payload: dict[str, Any], *, timeout: float) -> tuple[str, dict[str, Any]]:
