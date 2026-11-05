@@ -17,7 +17,9 @@ from env_loader import apply_bundled_defaults, get_env, load_all_dotenv, load_do
 # Prefer .env (source / next to frozen exe / MEIPASS), then build-time defaults.
 load_all_dotenv()
 
-DEFAULT_MODEL = "gemini-flash-lite-latest"
+# Pin an exact version: "-latest" aliases are hot-swapped on every release,
+# silently changing price and behaviour (it moved to 3.5 Flash-Lite by 2026-11).
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 GEMINI_ERROR_CODES = (

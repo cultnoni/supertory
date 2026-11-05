@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
 
 import app
 from feedback_pipeline.claude_client import BatchClaude, LiveClaude
-from feedback_pipeline.config import HAIKU_45_MODEL, LITERATURE_PROMPT_VERSION
+from feedback_pipeline.config import HAIKU_MODEL, LITERATURE_PROMPT_VERSION
 from feedback_pipeline.literature_cache import estimate_shared_prefix_cost
 from feedback_pipeline.literature_reuse import load_reuse
 from feedback_pipeline.literature_runner import prepare_literature_run, run_literature_short
@@ -102,7 +102,7 @@ def parse_stage_models(raw: str) -> dict[str, str]:
         if not chunk:
             continue
         if "=" not in chunk:
-            raise SystemExit(f"stage-models 형식은 style={HAIKU_45_MODEL} 입니다: {chunk}")
+            raise SystemExit(f"stage-models 형식은 style={HAIKU_MODEL} 입니다: {chunk}")
         stage, model = chunk.split("=", 1)
         out[stage.strip()] = model.strip()
     return out
@@ -221,7 +221,7 @@ def main() -> None:
     parser.add_argument(
         "--stage-models",
         default="",
-        help=f"예: style={HAIKU_45_MODEL},verify={HAIKU_45_MODEL}",
+        help=f"예: style={HAIKU_MODEL},verify={HAIKU_MODEL}",
     )
     parser.add_argument("--max-cost", type=float, default=2.0)
     parser.add_argument("--estimate-only", action="store_true", help="빈처 기준 캐시 비용만 출력")

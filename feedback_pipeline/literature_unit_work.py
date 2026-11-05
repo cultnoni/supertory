@@ -7,7 +7,7 @@ import time
 from typing import Any, Callable
 
 from feedback_pipeline import prompt_loader
-from feedback_pipeline.config import HAIKU_45_MODEL
+from feedback_pipeline.config import HAIKU_MODEL
 from feedback_pipeline.literature_cache import with_schema_instruction
 from feedback_pipeline.literature_context import (
     _latest_chapter_work,
@@ -143,7 +143,7 @@ def generate_light_unit_work(
     manuscript: str,
     model: str | None = None,
 ) -> dict[str, Any]:
-    use_model = model or HAIKU_45_MODEL
+    use_model = model or HAIKU_MODEL
     schema = prompt_loader.load_json("literature/unit_work_schema.json")
     prompt = prompt_loader.fill_template(
         prompt_loader.load_text("literature/unit_work_prompt.txt"),
@@ -175,7 +175,7 @@ def ensure_light_unit_works(
     on_usage: Callable[[str, dict[str, Any], str], None] | None = None,
 ) -> dict[str, Any]:
     """해시가 맞는 장편/가벼운 기록이 없는 단위만 Haiku로 만든다."""
-    use_model = model or HAIKU_45_MODEL
+    use_model = model or HAIKU_MODEL
     needing: list[dict[str, Any]] = []
     for unit in units or []:
         resolved = resolve_unit_work(conn, project_id, unit)

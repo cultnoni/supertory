@@ -12,7 +12,7 @@ import literary_form
 from feedback_pipeline import prompt_loader
 from feedback_pipeline.config import (
     FEEDBACK_MODEL,
-    HAIKU_45_MODEL,
+    HAIKU_MODEL,
     LITERATURE_MIDCHECK_PROMPT_VERSION,
     MAX_COST_USD_MIDCHECK,
     MIDCHECK_NUDGE_EVERY,
@@ -1088,7 +1088,7 @@ def run_literature_midcheck(
         summarizer,
         on_progress=None,
     )
-    light_model = str(options.get("unit_work_model") or HAIKU_45_MODEL)
+    light_model = str(options.get("unit_work_model") or HAIKU_MODEL)
     light_started = time.perf_counter()
 
     def on_light_usage(stage: str, result: dict[str, Any], model: str) -> None:

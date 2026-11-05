@@ -20,14 +20,21 @@ ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_TOKENS = 4096
 MAX_RETRIES = 3
-SAMPLING_LOCKED_MODELS = frozenset({"claude-sonnet-5", "claude-opus-5"})
+SAMPLING_LOCKED_MODELS = frozenset({"claude-sonnet-5", "claude-opus-5", "claude-haiku-5-5"})
+# 서버 측 거절 대체(fallbacks)가 없는 모델: stop_reason "refusal"이면 이 모델로 한 번 다시 묻는다.
+REFUSAL_FALLBACK_MODELS = {"claude-haiku-5-5": "claude-sonnet-5"}
 _PLACEHOLDER_KEYS = frozenset({"your_anthropic_api_key_here", "changeme"})
 
-# 공식 가격표 확인 필요 (Anthropic 공개 단가, 입력/출력 100만 토큰당 USD).
-PRICE_SONNET_USD = (3.0, 15.0)
+# Anthropic 공개 단가(입력/출력 100만 토큰당 USD, 2026-11 확인).
+PRICE_SONNET_USD = (2.0, 10.0)
 PRICE_HAIKU_45_USD = (1.0, 5.0)
+# Haiku 5.5는 입력이 10만 토큰을 넘으면 단가가 5배(0.50/2.50)다.
+PRICE_HAIKU_55_USD = (0.10, 0.50)
+PRICE_HAIKU_55_LONG_USD = (0.50, 2.50)
+HAIKU_55_LONG_PROMPT_TOKENS = 100_000
 PRICE_PER_MILLION_USD: dict[str, tuple[float, float]] = {
     "claude-sonnet-5": PRICE_SONNET_USD,
+    "claude-haiku-5-5": PRICE_HAIKU_55_USD,
     "claude-haiku-4-5": PRICE_HAIKU_45_USD,
     "claude-haiku-4-5-20251001": PRICE_HAIKU_45_USD,
 }
@@ -66,7 +73,11 @@ def estimate_cost_parts(
     cache_read_tokens: int = 0,
 ) -> dict[str, float]:
     """일반 입력 / 캐시 쓰기 / 캐시 읽기 / 출력 비용을 나눈다."""
-    rates = PRICE_PER_MILLION_USD.get(str(model or "").strip(), PRICE_SONNET_USD)
+    name = str(model or "").strip()
+    rates = PRICE_PER_MILLION_USD.get(name, PRICE_SONNET_USD)
+    prompt_tokens = int(input_tokens or 0) + int(cache_write_tokens or 0) + int(cache_read_tokens or 0)
+    if name == "claude-haiku-5-5" and prompt_tokens > HAIKU_55_LONG_PROMPT_TOKENS:
+        rates = PRICE_HAIKU_55_LONG_USD
     inp, out = rates
     input_usd = max(0, int(input_tokens)) / 1_000_000.0 * inp
     cache_write_usd = max(0, int(cache_write_tokens)) / 1_000_000.0 * inp * CACHE_WRITE_MULTIPLIER
@@ -328,9 +339,23 @@ def generate(
                     output_config=_output_config(schema),
                     cached_prefix=cached_prefix,
                 )
+                stop_reason = body.get("stop_reason") if isinstance(body, dict) else None
+                fallback = REFUSAL_FALLBACK_MODELS.get(chosen)
+                if fallback and str(stop_reason or "").lower() == "refusal":
+                    return generate(
+                        prompt,
+                        model=fallback,
+                        system=system,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        timeout=timeout,
+                        thinking=thinking,
+                        json_schema=json_schema,
+                        json_schema_simple=json_schema_simple,
+                        cached_prefix=cached_prefix,
+                    )
                 parsed, raw = parse_model_json(text)
                 usage = _usage_from_body(body)
-                stop_reason = body.get("stop_reason") if isinstance(body, dict) else None
                 return {
                     "text": text,
                     "parsed": parsed,
@@ -570,6 +595,8 @@ def _generate_urllib(payload: dict[str, Any], *, timeout: float) -> tuple[str, d
         code = "rate_limit" if status == 429 else ("overloaded" if status == 529 else "unknown")
         if status == 400:
             code = "bad_request"
+        if status in {401, 403}:
+            code = "auth"
         raise ClaudeError(
             _short_http_message(status, detail),
             code=code,

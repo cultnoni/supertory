@@ -12,7 +12,7 @@ from typing import Any
 
 from feedback_pipeline import prompt_loader
 from feedback_pipeline.config import (
-    HAIKU_45_MODEL,
+    HAIKU_MODEL,
     INTENT_SUGGEST_MIN_REJECTS,
     INTENT_SUGGEST_MIN_RUNS,
     INTENT_SUGGEST_PIPELINES,
@@ -154,7 +154,7 @@ def draft_intent_sentence(
     *,
     tag: str,
     cards: list[dict[str, Any]],
-    model: str = HAIKU_45_MODEL,
+    model: str = HAIKU_MODEL,
 ) -> dict[str, Any]:
     samples = []
     for item in cards[:5]:

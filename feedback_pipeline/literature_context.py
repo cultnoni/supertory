@@ -7,7 +7,7 @@ import json
 from typing import Any, Callable
 
 from feedback_pipeline.config import (
-    HAIKU_45_MODEL,
+    HAIKU_MODEL,
     LITERARY_COMPRESS_GROUP,
     LITERARY_RECENT_UNITS,
     LITERATURE_LONG_STAGE_MODELS,
@@ -203,7 +203,7 @@ def build_prior_context(
     compress_model = str(
         custom.get("compress")
         or LITERATURE_LONG_STAGE_MODELS.get("compress")
-        or HAIKU_45_MODEL
+        or HAIKU_MODEL
     )
     recent_blocks: list[str] = []
     compressed_blocks: list[str] = []

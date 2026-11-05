@@ -13,7 +13,7 @@ import app
 import feedback_store
 import literary_form
 from feedback_pipeline.claude_client import FakeClaude, _payload, estimate_cost_usd
-from feedback_pipeline.config import HAIKU_45_MODEL, LITERATURE_STAGE_MODELS
+from feedback_pipeline.config import HAIKU_MODEL, LITERATURE_STAGE_MODELS
 from feedback_pipeline import prompt_loader
 from feedback_pipeline.literature_cache import (
     build_cached_system,
@@ -838,13 +838,14 @@ class CacheAndReuseTests(unittest.TestCase):
     def test_cache_pricing_and_payload_mark_the_prefix(self) -> None:
         self.assertEqual(LITERATURE_STAGE_MODELS["style"], "claude-sonnet-5")
         self.assertEqual(LITERATURE_STAGE_MODELS["verify"], "claude-sonnet-5")
-        self.assertEqual(HAIKU_45_MODEL, "claude-haiku-4-5-20251001")
+        self.assertEqual(HAIKU_MODEL, "claude-haiku-5-5")
         plain = estimate_cost_usd("claude-sonnet-5", 9000, 0)
         written = estimate_cost_usd("claude-sonnet-5", 0, 0, cache_write_tokens=9000)
         read = estimate_cost_usd("claude-sonnet-5", 0, 0, cache_read_tokens=9000)
-        self.assertAlmostEqual(plain, 0.027, places=4)
-        self.assertAlmostEqual(written, 0.03375, places=5)
-        self.assertAlmostEqual(read, 0.0027, places=4)
+        # Sonnet 5 공개 단가 $2/$10.
+        self.assertAlmostEqual(plain, 0.018, places=4)
+        self.assertAlmostEqual(written, 0.0225, places=5)
+        self.assertAlmostEqual(read, 0.0018, places=4)
         savings = estimate_shared_prefix_cost(9000, 10)
         self.assertLess(savings["with_cache_usd"], savings["without_cache_usd"])
         prefix = cache_prefix("[P1] 문장", "서술: 1인칭")

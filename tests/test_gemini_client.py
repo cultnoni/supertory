@@ -265,5 +265,16 @@ class GeminiErrorClassificationTests(unittest.TestCase):
         )
 
 
+class GeminiModelPinTests(unittest.TestCase):
+    def test_default_and_example_model_are_pinned_versions(self) -> None:
+        # "-latest" aliases are hot-swapped on every release, changing price and output.
+        from pathlib import Path
+
+        self.assertFalse(gemini_client.DEFAULT_MODEL.endswith("-latest"))
+        example = (Path(__file__).resolve().parents[1] / ".env.example").read_text(encoding="utf-8")
+        line = next(l for l in example.splitlines() if l.startswith("GEMINI_MODEL="))
+        self.assertEqual(line.split("=", 1)[1].strip(), gemini_client.DEFAULT_MODEL)
+
+
 if __name__ == "__main__":
     unittest.main()
