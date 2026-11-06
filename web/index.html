@@ -5741,7 +5741,7 @@
               </label>
             </fieldset>
             <label class="foreshadow-field continue-other-scene-wrap tory-other-scene-wrap tory-helper-section-label" id="continueOtherSceneWrap" for="continueOtherSceneSelect">
-              회차 선택
+              <span data-i18n="index.회차_선택">회차 선택</span>
               <select id="continueOtherSceneSelect" aria-label="이어 쓸 회차 선택" data-i18n-aria-label="index.이어_쓸_회차_선택">
                 <option value="" data-i18n="index.회차를_선택하세요">회차를 선택하세요</option>
               </select>
@@ -5773,7 +5773,21 @@
               </label>
             </fieldset>
             <p class="hint tory-helper-hint hidden" id="continueSceneUntilHint" data-i18n="index.분량과_상관없이_장면이_자연스럽게_끝나는_지">분량과 상관없이, 장면이 자연스럽게 끝나는 지점까지 이어 써요.</p>
-            <label class="foreshadow-field tory-helper-section-label">방향 힌트 (선택)
+            <p class="tory-helper-section-label continue-direction-head" data-i18n="continueDir.방향">방향 (선택)</p>
+            <div class="rewrite-preset-row continue-direction-row" id="continueDirectionRow" role="group" aria-label="방향" data-i18n-aria-label="continueDir.방향">
+              <button type="button" class="rewrite-preset-chip" data-continue-direction="tension" data-i18n="continueDir.긴장_고조">긴장 고조</button>
+              <button type="button" class="rewrite-preset-chip" data-continue-direction="monologue" data-i18n="continueDir.내면_독백">내면 독백</button>
+              <button type="button" class="rewrite-preset-chip" data-continue-direction="dialogue" data-i18n="continueDir.대사로_전개">대사로 전개</button>
+              <button type="button" class="rewrite-preset-chip" data-continue-direction="transition" data-i18n="continueDir.장면_전환">장면 전환</button>
+              <button type="button" class="rewrite-preset-chip" data-continue-direction="foreshadow" data-i18n="continueDir.떡밥_암시">떡밥 암시</button>
+              <button type="button" class="rewrite-preset-chip" data-continue-direction="emotion" data-i18n="continueDir.감정_고조">감정 고조</button>
+            </div>
+            <div class="continue-suggest-bar">
+              <button type="button" class="rewrite-preset-more continue-suggest-btn" id="continueSuggestButton" data-i18n="continueDir.이_장면_맞춤_제안">이 장면 맞춤 제안</button>
+              <span class="tory-helper-hint continue-suggest-status" id="continueSuggestStatus" aria-live="polite"></span>
+            </div>
+            <div class="rewrite-preset-row continue-suggest-row hidden" id="continueSuggestRow" role="group" aria-label="이 장면 맞춤 제안" data-i18n-aria-label="continueDir.이_장면_맞춤_제안"></div>
+            <label class="foreshadow-field tory-helper-section-label"><span data-i18n="continueDir.방향_힌트">방향 힌트 (선택)</span>
               <textarea id="continueHint" rows="2" maxlength="500" placeholder="예: 대화 위주로 / 긴장감을 높여 줘 / 다음엔 편지가 도착한다" data-i18n-placeholder="index.예_대화_위주로_긴장감을_높여_줘_다음엔_편"></textarea>
             </label>
           </div>

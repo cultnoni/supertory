@@ -31075,6 +31075,140 @@ function getContinueUserHint() {
   return String($("continueHint")?.value || "").trim();
 }
 
+/* —— 이어쓰기 방향 칩 + 「이 장면 맞춤 제안」 (docs/design-ai-context-and-style-2026-11.md §4.1) ——
+   칩은 방향 힌트 칸을 채운다. 3버전(후킹·전개·전환)이 모두 같은 힌트를 받으므로 모두 그 방향을 따른다.
+   칩 이름은 i18n, 채우는 문장은 한국어로 고정한다(모델이 받는 지시가 언어에 따라 흔들리지 않게). */
+const CONTINUE_DIRECTION_HINTS = {
+  tension: "긴장감을 끌어올리는 방향으로 이어 써 줘",
+  monologue: "인물의 내면 독백을 중심으로 이어 써 줘",
+  dialogue: "대사로 장면을 밀고 나가 줘",
+  transition: "장면을 전환해 다음 장소나 시간으로 넘어가 줘",
+  foreshadow: "앞으로 드러날 떡밥을 슬쩍 암시해 줘",
+  emotion: "인물의 감정을 고조시키는 방향으로 이어 써 줘",
+};
+let continueSuggestInFlight = false;
+let continueSuggestSceneId = 0;
+
+function syncContinueDirectionChips() {
+  const value = getContinueUserHint();
+  document.querySelectorAll("#continueDirectionRow [data-continue-direction]").forEach((chip) => {
+    const on = CONTINUE_DIRECTION_HINTS[chip.getAttribute("data-continue-direction")] === value;
+    chip.classList.toggle("is-active", on);
+    chip.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  document.querySelectorAll("#continueSuggestRow [data-continue-suggestion]").forEach((chip) => {
+    const on = chip.getAttribute("data-continue-suggestion") === value;
+    chip.classList.toggle("is-active", on);
+    chip.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+function setContinueHintValue(text) {
+  const el = $("continueHint");
+  if (!el) return;
+  // 같은 칩을 다시 누르면 힌트를 비운다.
+  el.value = getContinueUserHint() === text ? "" : String(text || "").slice(0, 500);
+  syncContinueDirectionChips();
+}
+
+function renderContinueSuggestions(directions) {
+  const row = $("continueSuggestRow");
+  if (!row) return;
+  row.replaceChildren();
+  (directions || []).forEach((text) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "rewrite-preset-chip continue-suggest-chip";
+    chip.setAttribute("data-continue-suggestion", text);
+    chip.textContent = text;
+    row.appendChild(chip);
+  });
+  row.classList.toggle("hidden", !(directions || []).length);
+  syncContinueDirectionChips();
+}
+
+async function requestContinueSuggestions() {
+  if (continueSuggestInFlight) return;
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  if (!state.sceneId) return toast(i18n.t("app.이어_쓰려면_먼저_씬을_열어_주세요"));
+  const scenePlain = manuscriptPlainForTory(getEditorContent() || "");
+  if (!scenePlain) return toast(i18n.t("app.이어_쓰려면_원고_본문이_필요해요_본문을_먼"));
+  const button = $("continueSuggestButton");
+  const status = $("continueSuggestStatus");
+  const sceneId = state.sceneId;
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  continueSuggestInFlight = true;
+  if (button) button.disabled = true;
+  if (status) status.textContent = i18n.t("continueDir.제안_받는_중");
+  try {
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify({
+        mode: "continue_directions",
+        project_title: project?.title || "",
+        purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+        main_genre: mainGenre,
+        sub_genre: subGenre,
+        main_genre_label: mainGenreLabel(mainGenre),
+        sub_genre_label: subGenreLabel(mainGenre, subGenre),
+        keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+        scene_title: state.scene?.title || $("sceneTitle")?.value || "",
+        scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+        scene_content: scenePlain,
+        user_hint: getContinueUserHint(),
+        project_id: state.projectId || null,
+        ...buildToryProjectContextPayload(),
+      }),
+    });
+    if (state.sceneId !== sceneId) return;
+    const directions = Array.isArray(result?.directions) ? result.directions.filter(Boolean) : [];
+    continueSuggestSceneId = sceneId;
+    renderContinueSuggestions(directions);
+    if (status) status.textContent = directions.length ? i18n.t("continueDir.하나를_고르면_방향_힌트에_들어가요") : i18n.t("continueDir.제안을_받지_못했어요");
+  } catch (error) {
+    if (status) status.textContent = "";
+    handleError(error);
+  } finally {
+    continueSuggestInFlight = false;
+    if (button) button.disabled = false;
+  }
+}
+
+function setupContinueDirectionChips() {
+  // 다른 회차에서 받은 제안은 지금 장면과 맞지 않으므로 지운다.
+  if (continueSuggestSceneId && continueSuggestSceneId !== state.sceneId) {
+    continueSuggestSceneId = 0;
+    renderContinueSuggestions([]);
+    if ($("continueSuggestStatus")) $("continueSuggestStatus").textContent = "";
+  }
+  const row = $("continueDirectionRow");
+  if (!row || row.dataset.bound === "1") {
+    syncContinueDirectionChips();
+    return;
+  }
+  row.dataset.bound = "1";
+  row.addEventListener("click", (event) => {
+    const chip = event.target?.closest?.("[data-continue-direction]");
+    if (!chip) return;
+    event.preventDefault();
+    const hint = CONTINUE_DIRECTION_HINTS[chip.getAttribute("data-continue-direction")];
+    if (hint) setContinueHintValue(hint);
+  });
+  $("continueSuggestRow")?.addEventListener("click", (event) => {
+    const chip = event.target?.closest?.("[data-continue-suggestion]");
+    if (!chip) return;
+    event.preventDefault();
+    setContinueHintValue(chip.getAttribute("data-continue-suggestion") || "");
+  });
+  $("continueSuggestButton")?.addEventListener("click", () => {
+    requestContinueSuggestions().catch(handleError);
+  });
+  $("continueHint")?.addEventListener("input", syncContinueDirectionChips);
+  syncContinueDirectionChips();
+}
+
 /** "current" | "other" — which page to continue from. */
 function getContinueSourceMode() {
   const checked = document.querySelector('input[name="continueSourceMode"]:checked');
@@ -31218,6 +31352,7 @@ function updateContinuePanelVisibility() {
   if (showContinue) {
     renderContinueLengthOptions();
     if (typeof updateContinueSourceUi === "function") updateContinueSourceUi();
+    setupContinueDirectionChips();
   }
   // Panels for popup modes stay visible inside the modal only when that mode is active.
   panel?.classList.toggle("hidden", !showContinue);
@@ -32407,6 +32542,8 @@ function insertTextIntoSceneEditor(text, options = {}) {
       selection.removeAllRanges();
       selection.addRange(range);
       inserted = true;
+      // 넣은 글을 연한 배경으로 표시하고 확정/되돌리기를 띄운다(본문에는 표식을 남기지 않는다).
+      if (options.mark !== false && options.checkpoint !== false) markAiInsertedNode(editor, node);
     }
   }
   if (!inserted) {
@@ -32418,6 +32555,142 @@ function insertTextIntoSceneEditor(text, options = {}) {
   markSceneDirty();
   toast(i18n.t('app.원고에_넣었어요_자동_저장됩니다'));
   return true;
+}
+
+/* —— AI 결과 「표시된 블록」 (docs/design-ai-context-and-style-2026-11.md §4.3, 결정: 일시 표시) ——
+   AI 결과를 원고에 넣으면 그 글을 CSS Custom Highlight로 연하게 칠하고, 바로 아래에 [되돌리기 · 확정] 막대를 띄운다.
+   본문 HTML에는 아무 표식도 넣지 않으므로 저장·내보내기·뷰어에 새지 않는다. 새로고침·회차 이동이면 표시는 사라진다.
+   넣기 직전 원고는 이미 이전 버전에 ★(before_ai_insert)로 남아 있다. */
+const AI_INSERT_HIGHLIGHT = "ai-insert";
+const aiInsertMark = { range: null, editor: null, sceneId: 0, inserted: "", original: null, bar: null, raf: 0, bound: false };
+
+function aiInsertHighlightSupported() {
+  return typeof CSS !== "undefined" && Boolean(CSS.highlights) && typeof Highlight === "function";
+}
+
+function clearAiInsertMark() {
+  if (aiInsertHighlightSupported()) CSS.highlights.delete(AI_INSERT_HIGHLIGHT);
+  aiInsertMark.bar?.remove();
+  window.cancelAnimationFrame(aiInsertMark.raf);
+  Object.assign(aiInsertMark, { range: null, editor: null, sceneId: 0, inserted: "", original: null, bar: null, raf: 0 });
+}
+
+function aiInsertMarkAlive() {
+  const { range, editor, sceneId } = aiInsertMark;
+  if (!range || !editor || !editor.isConnected) return false;
+  if (Number(state.sceneId) !== Number(sceneId)) return false;
+  return editor.contains(range.startContainer) && editor.contains(range.endContainer) && !range.collapsed;
+}
+
+/** node: 방금 넣은 Text 노드. original: 바꾸기(다듬기)였다면 원래 글 — 되돌리면 그 글로 돌아간다. */
+function markAiInsertedNode(editor, node, { original = null } = {}) {
+  clearAiInsertMark();
+  if (!aiInsertHighlightSupported() || !editor || !node || editor.id !== "sceneContent") return;
+  const range = document.createRange();
+  range.setStart(node, 0);
+  range.setEnd(node, node.length);
+  Object.assign(aiInsertMark, {
+    range,
+    editor,
+    sceneId: Number(state.sceneId) || 0,
+    inserted: range.toString(),
+    original: original == null ? null : String(original),
+  });
+  CSS.highlights.set(AI_INSERT_HIGHLIGHT, new Highlight(range));
+  ensureAiInsertBar();
+  bindAiInsertTracking();
+  scheduleAiInsertBarPosition();
+}
+
+function ensureAiInsertBar() {
+  if (aiInsertMark.bar?.isConnected) return aiInsertMark.bar;
+  const bar = document.createElement("div");
+  bar.className = "ai-insert-bar";
+  bar.setAttribute("role", "group");
+  bar.setAttribute("aria-label", i18n.t("aiInsert.AI가_넣은_글"));
+  bar.innerHTML = `<span class="ai-insert-bar-label">${escapeHtml(i18n.t("aiInsert.AI가_넣은_글"))}</span>`
+    + `<button type="button" class="ai-insert-bar-btn" data-ai-insert="revert">${escapeHtml(i18n.t("aiInsert.되돌리기"))}</button>`
+    + `<button type="button" class="ai-insert-bar-btn primary" data-ai-insert="keep">${escapeHtml(i18n.t("aiInsert.확정"))}</button>`;
+  // 막대를 눌러도 편집기 커서가 움직이지 않게 한다.
+  bar.addEventListener("mousedown", (event) => event.preventDefault());
+  bar.addEventListener("click", (event) => {
+    const action = event.target?.closest?.("[data-ai-insert]")?.getAttribute("data-ai-insert");
+    if (action === "keep") confirmAiInsertMark();
+    else if (action === "revert") revertAiInsertMark();
+  });
+  document.body.appendChild(bar);
+  aiInsertMark.bar = bar;
+  return bar;
+}
+
+function confirmAiInsertMark() {
+  clearAiInsertMark();
+  toast(i18n.t("aiInsert.확정했어요"));
+}
+
+function revertAiInsertMark() {
+  if (!aiInsertMarkAlive()) {
+    clearAiInsertMark();
+    return;
+  }
+  const { range, editor, inserted, original } = aiInsertMark;
+  if (range.toString() !== inserted && !window.confirm(i18n.t("aiInsert.고친_내용도_함께_되돌려요"))) return;
+  range.deleteContents();
+  if (original != null && original !== "") {
+    range.insertNode(document.createTextNode(original));
+  }
+  clearAiInsertMark();
+  updateEditorPlaceholder(editor);
+  updateSceneStats();
+  markSceneDirty();
+  toast(original != null ? i18n.t("aiInsert.원래_글로_되돌렸어요") : i18n.t("aiInsert.넣은_글을_뺐어요"));
+}
+
+function aiInsertScrollBox(editor) {
+  let el = editor?.parentElement || null;
+  while (el && el !== document.body) {
+    const overflow = getComputedStyle(el).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return el.getBoundingClientRect();
+    el = el.parentElement;
+  }
+  return { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth };
+}
+
+function positionAiInsertBar() {
+  aiInsertMark.raf = 0;
+  if (!aiInsertMark.range) return;
+  if (!aiInsertMarkAlive()) {
+    clearAiInsertMark();
+    return;
+  }
+  const bar = ensureAiInsertBar();
+  const rects = [...aiInsertMark.range.getClientRects()].filter((rect) => rect.width > 0 || rect.height > 0);
+  const last = rects[rects.length - 1];
+  const box = aiInsertScrollBox(aiInsertMark.editor);
+  if (!last || last.bottom < box.top || last.top > box.bottom) {
+    bar.classList.add("is-offscreen");
+    return;
+  }
+  bar.classList.remove("is-offscreen");
+  const width = bar.offsetWidth || 220;
+  const height = bar.offsetHeight || 32;
+  const top = Math.min(last.bottom + 6, box.bottom - height - 6);
+  const left = Math.max(box.left + 8, Math.min(last.left, box.right - width - 8));
+  bar.style.top = `${Math.round(top)}px`;
+  bar.style.left = `${Math.round(left)}px`;
+}
+
+function scheduleAiInsertBarPosition() {
+  if (!aiInsertMark.range || aiInsertMark.raf) return;
+  aiInsertMark.raf = window.requestAnimationFrame(positionAiInsertBar);
+}
+
+function bindAiInsertTracking() {
+  if (aiInsertMark.bound) return;
+  aiInsertMark.bound = true;
+  document.addEventListener("scroll", scheduleAiInsertBarPosition, true);
+  window.addEventListener("resize", scheduleAiInsertBarPosition);
+  $("sceneContent")?.addEventListener("input", scheduleAiInsertBarPosition);
 }
 
 function insertAiResultIntoEditor(text) {
@@ -78499,6 +78772,8 @@ function applyPendingRewriteToEditor() {
       selection?.removeAllRanges();
       selection?.addRange(range);
       applied = true;
+      // 다듬은 글을 표시하고, 되돌리면 원래 문장으로 돌아가게 한다.
+      if (!isSettings) markAiInsertedNode(editor, node, { original });
     }
   } catch (_) {
     applied = false;
@@ -78525,6 +78800,7 @@ function applyPendingRewriteToEditor() {
       selection?.removeAllRanges();
       selection?.addRange(insertRange);
       applied = true;
+      if (!isSettings) markAiInsertedNode(editor, node);
     } catch (_) {
       applied = false;
     }
@@ -79482,6 +79758,7 @@ async function openScene(sceneId, options = {}) {
     toast(i18n.t('app.씬을_열_수_없어요'));
     return;
   }
+  if (nextId !== Number(state.sceneId)) clearAiInsertMark(); // AI 넣은 글 표시는 그 회차에서만
   settingsDocOpenGen += 1; // a pending openSettingsDocMain must not cover the scene
   if (
     typeof isGlumpSprintActive === "function"

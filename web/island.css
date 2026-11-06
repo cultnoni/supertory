@@ -5224,3 +5224,30 @@ html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn.is-save-fail
 .style-profile-sample-actions { margin-top: -4px; }
 .style-literary-fields { display: grid; gap: inherit; min-width: 0; }
 .style-literary-fields[hidden] { display: none; }
+
+/* ── 이어쓰기 방향 칩 · AI 결과 「표시된 블록」 (docs/design-ai-context-and-style-2026-11.md §4) ──
+   방향 칩은 다듬기 칩(.rewrite-preset-chip)을 그대로 쓴다. 표시는 ::highlight(ai-insert) — 본문에 표식 없음. */
+.continue-direction-row { margin-bottom: 6px; }
+.continue-suggest-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 2px 0 6px; }
+.continue-suggest-btn:disabled { opacity: 0.5; cursor: default; }
+.continue-suggest-status { margin: 0 !important; font-size: 11.5px; }
+.continue-suggest-row { margin-bottom: 8px; }
+.continue-suggest-row.hidden { display: none !important; }
+.continue-suggest-chip { white-space: normal; text-align: left; line-height: 1.4; }
+::highlight(ai-insert) { background-color: color-mix(in srgb, var(--accent) 14%, transparent); }
+.ai-insert-bar {
+  position: fixed; z-index: 60; display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 6px 5px 10px; border: 1px solid var(--line); border-radius: var(--isl-r-sm, 9px);
+  background: var(--panel); box-shadow: var(--isl-pop-shadow, 0 6px 20px rgba(0,0,0,.12));
+  font-family: var(--font-ui); font-size: 12px; color: var(--isl-ink2);
+}
+.ai-insert-bar.is-offscreen { visibility: hidden; }
+.ai-insert-bar-label { white-space: nowrap; margin-right: 2px; }
+.ai-insert-bar-btn {
+  height: 26px; min-height: 26px; padding: 0 10px; border-radius: 6px;
+  font-family: var(--font-ui); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+/* 「되돌리기」만 막대 색을 쓰고, 「확정」은 앱 공통 .primary 색을 그대로 둔다(크기만 막대에 맞춤). */
+.ai-insert-bar-btn:not(.primary) { border: 1px solid var(--line); background: var(--panel); color: var(--text-primary); }
+.ai-insert-bar-btn:not(.primary):hover { background: var(--isl-sunk); }
+.ai-insert-bar-btn.primary { border: 1px solid transparent; }
