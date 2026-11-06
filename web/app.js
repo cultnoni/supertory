@@ -43070,6 +43070,7 @@ const SETTINGS_BOOKMARK_META = {
   },
   keywords: { title: i18n.t('app.장르_키워드'), open: () => openKeywordBoard() },
   style: { title: i18n.t('style.내_문체'), open: () => openSettingsCollectionMain("style") },
+  cliche: { title: i18n.t('app.장르_클리셰'), open: () => openSettingsCollectionMain("cliche") },
   // Per-doc keys (field → buttons / bookmarks)
   synopsis: { title: i18n.t('app.시놉시스'), open: () => openSettingsDocMain("synopsis") },
   logline: { title: i18n.t('app.로그라인'), open: () => openSettingsDocMain("logline") },
@@ -44000,6 +44001,13 @@ const SETTINGS_COLLECTION_MAIN = {
     hint: "",
     section: "style",
     listId: "styleFields",
+    hideAdd: true,
+  },
+  cliche: {
+    title: i18n.t('app.장르_클리셰'),
+    hint: "",
+    section: "cliche",
+    listId: "clicheFields",
     hideAdd: true,
   },
   readingInvite: {
