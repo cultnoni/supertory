@@ -60,6 +60,7 @@ import document_import
 import env_loader
 import genre_clusters
 import literary_form
+import style_profile
 import tory_notifications
 import genre_tool_routing
 import prompt_pipelines
@@ -333,6 +334,7 @@ from routes import (  # noqa: E402
     glump_api,
     reader_api,
     scene_revision_api,
+    style_profile_api,
     success_pattern_api,
     translation_api,
     webnovel_cliche_api,
@@ -6394,6 +6396,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             if webnovel_cliche_api.try_handle_get(self, path):
                 return
+            if style_profile_api.try_handle_get(self, path):
+                return
             if scene_revision_api.try_handle_get(self, path):
                 return
 
@@ -6950,6 +6954,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return
 
             if webnovel_cliche_api.try_handle_post(self, path, body):
+                return
+
+            if style_profile_api.try_handle_post(self, path, body):
                 return
 
             if scene_revision_api.try_handle_post(self, path, body):
@@ -8973,6 +8980,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
         genre_system = (
             self._tory_author_priority_system_prompt(tory_priority)
+            + self._style_profile_system_prompt(mode, project_id_for_priority, body, user_prompt)
             + self._tory_core_identity_system_prompt()
             + self._tory_dynamic_context_system_prompt(
                 main_genre_label=main_genre_label,
@@ -10582,6 +10590,49 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "   충돌하는 지시는 무리하게 따르지 말고, 문체·톤 등 반영 가능한\n"
             "   부분만 선택적으로 적용하세요.\n\n"
         )
+
+    @staticmethod
+    def _style_profile_system_prompt(mode: str, project_id: int, body: dict, user_prompt: str) -> str:
+        """「내 문체」 블록 — 글쓰기 모드에서만, 작가 지침 바로 뒤에 넣는다.
+
+        시점·시제·금지어는 토리 체크와 같은 값을 읽는다. 읽다 실패해도 AI 요청은 막지 않는다.
+        """
+        if mode not in style_profile.WRITING_MODES or not project_id:
+            return ""
+        if mode == "free" and not str(body.get("indexed_prompt") or "").strip():
+            # 회차 요약 버튼은 free 모드로 [요약] 지시만 보낸다 — 문체를 넣지 않는다.
+            if "[요약]" in str(user_prompt or "") or "[현재 작업]" in str(user_prompt or ""):
+                return ""
+        try:
+            with database() as connection:
+                profile = style_profile_api.load_profile(connection, project_id)
+                person = tense = None
+                forbidden: list[str] = []
+                try:
+                    row = connection.execute(
+                        "SELECT viewpoint_person, viewpoint_tense, forbidden_words_json "
+                        "FROM project_tory_check WHERE project_id = ?",
+                        (project_id,),
+                    ).fetchone()
+                except sqlite3.OperationalError:
+                    row = None
+                if row is not None:
+                    person = row["viewpoint_person"]
+                    tense = row["viewpoint_tense"]
+                    try:
+                        loaded = json.loads(row["forbidden_words_json"] or "[]")
+                        forbidden = loaded if isinstance(loaded, list) else []
+                    except (TypeError, ValueError):
+                        forbidden = []
+            return style_profile.build_prompt_block(
+                profile,
+                viewpoint_person=person,
+                viewpoint_tense=tense,
+                forbidden_words=forbidden,
+            )
+        except Exception as error:
+            print(f"문체 프로필 건너뜀: {error}")
+            return ""
 
     @staticmethod
     def _tory_core_identity_system_prompt() -> str:

@@ -970,15 +970,97 @@
                         <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
                       </svg>
                     </span>
-                    <span class="settings-box-title" data-i18n="app.문체">문체</span>
+                    <span class="settings-box-title" data-i18n="style.내_문체">내 문체</span>
                   </button>
-                  <button type="button" class="settings-main-open" data-settings-main="style" aria-label="문체 펼치기" data-i18n-aria-label="app.문체" title="문체 펼치기" data-i18n-title="app.문체">
+                  <button type="button" class="settings-main-open" data-settings-main="style" aria-label="내 문체 펼치기" data-i18n-aria-label="style.내_문체" title="내 문체 펼치기" data-i18n-title="style.내_문체">
                     <span class="settings-main-arrow" aria-hidden="true">→</span>
                   </button>
                 </div>
                 <div class="settings-box-preview" id="stylePreview"></div>
                 <div class="settings-box-body" id="styleBody" hidden>
                   <div class="style-fields" id="styleFields">
+                  <div class="style-profile" id="styleProfileForm">
+                    <p class="style-profile-lead" data-i18n="style.안내">AI가 이어쓰기·다듬기·묘사·직접 요청을 할 때 이 문체를 따라요.</p>
+                    <div class="style-profile-field">
+                      <span class="world-sheet-field-head"><span data-i18n="style.기본_결">기본 결</span></span>
+                      <div class="style-profile-chips" id="styleProfilePresets" role="group" aria-label="기본 결" data-i18n-aria-label="style.기본_결">
+                        <button type="button" class="style-profile-chip" data-style-preset="" data-i18n="style.사용_안_함">사용 안 함</button>
+                        <button type="button" class="style-profile-chip" data-style-preset="speed" data-i18n="style.프리셋_speed">속도감</button>
+                        <button type="button" class="style-profile-chip" data-style-preset="literary" data-i18n="style.프리셋_literary">문예 묘사</button>
+                        <button type="button" class="style-profile-chip" data-style-preset="hardboiled" data-i18n="style.프리셋_hardboiled">건조한 하드보일드</button>
+                        <button type="button" class="style-profile-chip" data-style-preset="healing" data-i18n="style.프리셋_healing">잔잔한 힐링</button>
+                        <button type="button" class="style-profile-chip" data-style-preset="comic" data-i18n="style.프리셋_comic">코믹 경쾌</button>
+                        <button type="button" class="style-profile-chip" data-style-preset="custom" data-i18n="style.프리셋_custom">직접 설정</button>
+                      </div>
+                    </div>
+                    <div class="style-profile-dials" id="styleProfileDials" hidden>
+                      <div class="style-profile-row">
+                        <span class="style-profile-lab" data-i18n="style.전개_속도">전개 속도</span>
+                        <input type="range" min="1" max="5" step="1" data-style-dial="tempo" aria-label="전개 속도" data-i18n-aria-label="style.전개_속도">
+                        <output data-style-dial-out="tempo"></output>
+                      </div>
+                      <div class="style-profile-row">
+                        <span class="style-profile-lab" data-i18n="style.문장_길이">문장 길이</span>
+                        <div class="seg-control style-profile-seg" role="group" aria-label="문장 길이" data-i18n-aria-label="style.문장_길이">
+                          <button type="button" class="seg-control-tab" data-style-length="short" data-i18n="style.짧게">짧게</button>
+                          <button type="button" class="seg-control-tab" data-style-length="medium" data-i18n="style.보통">보통</button>
+                          <button type="button" class="seg-control-tab" data-style-length="long" data-i18n="style.길게">길게</button>
+                        </div>
+                      </div>
+                      <div class="style-profile-row">
+                        <span class="style-profile-lab" data-i18n="style.대사_비중">대사 비중</span>
+                        <input type="range" min="0" max="100" step="10" data-style-dial="dialogue_ratio" aria-label="대사 비중" data-i18n-aria-label="style.대사_비중">
+                        <output data-style-dial-out="dialogue_ratio"></output>
+                      </div>
+                      <div class="style-profile-row">
+                        <span class="style-profile-lab" data-i18n="style.묘사_밀도">묘사 밀도</span>
+                        <input type="range" min="1" max="5" step="1" data-style-dial="description_density" aria-label="묘사 밀도" data-i18n-aria-label="style.묘사_밀도">
+                        <output data-style-dial-out="description_density"></output>
+                      </div>
+                      <div class="style-profile-row">
+                        <span class="style-profile-lab" data-i18n="style.유머">유머</span>
+                        <input type="range" min="0" max="5" step="1" data-style-dial="humor" aria-label="유머" data-i18n-aria-label="style.유머">
+                        <output data-style-dial-out="humor"></output>
+                      </div>
+                      <div class="style-profile-suggest">
+                        <button type="button" class="secondary compact-btn" id="styleProfileSuggestButton" data-i18n="style.내_원고에서_제안_받기">내 원고에서 제안 받기</button>
+                        <p class="style-profile-note" id="styleProfileSuggestResult" aria-live="polite" hidden></p>
+                      </div>
+                    </div>
+                    <div class="style-profile-row style-profile-pov">
+                      <span class="style-profile-lab" data-i18n="style.시점_시제">시점·시제</span>
+                      <select id="styleProfilePerson" aria-label="시점" data-i18n-aria-label="style.시점">
+                        <option value="" data-i18n="style.정하지_않음">정하지 않음</option>
+                        <option value="first" data-i18n="style.1인칭">1인칭</option>
+                        <option value="third" data-i18n="style.3인칭">3인칭</option>
+                      </select>
+                      <select id="styleProfileTense" aria-label="시제" data-i18n-aria-label="style.시제">
+                        <option value="" data-i18n="style.정하지_않음">정하지 않음</option>
+                        <option value="past" data-i18n="style.과거형">과거형</option>
+                        <option value="present" data-i18n="style.현재형">현재형</option>
+                      </select>
+                    </div>
+                    <label class="world-cat-field">
+                      <span class="world-sheet-field-head"><span data-i18n="style.즐겨_쓰는_표현">즐겨 쓰는 표현</span></span>
+                      <input type="text" id="styleProfilePreferred" placeholder="쉼표로 구분. 예: 묵묵히, 피식" data-i18n-placeholder="style.즐겨_쓰는_표현_안내">
+                    </label>
+                    <label class="world-cat-field">
+                      <span class="world-sheet-field-head"><span data-i18n="style.쓰지_않는_표현">쓰지 않는 표현</span> <span class="style-author-only" data-i18n="style.토리_체크와_같음">토리 체크 금칙어와 같음</span></span>
+                      <input type="text" id="styleProfileForbidden" placeholder="쉼표로 구분. 예: 갑자기, 순간" data-i18n-placeholder="style.쓰지_않는_표현_안내">
+                    </label>
+                    <label class="world-cat-field">
+                      <span class="world-sheet-field-head"><span data-i18n="style.문체_메모">문체 메모</span></span>
+                      <textarea id="styleProfileHabits" rows="3" maxlength="2000" placeholder="AI가 알아 두면 좋은 내 문장 습관. 예: 문단 끝은 짧은 한 문장으로 끊는다" data-i18n-placeholder="style.문체_메모_안내"></textarea>
+                    </label>
+                    <label class="world-cat-field">
+                      <span class="world-sheet-field-head"><span data-i18n="style.문체_예시">문체 예시</span> <span class="style-author-only" id="styleProfileSampleCount"></span></span>
+                      <textarea id="styleProfileSample" rows="4" maxlength="800" placeholder="내 문체가 잘 드러난 본문을 붙여 넣으세요(800자까지). AI는 내용이 아니라 문장 결만 참고해요." data-i18n-placeholder="style.문체_예시_안내"></textarea>
+                    </label>
+                    <div class="style-profile-sample-actions">
+                      <button type="button" class="secondary compact-btn" id="styleProfileSampleFromEditor" data-i18n="style.원고에서_고른_부분_넣기">원고에서 고른 부분 넣기</button>
+                    </div>
+                  </div>
+                  <div class="style-literary-fields" id="styleLiteraryFields">
                   <div class="settings-field-head is-actions-only" id="toriFillStyleRow" hidden>
                     <div class="settings-field-actions">
                       <button type="button" class="secondary compact-btn settings-icon-btn" id="toriFillStyleButton" data-tori-fill="style" title="토리야 작성해줘" data-i18n-title="app.토리야_작성해줘" aria-label="토리야 작성해줘" data-i18n-aria-label="app.토리야_작성해줘">
@@ -1010,6 +1092,7 @@
                     <span class="world-sheet-field-head"><span data-i18n="app.고치고_싶은_습관">고치고 싶은 습관</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
                     <textarea data-style-field="style_habit" rows="3" placeholder="스스로 고치고 싶은 습관을 적어주세요. 예: '~것이다'를 줄이고 싶다" data-i18n-placeholder="app.문체_습관_안내"></textarea>
                   </label>
+                  </div>
                   </div>
                 </div>
               </section>
