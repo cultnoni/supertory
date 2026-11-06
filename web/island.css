@@ -5389,3 +5389,17 @@ html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn.is-save-fail
 .status-window-preview .st-status-window { margin: 0; }
 .status-window-presets-actions { display: flex; align-items: center; gap: 6px; padding-top: 4px; }
 .status-window-actions-spacer { flex: 1 1 auto; }
+
+/* 오른쪽 위젯 「상태창」: 저장한 프리셋 목록 → 눌러서 커서 자리에 넣기 */
+.status-window-dock { display: flex; flex-direction: column; gap: 6px; min-height: 0; height: 100%; font-family: var(--font-ui); }
+.status-window-dock-hint, .status-window-dock-empty { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--isl-ink3); }
+.status-window-dock-list { display: grid; gap: 4px; overflow-y: auto; min-height: 0; }
+.status-window-dock-item {
+  display: grid; gap: 1px; width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); text-align: left; cursor: pointer; color: var(--text-primary);
+}
+.status-window-dock-item:hover, .status-window-dock-item:focus-visible { background: var(--isl-sunk); }
+.status-window-dock-name { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-window-dock-sub { font-size: 11px; color: var(--isl-ink3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-window-dock-actions { display: flex; gap: 6px; margin-top: auto; padding-top: 4px; }
+.status-window-dock-actions .compact-btn { flex: 1 1 0; min-width: 0; font-size: 12px !important; white-space: nowrap; }

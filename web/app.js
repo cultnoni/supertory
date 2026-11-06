@@ -8438,6 +8438,7 @@ const statusWindowState = {
   editingId: "",
   draft: null,
   dirty: false,
+  lastCaret: null,
 };
 
 function statusWindowModel() {
@@ -8512,6 +8513,7 @@ async function saveStatusWindowPresets(presets) {
   statusWindowState.projectId = pid;
   statusWindowState.presets = Array.isArray(data?.presets) ? data.presets : [];
   statusWindowState.loaded = true;
+  refreshStatusWindowDock();
   return statusWindowState.presets;
 }
 
@@ -8585,12 +8587,18 @@ function buildStatusWindowBlock(preset, lines) {
 
 /** 편집기 바로 아래(또는 단 나누기 안) 문단. */
 function statusWindowTopBlock(editor, node) {
-  let el = node && node.nodeType === 1 ? node : node?.parentElement;
-  if (!el || el === editor) return null;
-  while (el && el.parentElement && el.parentElement !== editor && !el.parentElement.classList?.contains("ms-dan")) {
-    el = el.parentElement;
+  if (!node || node === editor) return null;
+  const isLineParent = (parent) => parent === editor || parent?.classList?.contains("ms-dan");
+  let el = node;
+  while (el && el.parentNode && !isLineParent(el.parentNode)) el = el.parentNode;
+  if (!el || !el.parentNode || !editor.contains(el)) return null;
+  // 원고 첫 줄처럼 태그 없이 놓인 글(글자·굵게 등)이면 그 줄의 끝(다음 <br>·문단 앞)까지 간다.
+  const isInline = (n) => n && (n.nodeType === 3
+    || (n.nodeType === 1 && n.tagName !== "BR" && !/^(DIV|P|H[1-6]|BLOCKQUOTE|UL|OL|LI|TABLE|PRE|FIGURE|HR|SECTION)$/.test(n.tagName)));
+  if (isInline(el)) {
+    while (isInline(el.nextSibling)) el = el.nextSibling;
   }
-  return el && editor.contains(el) ? el : null;
+  return el;
 }
 
 function isEmptyStatusWindowLine(el) {
@@ -9135,6 +9143,95 @@ function setupStatusWindowPresets() {
 function setupStatusWindow() {
   setupStatusWindowMenu();
   setupStatusWindowPresets();
+  document.addEventListener("selectionchange", rememberStatusWindowCaret);
+}
+
+/* 오른쪽 위젯 「상태창」: 저장한 프리셋 목록을 띄워 두고 눌러서 커서 자리에 넣는다.
+ * 위젯을 눌러도 원고의 커서를 잃지 않게 mousedown을 막고, 마지막 커서 자리도 따로 기억한다. */
+const DOCK_STATUS_WINDOW_KEY = "dock:statusWindows";
+
+function rememberStatusWindowCaret() {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  const host = range.commonAncestorContainer;
+  const el = host && host.nodeType === 1 ? host : host?.parentElement;
+  const editor = el?.closest?.("#sceneContent, #splitSceneBodyEditor, #focusWriteEditor");
+  if (!editor) return;
+  statusWindowState.lastCaret = { editor, range: range.cloneRange() };
+}
+
+function statusWindowDockTarget() {
+  const last = statusWindowState.lastCaret;
+  if (last?.editor?.isConnected) {
+    try {
+      if (last.editor.contains(last.range.commonAncestorContainer)) return { editor: last.editor, range: last.range };
+    } catch (_) { /* 범위가 끊겼으면 아래로 */ }
+  }
+  const editor = $("sceneContent");
+  return { editor, range: currentEditorRange(editor) };
+}
+
+function renderStatusWindowDock(body) {
+  const host = body || ideaFloatWindows.get(DOCK_STATUS_WINDOW_KEY)?.querySelector("[data-role='dock-float-body']");
+  if (!host) return;
+  const pid = Number(state.projectId) || 0;
+  host.dataset.projectId = String(pid);
+  const mine = statusWindowState.loaded && statusWindowState.projectId === pid ? statusWindowState.presets : [];
+  const row = (preset) => `
+    <button type="button" class="status-window-dock-item" data-sw-dock-insert="${escapeHtml(preset.id)}">
+      <span class="status-window-dock-name">${escapeHtml(preset.name)}</span>
+      <span class="status-window-dock-sub">${escapeHtml(preset.items.slice(0, 4).map((it) => it.name).join(" · "))}</span>
+    </button>`;
+  const parts = [`<p class="status-window-dock-hint">${escapeHtml(i18n.t("statusWindow.커서_자리에_넣어요"))}</p>`];
+  if (mine.length) {
+    parts.push(`<div class="status-window-dock-list" role="list">${mine.map(row).join("")}</div>`);
+  } else {
+    parts.push(`<p class="status-window-dock-empty">${escapeHtml(i18n.t("statusWindow.아직_저장한_프리셋이_없어요"))}</p>`);
+    parts.push(`<div class="status-window-menu-label">${escapeHtml(i18n.t("statusWindow.기본_템플릿"))}</div>`);
+    parts.push(`<div class="status-window-dock-list" role="list">${statusWindowTemplates().map(row).join("")}</div>`);
+  }
+  parts.push(`<div class="status-window-dock-actions">
+      <button type="button" class="secondary compact-btn" data-sw-dock-action="tidy">${escapeHtml(i18n.t("statusWindow.상태창으로_정리"))}</button>
+      <button type="button" class="secondary compact-btn" data-sw-dock-action="manage">${escapeHtml(i18n.t("statusWindow.프리셋_관리"))}</button>
+    </div>`);
+  host.innerHTML = `<div class="status-window-dock">${parts.join("")}</div>`;
+  if (host.dataset.swBound !== "1") {
+    host.dataset.swBound = "1";
+    // 위젯을 눌러도 원고의 커서·선택이 그대로 남게 한다.
+    host.addEventListener("mousedown", (event) => {
+      if (event.target.closest("[data-sw-dock-insert], [data-sw-dock-action]")) event.preventDefault();
+    });
+    host.addEventListener("pointerenter", () => {
+      if (host.dataset.projectId !== String(Number(state.projectId) || 0)) refreshStatusWindowDock();
+    });
+    host.addEventListener("click", (event) => {
+      const pick = event.target.closest("[data-sw-dock-insert]");
+      const action = event.target.closest("[data-sw-dock-action]")?.getAttribute("data-sw-dock-action");
+      if (!pick && !action) return;
+      if (action === "manage") {
+        openStatusWindowPresets().catch(handleError);
+        return;
+      }
+      const target = statusWindowDockTarget();
+      statusWindowState.editor = target.editor;
+      statusWindowState.range = target.range ? target.range.cloneRange() : null;
+      try {
+        if (action === "tidy") tidyStatusWindowAtCaret();
+        else insertStatusWindow(pick.getAttribute("data-sw-dock-insert"));
+      } catch (error) {
+        handleError(error);
+      }
+    });
+  }
+  if (!statusWindowState.loaded || statusWindowState.projectId !== pid) {
+    if (pid) loadStatusWindowPresets().then(() => renderStatusWindowDock()).catch(() => { /* 템플릿으로는 쓸 수 있다 */ });
+  }
+}
+
+function refreshStatusWindowDock() {
+  if (!ideaFloatWindows.get(DOCK_STATUS_WINDOW_KEY)) return;
+  renderStatusWindowDock();
 }
 
 /* —— 특수문자 삽입 —— */
@@ -21749,6 +21846,7 @@ const DOCK_RAIL_FLOAT_KEYS = {
   readerChat: DOCK_READER_CHAT_KEY,
   aiResult: DOCK_AI_RESULT_KEY,
   aiHistory: DOCK_AI_HISTORY_KEY,
+  statusWindows: "dock:statusWindows",
 };
 const dockCharacterDetailCache = new Map();
 const dockItemDetailCache = new Map();
@@ -22296,6 +22394,15 @@ const DOCK_FLOAT_SPECS = {
     resize: false,
     fallbackPos() { return dockCreditsFallbackPos(); },
     render(body) { renderDockCreditsBody(body); },
+  },
+  statusWindows: {
+    titleKey: "statusWindow.상태창",
+    windowClass: "dock-float-status-window",
+    side: "right",
+    defaultWidth: 300,
+    defaultHeight: 380,
+    resize: { minWidth: 240, minHeight: 200 },
+    render(body) { renderStatusWindowDock(body); },
   },
   toryCheck: {
     titleKey: "index.실시간_토리_체크",
@@ -36616,7 +36723,7 @@ async function refreshAiCheckHub() {
 }
 /* 결과 위젯은 안에 히스토리 전환 버튼이 있어 "히스토리"는 입구에서 뺐고, 도토리 잔량은 체크 탭 아래 "도토리" 칩(상태 표시)으로만 둔다 */
 const ISL_WIDGET_GROUPS = [
-  { id: "write", labelKey: "island.위젯_그룹_쓰기", keys: ["writingTimer", "statsTracker", "toryCheck", "toryChat", "aiResult"] },
+  { id: "write", labelKey: "island.위젯_그룹_쓰기", keys: ["writingTimer", "statsTracker", "statusWindows", "toryCheck", "toryChat", "aiResult"] },
   { id: "ref", labelKey: "island.위젯_그룹_자료", keys: ["manuscript", "refPeople", "refStory", "refLore", "successProfile", "settingsSearch"] },
 ];
 /** 설정집 참조 위젯 3종: 인물·설정 / 이야기 흐름 / 자료·사전 */

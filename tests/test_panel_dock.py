@@ -99,6 +99,7 @@ class PanelDockContractTests(unittest.TestCase):
                 "toryCheck",
                 "spellcheck",
                 "statsTracker",
+                "statusWindows",
                 "toryChat",
                 "characterChat",
                 "readerChat",
