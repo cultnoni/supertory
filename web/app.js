@@ -9191,13 +9191,15 @@ function renderStatusWindowDock(body) {
       <span class="status-window-dock-sub">${escapeHtml(preset.items.slice(0, 4).map((it) => it.name).join(" · "))}</span>
     </button>`;
   const parts = [`<p class="status-window-dock-hint">${escapeHtml(i18n.t("statusWindow.커서_자리에_넣어요"))}</p>`];
+  const list = [];
+  // 이 작품에서 저장한 프리셋이 있으면 위에, 기본 템플릿 5종은 늘 아래에 둔다.
   if (mine.length) {
-    parts.push(`<div class="status-window-dock-list" role="list">${mine.map(row).join("")}</div>`);
-  } else {
-    parts.push(`<p class="status-window-dock-empty">${escapeHtml(i18n.t("statusWindow.아직_저장한_프리셋이_없어요"))}</p>`);
-    parts.push(`<div class="status-window-menu-label">${escapeHtml(i18n.t("statusWindow.기본_템플릿"))}</div>`);
-    parts.push(`<div class="status-window-dock-list" role="list">${statusWindowTemplates().map(row).join("")}</div>`);
+    list.push(`<div class="status-window-menu-label">${escapeHtml(i18n.t("statusWindow.이_작품_프리셋"))}</div>`);
+    list.push(mine.map(row).join(""));
   }
+  list.push(`<div class="status-window-menu-label">${escapeHtml(i18n.t("statusWindow.기본_템플릿"))}</div>`);
+  list.push(statusWindowTemplates().map(row).join(""));
+  parts.push(`<div class="status-window-dock-list" role="list">${list.join("")}</div>`);
   parts.push(`<div class="status-window-dock-actions">
       <button type="button" class="secondary compact-btn" data-sw-dock-action="tidy">${escapeHtml(i18n.t("statusWindow.상태창으로_정리"))}</button>
       <button type="button" class="secondary compact-btn" data-sw-dock-action="manage">${escapeHtml(i18n.t("statusWindow.프리셋_관리"))}</button>
@@ -22920,6 +22922,21 @@ function syncDockRailButtons() {
     const on = isDockRailItemActive(itemId);
     btn.classList.toggle("is-open", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  syncIslWidgetTileOpenState();
+}
+
+/** 위젯 탭 타일: 지금 열려 있는(쓰는 중인) 위젯은 바탕색과 점으로 표시한다. 다시 그리지 않고 표시만 바꾼다. */
+function syncIslWidgetTileOpenState() {
+  const host = $("islWidgetTiles");
+  if (!host || !host.querySelector("[data-isl-widget]")) return;
+  let items = [];
+  try { items = islWidgetItems().flatMap((group) => group.items); } catch (_) { return; }
+  const open = new Map(items.map((item) => [item.key, Boolean(item.open)]));
+  host.querySelectorAll("[data-isl-widget]").forEach((tile) => {
+    const on = Boolean(open.get(tile.dataset.islWidget));
+    tile.classList.toggle("is-open", on);
+    tile.setAttribute("aria-pressed", on ? "true" : "false");
   });
 }
 
