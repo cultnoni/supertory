@@ -9597,9 +9597,12 @@ function applyLiteraryLengthTagDisplay() {
 
 function applyLiteraryTrackUi() {
   const show = Boolean(state.projectId) && isLiteraryTrackTarget();
+  // 「내 문체」 상자는 모든 작품에 보인다. 문학 전용 칸(서술 기본값~고치고 싶은 습관)만 문학에서 보인다.
   document.querySelectorAll('[data-settings-section="style"]').forEach((el) => {
-    setClusterFeatureHidden(el, !show);
+    setClusterFeatureHidden(el, !state.projectId);
   });
+  setElHidden($("styleLiteraryFields"), !show);
+  if (state.projectId) ensureStyleProfileLoaded();
   setElHidden($("literaryFormBoard"), !show);
   setElHidden($("literaryFormSidebar"), !show);
   setElHidden($("contestPrepBoard"), !show);
@@ -10009,6 +10012,289 @@ function setupStyleFields() {
       scheduleStyleFieldSave(el.getAttribute("data-style-field") || "");
     });
   });
+  setupStyleProfile();
+}
+
+/* —— 「내 문체」 프로필 (docs/design-ai-context-and-style-2026-11.md §3) ——
+   모든 작품에 보인다. 저장은 /style-profile, 시점·시제·금지어는 토리 체크(/tory-check)와 같은 값.
+   AI 글쓰기 요청에는 서버가 [작가 문체 프로필] 블록으로 넣는다(앱에서 프롬프트를 고치지 않는다). */
+const STYLE_PROFILE_DIALS = ["tempo", "dialogue_ratio", "description_density", "humor"];
+const styleProfileState = {
+  projectId: 0,
+  loadGen: 0,
+  profile: null,
+  presets: {},
+  saveTimer: 0,
+  pending: {},
+};
+
+function emptyStyleProfile() {
+  return {
+    preset: "",
+    tempo: null,
+    sentence_length: null,
+    dialogue_ratio: null,
+    description_density: null,
+    humor: null,
+    habits_md: "",
+    preferred_words: [],
+    sample_text: "",
+  };
+}
+
+function styleProfileDialText(key, value) {
+  if (value == null || value === "") return "";
+  if (key === "dialogue_ratio") return `${value}%`;
+  return `${value}/5`;
+}
+
+function splitStyleWords(raw) {
+  const seen = new Set();
+  return String(raw || "")
+    .split(/[,\n]/)
+    .map((word) => word.replace(/\s+/g, " ").trim())
+    .filter((word) => {
+      const key = word.toLowerCase();
+      if (!word || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function renderStyleProfile() {
+  const root = $("styleProfileForm");
+  if (!root) return;
+  const profile = styleProfileState.profile || emptyStyleProfile();
+  const preset = String(profile.preset || "");
+  root.querySelectorAll("[data-style-preset]").forEach((chip) => {
+    const on = chip.getAttribute("data-style-preset") === preset;
+    chip.classList.toggle("is-active", on);
+    chip.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  setElHidden($("styleProfileDials"), !preset);
+  STYLE_PROFILE_DIALS.forEach((key) => {
+    const input = root.querySelector(`[data-style-dial="${key}"]`);
+    const out = root.querySelector(`[data-style-dial-out="${key}"]`);
+    const fallback = styleProfileState.presets?.custom?.[key];
+    const value = profile[key] != null ? profile[key] : fallback;
+    if (input && document.activeElement !== input && value != null) input.value = String(value);
+    if (out) out.textContent = styleProfileDialText(key, input ? Number(input.value) : value);
+  });
+  const length = profile.sentence_length || "";
+  root.querySelectorAll("[data-style-length]").forEach((tab) => {
+    const on = tab.getAttribute("data-style-length") === length;
+    tab.classList.toggle("active", on);
+    tab.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  const person = $("styleProfilePerson");
+  const tense = $("styleProfileTense");
+  if (person && document.activeElement !== person) person.value = toryCheckState.viewpoint_person || "";
+  if (tense && document.activeElement !== tense) tense.value = toryCheckState.viewpoint_tense || "";
+  const preferred = $("styleProfilePreferred");
+  if (preferred && document.activeElement !== preferred) {
+    preferred.value = (profile.preferred_words || []).join(", ");
+  }
+  const forbidden = $("styleProfileForbidden");
+  if (forbidden && document.activeElement !== forbidden) {
+    forbidden.value = (toryCheckState.forbidden_words || []).join(", ");
+  }
+  const habits = $("styleProfileHabits");
+  if (habits && document.activeElement !== habits) habits.value = String(profile.habits_md || "");
+  const sample = $("styleProfileSample");
+  if (sample && document.activeElement !== sample) sample.value = String(profile.sample_text || "");
+  updateStyleProfileSampleCount();
+}
+
+function updateStyleProfileSampleCount() {
+  const count = $("styleProfileSampleCount");
+  const sample = $("styleProfileSample");
+  if (!count || !sample) return;
+  const length = String(sample.value || "").length;
+  count.textContent = length ? i18n.t("style.글자_수", { count: length.toLocaleString(), max: "800" }) : "";
+}
+
+async function loadStyleProfile(projectId) {
+  const pid = Number(projectId) || 0;
+  const gen = ++styleProfileState.loadGen;
+  if (!pid) {
+    styleProfileState.projectId = 0;
+    styleProfileState.profile = emptyStyleProfile();
+    renderStyleProfile();
+    return;
+  }
+  const [data] = await Promise.all([
+    api(`/api/projects/${pid}/style-profile`),
+    toryCheckState.loadedProjectId === pid ? Promise.resolve() : loadToryCheckSettings(pid),
+  ]);
+  if (gen !== styleProfileState.loadGen || Number(state.projectId) !== pid) return;
+  styleProfileState.projectId = pid;
+  styleProfileState.profile = { ...emptyStyleProfile(), ...(data?.profile || {}) };
+  styleProfileState.presets = data?.presets || {};
+  renderStyleProfile();
+}
+
+function ensureStyleProfileLoaded() {
+  const pid = Number(state.projectId) || 0;
+  if (styleProfileState.projectId === pid && styleProfileState.profile) {
+    renderStyleProfile();
+    return;
+  }
+  loadStyleProfile(pid).catch(handleError);
+}
+
+/** 보낸 키만 바꿔 저장한다. 입력이 이어지면 모아서 한 번에 보낸다. */
+function queueStyleProfileSave(patch, { immediate = false } = {}) {
+  const pid = Number(state.projectId) || 0;
+  if (!pid) return;
+  styleProfileState.profile = { ...(styleProfileState.profile || emptyStyleProfile()), ...patch };
+  styleProfileState.pending = { ...styleProfileState.pending, ...patch };
+  window.clearTimeout(styleProfileState.saveTimer);
+  const run = () => {
+    const body = styleProfileState.pending;
+    styleProfileState.pending = {};
+    if (!Object.keys(body).length) return;
+    api(`/api/projects/${pid}/style-profile`, { method: "POST", body: JSON.stringify(body) })
+      .then((data) => {
+        if (Number(state.projectId) !== pid || Object.keys(styleProfileState.pending).length) return;
+        styleProfileState.profile = { ...emptyStyleProfile(), ...(data?.profile || {}) };
+        renderStyleProfile();
+      })
+      .catch(handleError);
+  };
+  if (immediate) run();
+  else styleProfileState.saveTimer = window.setTimeout(run, 600);
+}
+
+function chooseStyleProfilePreset(preset) {
+  const key = String(preset || "");
+  const patch = { preset: key };
+  // 프리셋을 바꾸면 다이얼을 그 프리셋 기본값으로 맞춘다(직접 설정은 지금 값을 그대로 둔다).
+  const values = key && key !== "custom" ? styleProfileState.presets?.[key] : null;
+  if (values) Object.assign(patch, values);
+  if (key === "custom") {
+    const current = styleProfileState.profile || {};
+    const base = styleProfileState.presets?.custom || {};
+    ["tempo", "sentence_length", "dialogue_ratio", "description_density", "humor"].forEach((field) => {
+      patch[field] = current[field] != null ? current[field] : base[field];
+    });
+  }
+  queueStyleProfileSave(patch, { immediate: true });
+  renderStyleProfile();
+}
+
+/** 다이얼을 손으로 바꾸면 프리셋은 「직접 설정」으로 바뀐다. */
+function changeStyleProfileDial(patch) {
+  const next = { ...patch };
+  if (styleProfileState.profile?.preset && styleProfileState.profile.preset !== "custom") next.preset = "custom";
+  queueStyleProfileSave(next);
+  renderStyleProfile();
+}
+
+async function suggestStyleProfileFromManuscript() {
+  const pid = Number(state.projectId) || 0;
+  if (!pid) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  const button = $("styleProfileSuggestButton");
+  const note = $("styleProfileSuggestResult");
+  if (button) button.disabled = true;
+  try {
+    const data = await api(`/api/projects/${pid}/style-profile/suggest`);
+    if (Number(state.projectId) !== pid) return;
+    if (!data?.enough) {
+      if (note) {
+        note.textContent = i18n.t("style.제안_원고_부족", {
+          chars: Number(data?.chars || 0).toLocaleString(),
+          min: Number(data?.min_chars || 1000).toLocaleString(),
+        });
+        note.hidden = false;
+      }
+      return;
+    }
+    changeStyleProfileDial({ ...(data.values || {}) });
+    if (note) {
+      const source = data.from_complete ? i18n.t("style.완성_회차") : i18n.t("style.쓴_회차");
+      let text = i18n.t("style.제안_결과", {
+        scenes: Number(data.scene_count || 0).toLocaleString(),
+        source,
+        avg: String(data.avg_sentence_chars ?? ""),
+        dialogue: String(data.values?.dialogue_ratio ?? ""),
+      });
+      if (Array.isArray(data.frequent_words) && data.frequent_words.length) {
+        text += ` ${i18n.t("style.자주_쓰는_낱말", { words: data.frequent_words.slice(0, 8).join(", ") })}`;
+      }
+      note.textContent = text;
+      note.hidden = false;
+    }
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function insertStyleProfileSampleFromEditor() {
+  const editor = $("sceneContent");
+  const range = editor ? getUsableEditorRange(editor) : null;
+  const text = range ? String(range.toString() || "").trim() : "";
+  if (!text) {
+    toast(i18n.t("style.원고에서_먼저_고르세요"));
+    return;
+  }
+  const sample = $("styleProfileSample");
+  const value = text.slice(0, 800);
+  if (sample) sample.value = value;
+  updateStyleProfileSampleCount();
+  queueStyleProfileSave({ sample_text: value }, { immediate: true });
+  if (text.length > 800) toast(i18n.t("style.예시_800자까지"));
+}
+
+function setupStyleProfile() {
+  const root = $("styleProfileForm");
+  if (!root || root.dataset.bound === "1") return;
+  root.dataset.bound = "1";
+  root.querySelectorAll("[data-style-preset]").forEach((chip) => {
+    chip.addEventListener("click", () => chooseStyleProfilePreset(chip.getAttribute("data-style-preset")));
+  });
+  root.querySelectorAll("[data-style-dial]").forEach((input) => {
+    const key = input.getAttribute("data-style-dial");
+    input.addEventListener("input", () => {
+      const out = root.querySelector(`[data-style-dial-out="${key}"]`);
+      if (out) out.textContent = styleProfileDialText(key, Number(input.value));
+    });
+    input.addEventListener("change", () => changeStyleProfileDial({ [key]: Number(input.value) }));
+  });
+  root.querySelectorAll("[data-style-length]").forEach((tab) => {
+    tab.addEventListener("click", () => changeStyleProfileDial({ sentence_length: tab.getAttribute("data-style-length") }));
+  });
+  // 바뀐 칸 하나만 보낸다(둘을 연달아 바꿀 때 앞 요청이 뒤 값을 지우지 않게).
+  const onViewpoint = (field, value) => {
+    persistToryCheckSettings({ [field]: value || null })
+      .then(() => scheduleToryCheckRefresh({ immediate: true }))
+      .catch(handleError);
+  };
+  $("styleProfilePerson")?.addEventListener("change", (event) => onViewpoint("viewpoint_person", event.target.value));
+  $("styleProfileTense")?.addEventListener("change", (event) => onViewpoint("viewpoint_tense", event.target.value));
+  $("styleProfilePreferred")?.addEventListener("change", (event) => {
+    queueStyleProfileSave({ preferred_words: splitStyleWords(event.target.value) }, { immediate: true });
+  });
+  $("styleProfileForbidden")?.addEventListener("change", (event) => {
+    persistToryCheckSettings({ forbidden_words: splitStyleWords(event.target.value) })
+      .then(() => {
+        scheduleToryCheckRefresh({ immediate: true });
+        renderStyleProfile();
+      })
+      .catch(handleError);
+  });
+  $("styleProfileHabits")?.addEventListener("input", (event) => {
+    queueStyleProfileSave({ habits_md: String(event.target.value || "").slice(0, 2000) });
+  });
+  $("styleProfileSample")?.addEventListener("input", (event) => {
+    updateStyleProfileSampleCount();
+    queueStyleProfileSave({ sample_text: String(event.target.value || "").slice(0, 800) });
+  });
+  $("styleProfileSuggestButton")?.addEventListener("click", () => {
+    suggestStyleProfileFromManuscript().catch(handleError);
+  });
+  // 버튼을 누르는 순간 편집기 선택이 풀리지 않게 mousedown에서 기억해 둔다.
+  $("styleProfileSampleFromEditor")?.addEventListener("mousedown", () => rememberLastEditorSelection($("sceneContent")));
+  $("styleProfileSampleFromEditor")?.addEventListener("click", insertStyleProfileSampleFromEditor);
 }
 
 function bindLiteraryFormRadios() {
@@ -41754,7 +42040,7 @@ const SETTINGS_BOOKMARK_META = {
     open: () => openSettingsDocMain("synopsis"),
   },
   keywords: { title: i18n.t('app.장르_키워드'), open: () => openKeywordBoard() },
-  style: { title: i18n.t('app.문체'), open: () => openSettingsCollectionMain("style") },
+  style: { title: i18n.t('style.내_문체'), open: () => openSettingsCollectionMain("style") },
   // Per-doc keys (field → buttons / bookmarks)
   synopsis: { title: i18n.t('app.시놉시스'), open: () => openSettingsDocMain("synopsis") },
   logline: { title: i18n.t('app.로그라인'), open: () => openSettingsDocMain("logline") },
@@ -42681,7 +42967,7 @@ const SETTINGS_COLLECTION_MAIN = {
   },
   // 문체: 여섯 칸 입력 묶음을 메인으로 옮겨 표시 (같은 입력칸이라 저장은 그대로)
   style: {
-    title: i18n.t('app.문체'),
+    title: i18n.t('style.내_문체'),
     hint: "",
     section: "style",
     listId: "styleFields",

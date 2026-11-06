@@ -5180,3 +5180,47 @@ html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn.is-save-fail
   background-color: color-mix(in srgb, var(--isl-st-draft) 78%, transparent);
   text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px;
 }
+
+/* ── 「내 문체」 프로필 (docs/design-ai-context-and-style-2026-11.md §3) ──
+   설정집 문체 상자(모든 작품). 라벨 12px/700, 입력 12px — 같은 상자의 기존 textarea 모양에 맞춘다.
+   칩은 반경 6·11.5px, 선택 칩은 회녹 20% 바탕 + 진한 회녹 글자 + 회녹 선(§2). */
+.style-profile {
+  --sp-sage: color-mix(in srgb, var(--accent) 22%, var(--isl-ink3));
+  display: grid; gap: 10px; min-width: 0;
+}
+.style-profile-lead { margin: 0; font-size: 12px; line-height: 1.5; color: var(--isl-ink2); }
+.style-profile-field { display: grid; gap: 6px; min-width: 0; }
+.style-profile-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.style-profile-chip {
+  border: 1px solid var(--line); background: var(--panel); color: var(--isl-ink2);
+  border-radius: 6px; font-size: 11.5px; line-height: 1.4; padding: 3px 8px; cursor: pointer; white-space: nowrap;
+}
+.style-profile-chip:hover { background: var(--isl-sunk); color: var(--text-primary); }
+.style-profile-chip.is-active {
+  background: color-mix(in srgb, var(--sp-sage) 20%, var(--panel));
+  color: color-mix(in srgb, var(--sp-sage) 55%, var(--text-primary));
+  border-color: color-mix(in srgb, var(--sp-sage) 45%, var(--panel));
+  font-weight: 600;
+}
+.style-profile-dials { display: grid; gap: 7px; padding: 10px 10px 8px; border-radius: var(--isl-r-sm, 9px); background: var(--isl-sunk); }
+.style-profile-dials[hidden] { display: none; }
+.style-profile-row { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; }
+.style-profile-lab { flex: 0 0 4.8rem; font-size: 12px; font-weight: 700; color: var(--ink, var(--text-primary)); }
+.style-profile-row input[type="range"] { flex: 1 1 auto; min-width: 60px; accent-color: var(--accent); height: 4px; margin: 0; }
+.style-profile-row output { flex: 0 0 2.6rem; text-align: right; font-size: 12px; color: var(--isl-ink2); font-variant-numeric: tabular-nums; }
+.style-profile-seg { flex: 1 1 auto; display: flex; }
+.style-profile-seg .seg-control-tab { flex: 1 1 0; font-size: 12px; padding: 3px 6px; }
+.style-profile-suggest { display: grid; gap: 4px; padding-top: 2px; }
+.style-profile-suggest .compact-btn, .style-profile-sample-actions .compact-btn { justify-self: start; font-size: 12px !important; }
+.style-profile-note { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--isl-ink2); }
+/* 한 줄 입력·선택은 같은 상자의 textarea(1px --line · 반경 6 · --isl-sunk)와 같은 모양, 높이 28 */
+.style-profile-pov select,
+.style-profile input[type="text"] {
+  box-sizing: border-box; height: 28px; min-height: 0; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--isl-sunk); box-shadow: none; font-family: var(--font-ui); font-size: 12px; font-weight: 400; color: var(--text-primary);
+}
+.style-profile-pov select { flex: 1 1 0; min-width: 0; padding-right: 4px; }
+.style-profile input[type="text"] { width: 100%; }
+.style-profile-sample-actions { margin-top: -4px; }
+.style-literary-fields { display: grid; gap: inherit; min-width: 0; }
+.style-literary-fields[hidden] { display: none; }
