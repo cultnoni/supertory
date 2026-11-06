@@ -919,47 +919,6 @@
                 </div>
               </section>
 
-              <section class="settings-box" data-settings-section="intro" draggable="true">
-                <div class="settings-box-header">
-                  <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
-                  <button type="button" class="settings-box-toggle" data-settings-toggle="intro" aria-expanded="false">
-                    <span class="settings-box-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                        <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/>
-                        <path d="m9 9.5 2 2 4-4"/>
-                      </svg>
-                    </span>
-                    <span class="settings-box-title" data-i18n="app.작품소개_기획의도">작품소개·기획의도</span>
-                  </button>
-                  <button type="button" class="settings-main-open" data-settings-main="intro" aria-label="메인에서 보기" data-i18n-aria-label="index.메인에서_보기" title="메인에서 보기" data-i18n-title="index.메인에서_보기">
-                    <span class="settings-main-arrow" aria-hidden="true">→</span>
-                  </button>
-                </div>
-                <div class="settings-box-preview" id="introPreview"></div>
-                <div class="settings-box-body" id="introBody" hidden>
-                  <div class="settings-field-head">
-                    <span class="settings-field-title" data-i18n="app.작품소개">작품소개</span>
-                    <div class="settings-field-actions">
-                      <button type="button" class="settings-inline-save settings-icon-btn" data-save-settings-doc="intro" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
-                      </button>
-                      <button type="button" class="settings-inline-main" data-open-settings-doc="intro" title="메인에서 보기" data-i18n-title="index.메인에서_보기" aria-label="작품소개 메인에서 보기" data-i18n-aria-label="index.작품소개_메인에서_보기">→</button>
-                    </div>
-                  </div>
-                  <textarea id="projectIntro" rows="3" placeholder="작품을 한눈에 소개하는 글을 적어 두세요." data-i18n-placeholder="index.작품을_한눈에_소개하는_글을_적어_두세요"></textarea>
-                  <div class="settings-field-head">
-                    <span class="settings-field-title" data-i18n="app.기획의도">기획의도</span>
-                    <div class="settings-field-actions">
-                      <button type="button" class="settings-inline-save settings-icon-btn" data-save-settings-doc="intent" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
-                      </button>
-                      <button type="button" class="settings-inline-main" data-open-settings-doc="intent" title="메인에서 보기" data-i18n-title="index.메인에서_보기" aria-label="기획의도 메인에서 보기" data-i18n-aria-label="index.기획의도_메인에서_보기">→</button>
-                    </div>
-                  </div>
-                  <textarea id="projectIntent" rows="3" placeholder="왜 이 작품을 쓰는지, 전하고 싶은 메시지를 적어 두세요." data-i18n-placeholder="index.왜_이_작품을_쓰는지_전하고_싶은_메시지를"></textarea>
-                </div>
-              </section>
-
               <section class="settings-box hidden" data-settings-section="style" id="styleBank" draggable="true" hidden>
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
@@ -1097,65 +1056,44 @@
                 </div>
               </section>
 
-              <section class="settings-box hidden" data-settings-section="promise" id="promiseBank" draggable="true" hidden>
+              <section class="settings-box" data-settings-section="intro" draggable="true">
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
-                  <button type="button" class="settings-box-toggle" data-settings-toggle="promise" aria-expanded="false">
+                  <button type="button" class="settings-box-toggle" data-settings-toggle="intro" aria-expanded="false">
                     <span class="settings-box-icon" aria-hidden="true">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                        <path d="M20 6 9 17l-5-5"/>
+                        <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/>
+                        <path d="m9 9.5 2 2 4-4"/>
                       </svg>
                     </span>
-                    <span class="settings-box-title" data-i18n="app.장르_약속">장르 약속</span>
+                    <span class="settings-box-title" data-i18n="app.작품소개_기획의도">작품소개·기획의도</span>
                   </button>
-                  <button type="button" class="settings-main-open" data-settings-main="promise" aria-label="메인에서 보기" data-i18n-aria-label="index.메인에서_보기" title="메인에서 보기" data-i18n-title="index.메인에서_보기">
+                  <button type="button" class="settings-main-open" data-settings-main="intro" aria-label="메인에서 보기" data-i18n-aria-label="index.메인에서_보기" title="메인에서 보기" data-i18n-title="index.메인에서_보기">
                     <span class="settings-main-arrow" aria-hidden="true">→</span>
                   </button>
                 </div>
-                <div class="settings-box-preview" id="promisePreview"></div>
-                <div class="settings-box-body" id="promiseBody" hidden>
-                  <div class="style-fields" id="promiseFields">
-                  <p class="hint" data-i18n="app.장르_약속_안내">독자가 장르에 기대하는 약속을 지키는지 첨삭에서 살펴봐요. 일부러 깬 약속은 지적하지 않아요.</p>
-                  <label class="world-cat-field">
-                    <span class="world-sheet-field-head"><span data-i18n="app.일부러_깬_약속">일부러 깬 약속</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
-                    <textarea data-promise-field="promise_broken" rows="3" placeholder="이 장르의 관습 중 일부러 깬 것이 있다면 적어주세요. 예: 서술자가 독자를 속인다, 열린 결말" data-i18n-placeholder="app.장르_약속_깬_예시"></textarea>
-                  </label>
-                  <label class="world-cat-field">
-                    <span class="world-sheet-field-head"><span data-i18n="app.지키고_싶은_약속">지키고 싶은 약속</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
-                    <textarea data-promise-field="promise_kept" rows="3" placeholder="꼭 지키고 싶은 약속을 적어주세요. 예: 독자가 풀 수 있게 단서를 먼저 보여 준다" data-i18n-placeholder="app.장르_약속_지킬_예시"></textarea>
-                  </label>
+                <div class="settings-box-preview" id="introPreview"></div>
+                <div class="settings-box-body" id="introBody" hidden>
+                  <div class="settings-field-head">
+                    <span class="settings-field-title" data-i18n="app.작품소개">작품소개</span>
+                    <div class="settings-field-actions">
+                      <button type="button" class="settings-inline-save settings-icon-btn" data-save-settings-doc="intro" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+                      </button>
+                      <button type="button" class="settings-inline-main" data-open-settings-doc="intro" title="메인에서 보기" data-i18n-title="index.메인에서_보기" aria-label="작품소개 메인에서 보기" data-i18n-aria-label="index.작품소개_메인에서_보기">→</button>
+                    </div>
                   </div>
-                </div>
-              </section>
-
-              <section class="settings-box hidden" data-settings-section="cliche" id="clicheBank" draggable="true" hidden>
-                <div class="settings-box-header">
-                  <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
-                  <button type="button" class="settings-box-toggle" data-settings-toggle="cliche" aria-expanded="false">
-                    <span class="settings-box-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                        <path d="M20 6 9 17l-5-5"/>
-                      </svg>
-                    </span>
-                    <span class="settings-box-title" data-i18n="app.장르_클리셰">장르 클리셰</span>
-                  </button>
-                  <button type="button" class="settings-main-open" data-settings-main="cliche" aria-label="메인에서 보기" data-i18n-aria-label="index.메인에서_보기" title="메인에서 보기" data-i18n-title="index.메인에서_보기">
-                    <span class="settings-main-arrow" aria-hidden="true">→</span>
-                  </button>
-                </div>
-                <div class="settings-box-preview" id="clichePreview"></div>
-                <div class="settings-box-body" id="clicheBody" hidden>
-                  <div class="style-fields" id="clicheFields">
-                  <p class="hint" data-i18n="app.장르_클리셰_안내">장르 클리셰를 의도적으로 썼는지 첨삭에서 살펴봐요. 의도적으로 쓴 클리셰는 지적하지 않아요.</p>
-                  <label class="world-cat-field">
-                    <span class="world-sheet-field-head"><span data-i18n="app.의도적으로_쓴_클리셰">의도적으로 쓴 클리셰</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
-                    <textarea data-cliche-field="cliche_used" rows="3" placeholder="의도적으로 쓴 클리셰가 있다면 적어주세요. 예: 계약 연애, 재벌남 설정은 의도" data-i18n-placeholder="app.장르_클리셰_쓴_예시"></textarea>
-                  </label>
-                  <label class="world-cat-field">
-                    <span class="world-sheet-field-head"><span data-i18n="app.피하고_싶은_클리셰">피하고 싶은 클리셰</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
-                    <textarea data-cliche-field="cliche_avoid" rows="3" placeholder="피하고 싶은 클리셰를 적어주세요. 예: 나쁜 남자 서사는 지양" data-i18n-placeholder="app.장르_클리셰_피할_예시"></textarea>
-                  </label>
+                  <textarea id="projectIntro" rows="3" placeholder="작품을 한눈에 소개하는 글을 적어 두세요." data-i18n-placeholder="index.작품을_한눈에_소개하는_글을_적어_두세요"></textarea>
+                  <div class="settings-field-head">
+                    <span class="settings-field-title" data-i18n="app.기획의도">기획의도</span>
+                    <div class="settings-field-actions">
+                      <button type="button" class="settings-inline-save settings-icon-btn" data-save-settings-doc="intent" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+                      </button>
+                      <button type="button" class="settings-inline-main" data-open-settings-doc="intent" title="메인에서 보기" data-i18n-title="index.메인에서_보기" aria-label="기획의도 메인에서 보기" data-i18n-aria-label="index.기획의도_메인에서_보기">→</button>
+                    </div>
                   </div>
+                  <textarea id="projectIntent" rows="3" placeholder="왜 이 작품을 쓰는지, 전하고 싶은 메시지를 적어 두세요." data-i18n-placeholder="index.왜_이_작품을_쓰는지_전하고_싶은_메시지를"></textarea>
                 </div>
               </section>
 
@@ -1296,6 +1234,69 @@
                   </div>
                 </div>
               </section>
+
+              <section class="settings-box hidden" data-settings-section="cliche" id="clicheBank" draggable="true" hidden>
+                <div class="settings-box-header">
+                  <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
+                  <button type="button" class="settings-box-toggle" data-settings-toggle="cliche" aria-expanded="false">
+                    <span class="settings-box-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                        <path d="M20 6 9 17l-5-5"/>
+                      </svg>
+                    </span>
+                    <span class="settings-box-title" data-i18n="app.장르_클리셰">장르 클리셰</span>
+                  </button>
+                  <button type="button" class="settings-main-open" data-settings-main="cliche" aria-label="메인에서 보기" data-i18n-aria-label="index.메인에서_보기" title="메인에서 보기" data-i18n-title="index.메인에서_보기">
+                    <span class="settings-main-arrow" aria-hidden="true">→</span>
+                  </button>
+                </div>
+                <div class="settings-box-preview" id="clichePreview"></div>
+                <div class="settings-box-body" id="clicheBody" hidden>
+                  <div class="style-fields" id="clicheFields">
+                  <p class="hint" data-i18n="app.장르_클리셰_안내">장르 클리셰를 의도적으로 썼는지 첨삭에서 살펴봐요. 의도적으로 쓴 클리셰는 지적하지 않아요.</p>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.의도적으로_쓴_클리셰">의도적으로 쓴 클리셰</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
+                    <textarea data-cliche-field="cliche_used" rows="3" placeholder="의도적으로 쓴 클리셰가 있다면 적어주세요. 예: 계약 연애, 재벌남 설정은 의도" data-i18n-placeholder="app.장르_클리셰_쓴_예시"></textarea>
+                  </label>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.피하고_싶은_클리셰">피하고 싶은 클리셰</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
+                    <textarea data-cliche-field="cliche_avoid" rows="3" placeholder="피하고 싶은 클리셰를 적어주세요. 예: 나쁜 남자 서사는 지양" data-i18n-placeholder="app.장르_클리셰_피할_예시"></textarea>
+                  </label>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settings-box hidden" data-settings-section="promise" id="promiseBank" draggable="true" hidden>
+                <div class="settings-box-header">
+                  <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
+                  <button type="button" class="settings-box-toggle" data-settings-toggle="promise" aria-expanded="false">
+                    <span class="settings-box-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                        <path d="M20 6 9 17l-5-5"/>
+                      </svg>
+                    </span>
+                    <span class="settings-box-title" data-i18n="app.장르_약속">장르 약속</span>
+                  </button>
+                  <button type="button" class="settings-main-open" data-settings-main="promise" aria-label="메인에서 보기" data-i18n-aria-label="index.메인에서_보기" title="메인에서 보기" data-i18n-title="index.메인에서_보기">
+                    <span class="settings-main-arrow" aria-hidden="true">→</span>
+                  </button>
+                </div>
+                <div class="settings-box-preview" id="promisePreview"></div>
+                <div class="settings-box-body" id="promiseBody" hidden>
+                  <div class="style-fields" id="promiseFields">
+                  <p class="hint" data-i18n="app.장르_약속_안내">독자가 장르에 기대하는 약속을 지키는지 첨삭에서 살펴봐요. 일부러 깬 약속은 지적하지 않아요.</p>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.일부러_깬_약속">일부러 깬 약속</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
+                    <textarea data-promise-field="promise_broken" rows="3" placeholder="이 장르의 관습 중 일부러 깬 것이 있다면 적어주세요. 예: 서술자가 독자를 속인다, 열린 결말" data-i18n-placeholder="app.장르_약속_깬_예시"></textarea>
+                  </label>
+                  <label class="world-cat-field">
+                    <span class="world-sheet-field-head"><span data-i18n="app.지키고_싶은_약속">지키고 싶은 약속</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
+                    <textarea data-promise-field="promise_kept" rows="3" placeholder="꼭 지키고 싶은 약속을 적어주세요. 예: 독자가 풀 수 있게 단서를 먼저 보여 준다" data-i18n-placeholder="app.장르_약속_지킬_예시"></textarea>
+                  </label>
+                  </div>
+                </div>
+              </section>
+
               </div>
 
               <div class="settings-group" data-settings-group="world">

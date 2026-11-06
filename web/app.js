@@ -44165,7 +44165,12 @@ function setupSettingsCollectionBoard() {
 const BAIT_STORAGE_PREFIX = "supertory.baits.";
 const SETTINGS_ORDER_PREFIX = "supertory.settingsOrder.";
 // Default 설정집 폴더 순서 (흥행작 프로파일 연결 = 떡밥모음 아래)
+// 기획은 2열: 생각수첩 | 내 문체 / 작품소개·기획의도 | 로그라인·시놉시스 / 장르 키워드 | 장르 클리셰(문학이면 장르 약속)
 const DEFAULT_SETTINGS_ORDER = [
+  "ideas", "style", "intro", "logsyn", "keywords", "cliche", "promise", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
+];
+/** 바로 앞 기본 순서. 끌어서 바꾸지 않았다면(새 상자 정리까지 끝난 뒤 이것과 같으면) 새 기본으로 맞춘다. */
+const PREVIOUS_DEFAULT_SETTINGS_ORDER = [
   "ideas", "intro", "style", "promise", "cliche", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
 ];
 /** Prior factory defaults — snap exact matches once to the current DEFAULT. */
@@ -54531,6 +54536,10 @@ function loadSettingsOrder() {
     ) {
       ordered.splice(inviteAt, 1);
       ordered.splice(ordered.indexOf("sources"), 0, "readingInvite");
+    }
+    if (ordered.length === PREVIOUS_DEFAULT_SETTINGS_ORDER.length
+      && PREVIOUS_DEFAULT_SETTINGS_ORDER.every((key, i) => ordered[i] === key)) {
+      ordered = [...DEFAULT_SETTINGS_ORDER];
     }
     return ordered;
   } catch (_) {
