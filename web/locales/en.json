@@ -6194,5 +6194,17 @@
   "statusWindow.i_보유_스킬": "Skills",
   "statusWindow.i_경험치": "EXP",
   "statusWindow.i_골드": "Gold",
-  "statusWindow.i_남은_포인트": "Unspent points"
+  "statusWindow.i_남은_포인트": "Unspent points",
+  "statusWindow.스위치_제목": "This work uses status windows",
+  "statusWindow.스위치_키워드로_켜짐": "Turned on automatically by a game or hunter keyword",
+  "statusWindow.스위치_이미_써서_켜짐": "On because this work already has status windows",
+  "statusWindow.스위치_자동_꺼짐": "Turns on automatically when you pick a game or hunter keyword",
+  "statusWindow.스위치_직접_켬": "Turned on by you",
+  "statusWindow.스위치_직접_끔": "Turned off by you. Status windows in your manuscript stay as they are",
+  "statusWindow.자동으로_되돌리기": "Back to automatic",
+  "statusWindow.상태창을_켰어요": "Status windows are on. Use them from the format bar, right-click menu, widget or settings.",
+  "statusWindow.상태창을_껐어요": "Status window tools are hidden. Status windows in your manuscript stay as they are.",
+  "statusWindow.상자_안내": "Status window layouts for this work. Insert them from the format bar, right-click menu or the right-side widget.",
+  "statusWindow.우클릭_상태창_넣기": "Insert status window ›",
+  "statusWindow.우클릭_고른_글을_상태창으로": "Turn selection into status window"
 }

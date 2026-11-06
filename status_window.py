@@ -27,6 +27,7 @@ VALUE_TYPES = ("text", "number", "ratio")
 BACKGROUNDS = ("none", "soft")
 FONTS = ("body", "mono")
 EXPORT_MODES = ("keep", "text_safe")
+MODES = ("auto", "on", "off")
 
 MAX_PRESETS = 30
 MAX_ITEMS = 40
@@ -51,6 +52,12 @@ def _text(value: object, limit: int) -> str:
 def _choice(value: object, options: tuple[str, ...]) -> str:
     text = str(value or "").strip()
     return text if text in options else options[0]
+
+
+def normalize_mode(value: object) -> str:
+    """작품의 상태창 켜기 설정. 모르는 값은 auto."""
+    text = str(value or "").strip()
+    return text if text in MODES else "auto"
 
 
 def normalize_item(raw: object) -> dict | None:

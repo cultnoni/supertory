@@ -8438,6 +8438,11 @@ const statusWindowState = {
   editingId: "",
   draft: null,
   dirty: false,
+  lastCaret: null,
+  /** 세계관 스위치: auto(키워드·이미 쓴 상태창으로 정함) · on · off */
+  mode: "auto",
+  /** 이 작품의 어느 회차든 원고에 상태창 블록이 있는지(서버가 셈) */
+  hasBlocks: false,
 };
 
 function statusWindowModel() {
@@ -8496,9 +8501,8 @@ async function loadStatusWindowPresets({ force = false } = {}) {
   if (!force && statusWindowState.loaded && statusWindowState.projectId === pid) return statusWindowState.presets;
   const data = await api(`/api/projects/${pid}/status-window-presets`);
   if (Number(state.projectId) !== pid) return [];
-  statusWindowState.projectId = pid;
-  statusWindowState.presets = Array.isArray(data?.presets) ? data.presets : [];
-  statusWindowState.loaded = true;
+  takeStatusWindowPayload(pid, data);
+  applyStatusWindowUi({ load: false });
   return statusWindowState.presets;
 }
 
@@ -8509,9 +8513,9 @@ async function saveStatusWindowPresets(presets) {
     method: "POST",
     body: JSON.stringify({ presets }),
   });
-  statusWindowState.projectId = pid;
-  statusWindowState.presets = Array.isArray(data?.presets) ? data.presets : [];
-  statusWindowState.loaded = true;
+  takeStatusWindowPayload(pid, data);
+  applyStatusWindowUi({ load: false });
+  refreshStatusWindowDock();
   return statusWindowState.presets;
 }
 
@@ -8585,12 +8589,18 @@ function buildStatusWindowBlock(preset, lines) {
 
 /** 편집기 바로 아래(또는 단 나누기 안) 문단. */
 function statusWindowTopBlock(editor, node) {
-  let el = node && node.nodeType === 1 ? node : node?.parentElement;
-  if (!el || el === editor) return null;
-  while (el && el.parentElement && el.parentElement !== editor && !el.parentElement.classList?.contains("ms-dan")) {
-    el = el.parentElement;
+  if (!node || node === editor) return null;
+  const isLineParent = (parent) => parent === editor || parent?.classList?.contains("ms-dan");
+  let el = node;
+  while (el && el.parentNode && !isLineParent(el.parentNode)) el = el.parentNode;
+  if (!el || !el.parentNode || !editor.contains(el)) return null;
+  // 원고 첫 줄처럼 태그 없이 놓인 글(글자·굵게 등)이면 그 줄의 끝(다음 <br>·문단 앞)까지 간다.
+  const isInline = (n) => n && (n.nodeType === 3
+    || (n.nodeType === 1 && n.tagName !== "BR" && !/^(DIV|P|H[1-6]|BLOCKQUOTE|UL|OL|LI|TABLE|PRE|FIGURE|HR|SECTION)$/.test(n.tagName)));
+  if (isInline(el)) {
+    while (isInline(el.nextSibling)) el = el.nextSibling;
   }
-  return el && editor.contains(el) ? el : null;
+  return el;
 }
 
 function isEmptyStatusWindowLine(el) {
@@ -8782,16 +8792,16 @@ function renderStatusWindowMenu() {
   host.innerHTML = parts.join("");
 }
 
-async function showStatusWindowMenu(anchorBtn, editor = null) {
+async function showStatusWindowMenu(anchorBtn, editor = null, options = {}) {
   const menu = $("statusWindowMenu");
-  if (!menu || !anchorBtn) return;
-  anchorBtn = resolveToolbarOverflowAnchor(anchorBtn);
+  if (!menu || (!anchorBtn && !options.rect)) return;
+  if (anchorBtn) anchorBtn = resolveToolbarOverflowAnchor(anchorBtn);
   hideFormatSpecialPalette?.();
   hideFormatListPalette?.();
   hideFormatColorPalette?.();
   const ed = editor || getActiveRichEditor() || $("sceneContent");
   statusWindowState.editor = ed;
-  const live = currentEditorRange(ed);
+  const live = options.range || currentEditorRange(ed);
   statusWindowState.range = live ? live.cloneRange() : null;
   const inside = live ? Boolean(statusWindowHostOf(live.startContainer, ed)) : false;
   const tidyBtn = $("statusWindowTidyButton");
@@ -8804,9 +8814,9 @@ async function showStatusWindowMenu(anchorBtn, editor = null) {
   }
   renderStatusWindowMenu();
   menu.classList.remove("hidden");
-  anchorBtn.setAttribute("aria-expanded", "true");
+  anchorBtn?.setAttribute("aria-expanded", "true");
   const place = () => {
-    const rect = anchorBtn.getBoundingClientRect();
+    const rect = options.rect || anchorBtn.getBoundingClientRect();
     const pad = 8;
     const pw = menu.offsetWidth || 280;
     const ph = menu.offsetHeight || 260;
@@ -9135,6 +9145,283 @@ function setupStatusWindowPresets() {
 function setupStatusWindow() {
   setupStatusWindowMenu();
   setupStatusWindowPresets();
+  setupStatusWindowSwitches();
+  document.addEventListener("selectionchange", rememberStatusWindowCaret);
+}
+
+/* 오른쪽 위젯 「상태창」: 저장한 프리셋 목록을 띄워 두고 눌러서 커서 자리에 넣는다.
+ * 위젯을 눌러도 원고의 커서를 잃지 않게 mousedown을 막고, 마지막 커서 자리도 따로 기억한다. */
+const DOCK_STATUS_WINDOW_KEY = "dock:statusWindows";
+
+function rememberStatusWindowCaret() {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  const host = range.commonAncestorContainer;
+  const el = host && host.nodeType === 1 ? host : host?.parentElement;
+  const editor = el?.closest?.("#sceneContent, #splitSceneBodyEditor, #focusWriteEditor");
+  if (!editor) return;
+  statusWindowState.lastCaret = { editor, range: range.cloneRange() };
+}
+
+function statusWindowDockTarget() {
+  const last = statusWindowState.lastCaret;
+  if (last?.editor?.isConnected) {
+    try {
+      if (last.editor.contains(last.range.commonAncestorContainer)) return { editor: last.editor, range: last.range };
+    } catch (_) { /* 범위가 끊겼으면 아래로 */ }
+  }
+  const editor = $("sceneContent");
+  return { editor, range: currentEditorRange(editor) };
+}
+
+function renderStatusWindowDock(body) {
+  const host = body || ideaFloatWindows.get(DOCK_STATUS_WINDOW_KEY)?.querySelector("[data-role='dock-float-body']");
+  if (!host) return;
+  const pid = Number(state.projectId) || 0;
+  host.dataset.projectId = String(pid);
+  const mine = statusWindowState.loaded && statusWindowState.projectId === pid ? statusWindowState.presets : [];
+  const row = (preset) => `
+    <button type="button" class="status-window-dock-item" data-sw-dock-insert="${escapeHtml(preset.id)}">
+      <span class="status-window-dock-name">${escapeHtml(preset.name)}</span>
+      <span class="status-window-dock-sub">${escapeHtml(preset.items.slice(0, 4).map((it) => it.name).join(" · "))}</span>
+    </button>`;
+  const parts = [`<p class="status-window-dock-hint">${escapeHtml(i18n.t("statusWindow.커서_자리에_넣어요"))}</p>`];
+  if (mine.length) {
+    parts.push(`<div class="status-window-dock-list" role="list">${mine.map(row).join("")}</div>`);
+  } else {
+    parts.push(`<p class="status-window-dock-empty">${escapeHtml(i18n.t("statusWindow.아직_저장한_프리셋이_없어요"))}</p>`);
+    parts.push(`<div class="status-window-menu-label">${escapeHtml(i18n.t("statusWindow.기본_템플릿"))}</div>`);
+    parts.push(`<div class="status-window-dock-list" role="list">${statusWindowTemplates().map(row).join("")}</div>`);
+  }
+  parts.push(`<div class="status-window-dock-actions">
+      <button type="button" class="secondary compact-btn" data-sw-dock-action="tidy">${escapeHtml(i18n.t("statusWindow.상태창으로_정리"))}</button>
+      <button type="button" class="secondary compact-btn" data-sw-dock-action="manage">${escapeHtml(i18n.t("statusWindow.프리셋_관리"))}</button>
+    </div>`);
+  host.innerHTML = `<div class="status-window-dock">${parts.join("")}</div>`;
+  if (host.dataset.swBound !== "1") {
+    host.dataset.swBound = "1";
+    // 위젯을 눌러도 원고의 커서·선택이 그대로 남게 한다.
+    host.addEventListener("mousedown", (event) => {
+      if (event.target.closest("[data-sw-dock-insert], [data-sw-dock-action]")) event.preventDefault();
+    });
+    host.addEventListener("pointerenter", () => {
+      if (host.dataset.projectId !== String(Number(state.projectId) || 0)) refreshStatusWindowDock();
+    });
+    host.addEventListener("click", (event) => {
+      const pick = event.target.closest("[data-sw-dock-insert]");
+      const action = event.target.closest("[data-sw-dock-action]")?.getAttribute("data-sw-dock-action");
+      if (!pick && !action) return;
+      if (action === "manage") {
+        openStatusWindowPresets().catch(handleError);
+        return;
+      }
+      const target = statusWindowDockTarget();
+      statusWindowState.editor = target.editor;
+      statusWindowState.range = target.range ? target.range.cloneRange() : null;
+      try {
+        if (action === "tidy") tidyStatusWindowAtCaret();
+        else insertStatusWindow(pick.getAttribute("data-sw-dock-insert"));
+      } catch (error) {
+        handleError(error);
+      }
+    });
+  }
+  if (!statusWindowState.loaded || statusWindowState.projectId !== pid) {
+    if (pid) loadStatusWindowPresets().then(() => renderStatusWindowDock()).catch(() => { /* 템플릿으로는 쓸 수 있다 */ });
+  }
+}
+
+function refreshStatusWindowDock() {
+  if (!ideaFloatWindows.get(DOCK_STATUS_WINDOW_KEY)) return;
+  renderStatusWindowDock();
+}
+
+function takeStatusWindowPayload(pid, data) {
+  statusWindowState.projectId = pid;
+  statusWindowState.presets = Array.isArray(data?.presets) ? data.presets : [];
+  statusWindowState.mode = ["auto", "on", "off"].includes(data?.mode) ? data.mode : "auto";
+  statusWindowState.hasBlocks = Boolean(data?.has_blocks);
+  statusWindowState.loaded = true;
+}
+
+/* —— 상태창 스위치: 모든 진입로(서식줄·더보기·우클릭·위젯·설정집 상자)가 이 값 하나를 따른다 ——
+ * 꺼도 원고 안 상태창 글은 그대로 보이고 저장·내보내기된다. 상태창 안 우클릭 「정리」만은 늘 남긴다. */
+const STATUS_WINDOW_AUTO_KEYWORD_KEYS = ["app.상태창_시스템", "app.헌터물", "app.레이드_던전물", "app.게임"];
+// 키워드는 고른 때의 화면 언어 글자로 저장되므로 세 언어 값을 모두 본다.
+const STATUS_WINDOW_AUTO_KEYWORD_LABELS = [
+  "상태창/시스템", "헌터물", "레이드/던전물", "게임",
+  "Status Window/System", "Hunter", "Raid/Dungeon", "Game",
+  "Ventana de estado/Sistema", "Cazador", "Incursión/Mazmorra", "Juego",
+];
+
+function statusWindowKeywordHit() {
+  const labels = new Set(STATUS_WINDOW_AUTO_KEYWORD_LABELS);
+  STATUS_WINDOW_AUTO_KEYWORD_KEYS.forEach((key) => labels.add(i18n.t(key)));
+  return (state.keywords || []).some((label) => labels.has(String(label || "").trim()));
+}
+
+/** on · off(직접) / keyword · existing(자동으로 켜짐) / none(자동으로 꺼짐) */
+function statusWindowReason() {
+  const pid = Number(state.projectId) || 0;
+  const mine = statusWindowState.projectId === pid;
+  const mode = mine ? statusWindowState.mode : "auto";
+  if (mode === "on" || mode === "off") return mode;
+  if (statusWindowKeywordHit()) return "keyword";
+  if (mine && (statusWindowState.presets.length || statusWindowState.hasBlocks)) return "existing";
+  // 서버가 센 값(has_blocks)을 받은 뒤에는 편집기를 보지 않는다 — 작품을 바꾼 직후 남은 다른 작품 원고로 오판하지 않게.
+  if (!(mine && statusWindowState.loaded) && $("sceneContent")?.querySelector(STATUS_WINDOW_SELECTOR)) return "existing";
+  return "none";
+}
+
+function isStatusWindowEnabled() {
+  if (!state.projectId) return false;
+  const reason = statusWindowReason();
+  return reason !== "off" && reason !== "none";
+}
+
+function applyStatusWindowUi({ load = true } = {}) {
+  const pid = Number(state.projectId) || 0;
+  if (load && pid && statusWindowState.projectId !== pid) {
+    // 다른 작품으로 바뀌면 지난 작품 값을 쓰지 않도록 먼저 비우고 불러온다.
+    takeStatusWindowPayload(pid, {});
+    statusWindowState.loaded = false;
+    loadStatusWindowPresets({ force: true }).catch(() => { /* 서버가 못 줘도 키워드로는 정한다 */ });
+  }
+  const on = isStatusWindowEnabled();
+  document.body.classList.toggle("sw-off", !on);
+  document.querySelectorAll('[data-dock-item="statusWindows"]').forEach((btn) => {
+    btn.hidden = !on;
+    btn.dataset.swHidden = on ? "" : "1";
+  });
+  document.querySelectorAll('[data-settings-section="statusWindow"]').forEach((el) => setClusterFeatureHidden(el, !on));
+  if (!on) {
+    if (ideaFloatWindows.get(DOCK_STATUS_WINDOW_KEY)) closeIdeaFloat(DOCK_STATUS_WINDOW_KEY);
+    hideStatusWindowMenu();
+  }
+  renderStatusWindowSwitches();
+  renderStatusWindowBox();
+  try {
+    if (!$("aiWidgetView")?.classList.contains("hidden")) renderIslWidgetTiles();
+  } catch (_) { /* 위젯 탭이 없어도 된다 */ }
+  try { syncDockRailButtons(); } catch (_) { /* ignore */ }
+}
+
+function renderStatusWindowSwitches() {
+  const reason = statusWindowReason();
+  const on = isStatusWindowEnabled();
+  const noteKey = {
+    on: "statusWindow.스위치_직접_켬",
+    off: "statusWindow.스위치_직접_끔",
+    keyword: "statusWindow.스위치_키워드로_켜짐",
+    existing: "statusWindow.스위치_이미_써서_켜짐",
+    none: "statusWindow.스위치_자동_꺼짐",
+  }[reason];
+  document.querySelectorAll("[data-sw-switch]").forEach((row) => {
+    const input = row.querySelector("[data-sw-switch-input]");
+    if (input) {
+      input.checked = on;
+      input.disabled = !state.projectId;
+    }
+    const note = row.querySelector("[data-sw-switch-note]");
+    if (note) note.textContent = i18n.t(noteKey);
+    const reset = row.querySelector("[data-sw-switch-reset]");
+    if (reset) reset.hidden = reason !== "on" && reason !== "off";
+  });
+}
+
+async function setStatusWindowMode(mode) {
+  const pid = Number(state.projectId) || 0;
+  if (!pid) return;
+  const data = await api(`/api/projects/${pid}/status-window-mode`, {
+    method: "POST",
+    body: JSON.stringify({ mode }),
+  });
+  if (Number(state.projectId) !== pid) return;
+  takeStatusWindowPayload(pid, data);
+  applyStatusWindowUi({ load: false });
+  toast(i18n.t(isStatusWindowEnabled() ? "statusWindow.상태창을_켰어요" : "statusWindow.상태창을_껐어요"));
+}
+
+/** 설정집 「상태창」 상자: 이 작품 프리셋 목록 + 프리셋 관리 */
+function renderStatusWindowBox() {
+  const pid = Number(state.projectId) || 0;
+  const mine = statusWindowState.projectId === pid ? statusWindowState.presets : [];
+  const preview = $("statusWindowBoxPreview");
+  if (preview) {
+    renderPreviewElement(preview, mine.length ? [mine.map((p) => p.name).join(" · ")] : [], i18n.t("statusWindow.아직_저장한_프리셋이_없어요"));
+  }
+  const list = $("statusWindowBoxList");
+  if (!list) return;
+  list.innerHTML = mine.length
+    ? mine.map((p) => `<li><strong>${escapeHtml(p.name)}</strong><span>${escapeHtml(p.items.slice(0, 4).map((it) => it.name).join(" · "))}</span></li>`).join("")
+    : `<li class="status-window-box-empty">${escapeHtml(i18n.t("statusWindow.아직_저장한_프리셋이_없어요"))}</li>`;
+}
+
+function setupStatusWindowSwitches() {
+  if (setupStatusWindowSwitches._bound) return;
+  setupStatusWindowSwitches._bound = true;
+  document.addEventListener("change", (event) => {
+    const input = event.target.closest?.("[data-sw-switch-input]");
+    if (!input) return;
+    setStatusWindowMode(input.checked ? "on" : "off").catch((error) => {
+      renderStatusWindowSwitches();
+      handleError(error);
+    });
+  });
+  document.addEventListener("click", (event) => {
+    if (event.target.closest?.("[data-sw-switch-reset]")) {
+      event.preventDefault();
+      setStatusWindowMode("auto").catch(handleError);
+      return;
+    }
+    if (event.target.closest?.("[data-sw-box-manage]")) {
+      event.preventDefault();
+      openStatusWindowPresets().catch(handleError);
+    }
+  });
+}
+
+/* 우클릭 메뉴(편집 도구): 상태창 넣기 · 고른 글을 상태창으로 · 상태창으로 정리 */
+function syncStatusWindowContextMenu(editor, isSettingsDoc) {
+  const insertItem = $("swInsertMenuItem");
+  const convertItem = $("swConvertMenuItem");
+  const tidyItem = $("swTidyMenuItem");
+  const manuscriptOk = Boolean(state.sceneId) && !isSettingsDoc && isManuscriptAuthorNoteEditor(editor);
+  const range = manuscriptOk ? getAuthorNoteContextRange(editor) : null;
+  const inside = Boolean(range && statusWindowHostOf(range.startContainer, editor));
+  const hasText = Boolean(range && !range.collapsed && !inside);
+  const on = manuscriptOk && isStatusWindowEnabled();
+  const show = (el, visible) => {
+    if (!el) return;
+    el.classList.toggle("hidden", !visible);
+    el.hidden = !visible;
+  };
+  show(insertItem, on && !hasText);
+  show(convertItem, on && hasText);
+  // 꺼져 있어도 상태창 안에서는 정리할 수 있어야 한다(이미 들어간 블록을 고칠 길).
+  show(tidyItem, manuscriptOk && inside);
+}
+
+function runStatusWindowContextAction(action, actionBtn) {
+  const editor = (typeof contextMenuEditor !== "undefined" && contextMenuEditor) || $("sceneContent");
+  const range = getAuthorNoteContextRange(editor);
+  statusWindowState.editor = editor;
+  statusWindowState.range = range ? range.cloneRange() : null;
+  if (action === "sw-tidy") {
+    tidyStatusWindowAtCaret();
+    return;
+  }
+  if (action === "sw-convert") {
+    insertStatusWindow(lastStatusWindowPreset()?.id);
+    return;
+  }
+  // 넣기: 우클릭한 자리 옆에 고르기 팝업을 띄운다(목록에서 고르면 그 자리에 들어간다).
+  const rect = actionBtn?.getBoundingClientRect?.() || null;
+  const keep = statusWindowState.range;
+  window.setTimeout(() => {
+    showStatusWindowMenu(null, editor, { rect, range: keep }).catch(handleError);
+  }, 0);
 }
 
 /* —— 특수문자 삽입 —— */
@@ -11846,6 +12133,7 @@ function applyClusterFeatureGating() {
   try { applyGenreToolRoutingHooks(); } catch (_) { /* ignore */ }
   try { applyLiteraryTrackUi(); } catch (_) { /* ignore */ }
   try { applyWebnovelClicheUi(); } catch (_) { /* ignore */ }
+  try { applyStatusWindowUi(); } catch (_) { /* ignore */ }
 }
 
 /* Curated language list for 번역 (source / target). */
@@ -13756,6 +14044,7 @@ function addProjectKeyword(label) {
   state.keywords = [...state.keywords, cleaned];
   renderKeywordBox();
   schedulePersistProjectKeywords();
+  applyStatusWindowUi({ load: false });
   return true;
 }
 
@@ -13765,6 +14054,7 @@ function removeProjectKeyword(label) {
   state.keywords = state.keywords.filter((item) => item !== cleaned);
   renderKeywordBox();
   schedulePersistProjectKeywords();
+  applyStatusWindowUi({ load: false });
 }
 
 function toggleProjectKeyword(label) {
@@ -21749,6 +22039,7 @@ const DOCK_RAIL_FLOAT_KEYS = {
   readerChat: DOCK_READER_CHAT_KEY,
   aiResult: DOCK_AI_RESULT_KEY,
   aiHistory: DOCK_AI_HISTORY_KEY,
+  statusWindows: "dock:statusWindows",
 };
 const dockCharacterDetailCache = new Map();
 const dockItemDetailCache = new Map();
@@ -22296,6 +22587,15 @@ const DOCK_FLOAT_SPECS = {
     resize: false,
     fallbackPos() { return dockCreditsFallbackPos(); },
     render(body) { renderDockCreditsBody(body); },
+  },
+  statusWindows: {
+    titleKey: "statusWindow.상태창",
+    windowClass: "dock-float-status-window",
+    side: "right",
+    defaultWidth: 300,
+    defaultHeight: 380,
+    resize: { minWidth: 240, minHeight: 200 },
+    render(body) { renderStatusWindowDock(body); },
   },
   toryCheck: {
     titleKey: "index.실시간_토리_체크",
@@ -36616,7 +36916,7 @@ async function refreshAiCheckHub() {
 }
 /* 결과 위젯은 안에 히스토리 전환 버튼이 있어 "히스토리"는 입구에서 뺐고, 도토리 잔량은 체크 탭 아래 "도토리" 칩(상태 표시)으로만 둔다 */
 const ISL_WIDGET_GROUPS = [
-  { id: "write", labelKey: "island.위젯_그룹_쓰기", keys: ["writingTimer", "statsTracker", "toryCheck", "toryChat", "aiResult"] },
+  { id: "write", labelKey: "island.위젯_그룹_쓰기", keys: ["writingTimer", "statsTracker", "statusWindows", "toryCheck", "toryChat", "aiResult"] },
   { id: "ref", labelKey: "island.위젯_그룹_자료", keys: ["manuscript", "refPeople", "refStory", "refLore", "successProfile", "settingsSearch"] },
 ];
 /** 설정집 참조 위젯 3종: 인물·설정 / 이야기 흐름 / 자료·사전 */
@@ -36701,7 +37001,7 @@ function islWidgetItems() {
   const byKey = new Map();
   document.querySelectorAll("#binderDockRail [data-dock-item], #aiDockRail [data-dock-item]").forEach((btn) => {
     const key = btn.dataset.dockItem;
-    if (key === "screenProtect" || byKey.has(key)) return;
+    if (key === "screenProtect" || byKey.has(key) || btn.dataset.swHidden === "1") return;
     byKey.set(key, {
       key,
       name: key === "toryChat" ? i18n.t("island.위젯_대화") : (btn.getAttribute("aria-label") || btn.getAttribute("title") || key),
@@ -43070,6 +43370,9 @@ const SETTINGS_BOOKMARK_META = {
   },
   keywords: { title: i18n.t('app.장르_키워드'), open: () => openKeywordBoard() },
   style: { title: i18n.t('style.내_문체'), open: () => openSettingsCollectionMain("style") },
+  promise: { title: i18n.t('app.장르_약속'), open: () => openSettingsCollectionMain("promise") },
+  cliche: { title: i18n.t('app.장르_클리셰'), open: () => openSettingsCollectionMain("cliche") },
+  statusWindow: { title: i18n.t('statusWindow.상태창'), open: () => openStatusWindowPresets() },
   // Per-doc keys (field → buttons / bookmarks)
   synopsis: { title: i18n.t('app.시놉시스'), open: () => openSettingsDocMain("synopsis") },
   logline: { title: i18n.t('app.로그라인'), open: () => openSettingsDocMain("logline") },
@@ -44002,6 +44305,20 @@ const SETTINGS_COLLECTION_MAIN = {
     listId: "styleFields",
     hideAdd: true,
   },
+  promise: {
+    title: i18n.t('app.장르_약속'),
+    hint: "",
+    section: "promise",
+    listId: "promiseFields",
+    hideAdd: true,
+  },
+  cliche: {
+    title: i18n.t('app.장르_클리셰'),
+    hint: "",
+    section: "cliche",
+    listId: "clicheFields",
+    hideAdd: true,
+  },
   readingInvite: {
     title: i18n.t('app.읽기_권한_초대'),
     hint: "",
@@ -44149,7 +44466,12 @@ function setupSettingsCollectionBoard() {
 const BAIT_STORAGE_PREFIX = "supertory.baits.";
 const SETTINGS_ORDER_PREFIX = "supertory.settingsOrder.";
 // Default 설정집 폴더 순서 (흥행작 프로파일 연결 = 떡밥모음 아래)
+// 기획은 2열: 생각수첩 | 내 문체 / 작품소개·기획의도 | 로그라인·시놉시스 / 장르 키워드 | 장르 클리셰(문학이면 장르 약속)
 const DEFAULT_SETTINGS_ORDER = [
+  "ideas", "style", "intro", "logsyn", "keywords", "cliche", "promise", "world", "statusWindow", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
+];
+/** 바로 앞 기본 순서. 끌어서 바꾸지 않았다면(새 상자 정리까지 끝난 뒤 이것과 같으면) 새 기본으로 맞춘다. */
+const PREVIOUS_DEFAULT_SETTINGS_ORDER = [
   "ideas", "intro", "style", "promise", "cliche", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
 ];
 /** Prior factory defaults — snap exact matches once to the current DEFAULT. */
@@ -54516,6 +54838,16 @@ function loadSettingsOrder() {
       ordered.splice(inviteAt, 1);
       ordered.splice(ordered.indexOf("sources"), 0, "readingInvite");
     }
+    // 상태창은 새 상자라 저장된 순서에서는 맨 끝에 붙는다 → 세계관 바로 뒤로 옮긴다.
+    const swAt = ordered.indexOf("statusWindow");
+    if (swAt >= 0 && swAt === ordered.length - 1 && ordered.indexOf("world") >= 0) {
+      ordered.splice(swAt, 1);
+      ordered.splice(ordered.indexOf("world") + 1, 0, "statusWindow");
+    }
+    if (ordered.length === PREVIOUS_DEFAULT_SETTINGS_ORDER.length
+      && PREVIOUS_DEFAULT_SETTINGS_ORDER.every((key, i) => ordered[i] === key)) {
+      ordered = [...DEFAULT_SETTINGS_ORDER];
+    }
     return ordered;
   } catch (_) {
     return [...DEFAULT_SETTINGS_ORDER];
@@ -54533,7 +54865,7 @@ function saveSettingsOrder(order) {
 // 설정집 그룹(섬) 소속은 고정. 순서 변경은 같은 그룹 안에서만 한다.
 const SETTINGS_GROUP_OF = {
   ideas: "plan", intro: "plan", style: "plan", logsyn: "plan", keywords: "plan",
-  world: "world", characters: "world", items: "world", dictionary: "world",
+  world: "world", statusWindow: "world", characters: "world", items: "world", dictionary: "world",
   baits: "publish", successProfile: "publish", toryVault: "publish", readingInvite: "publish", sources: "publish",
 };
 
@@ -58677,6 +59009,7 @@ function syncSelectionFloatActionItems(editor, hasSelection) {
       : i18n.t("app.선택한_문장에_각주를_답니다");
   }
   syncAuthorNoteContextMenu(editor, isSettingsDoc);
+  syncStatusWindowContextMenu(editor, isSettingsDoc);
 }
 
 function positionSelectionFloatBar() {
@@ -58955,6 +59288,9 @@ function runContextAction(action, event = null, actionBtn = null) {
     pendingFootnoteId = null;
     if (id) deleteFootnoteById(id);
     else toast(i18n.t("app.삭제할_각주를_찾지_못했어요"));
+  } else if (action === "sw-insert" || action === "sw-convert" || action === "sw-tidy") {
+    runStatusWindowContextAction(action, actionBtn);
+    closeChrome();
   } else if (action === "to-author-note") {
     closeChrome();
     convertSelectionToAuthorNote();
