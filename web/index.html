@@ -2574,14 +2574,33 @@
               <!-- hidden file input for right-click image insert in manuscript -->
               <input id="inlineImageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" hidden>
               <div id="findBar" class="find-bar hidden" role="search" aria-label="원고 찾기" data-i18n-aria-label="index.원고_찾기">
-                <label class="find-bar-field">
-                  <span class="find-bar-label" data-i18n="app.찾기">찾기</span>
-                  <input type="search" id="findInput" placeholder="찾을 내용" data-i18n-placeholder="index.찾을_내용" autocomplete="off" spellcheck="false">
-                </label>
-                <span class="find-bar-count" id="findCount" aria-live="polite">0/0</span>
-                <button type="button" class="format-btn" id="findPrevButton" title="이전 (Shift+Enter)" data-i18n-title="index.찾기_이전_Shift_Enter">↑</button>
-                <button type="button" class="format-btn" id="findNextButton" title="다음 (Enter)" data-i18n-title="index.찾기_다음_Enter">↓</button>
-                <button type="button" class="format-btn" id="findCloseButton" title="닫기 (Esc)" data-i18n-title="index.찾기_닫기_Esc">×</button>
+                <div class="find-bar-row">
+                  <button type="button" class="format-btn find-replace-toggle" id="findReplaceToggle" aria-expanded="false" aria-controls="findReplaceRow" title="바꾸기 열기 (Ctrl+H)" data-i18n-title="find.바꾸기_열기" aria-label="바꾸기 열기 (Ctrl+H)" data-i18n-aria-label="find.바꾸기_열기"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 18 6-6-6-6"/></svg></button>
+                  <label class="find-bar-field">
+                    <span class="find-bar-label" data-i18n="app.찾기">찾기</span>
+                    <input type="search" id="findInput" placeholder="찾을 내용" data-i18n-placeholder="index.찾을_내용" autocomplete="off" spellcheck="false">
+                  </label>
+                  <span class="find-bar-count" id="findCount" aria-live="polite">0/0</span>
+                  <button type="button" class="find-opt-chip" data-find-option="caseSensitive" aria-pressed="false" title="대/소문자 구분" data-i18n-title="find.대소문자_구분" aria-label="대/소문자 구분" data-i18n-aria-label="find.대소문자_구분">Aa</button>
+                  <button type="button" class="find-opt-chip" data-find-option="selectionOnly" aria-pressed="false" title="원고에서 고른 범위 안에서만 찾기" data-i18n-title="find.선택_영역에서만_설명" data-i18n="find.선택_영역">선택 영역</button>
+                  <button type="button" class="format-btn" id="findPrevButton" title="이전 (Shift+Enter)" data-i18n-title="index.찾기_이전_Shift_Enter">↑</button>
+                  <button type="button" class="format-btn" id="findNextButton" title="다음 (Enter)" data-i18n-title="index.찾기_다음_Enter">↓</button>
+                  <button type="button" class="format-btn" id="findCloseButton" title="닫기 (Esc)" data-i18n-title="index.찾기_닫기_Esc">×</button>
+                </div>
+                <p class="find-bar-error hidden" id="findError" role="alert"></p>
+                <div class="find-bar-row find-replace-row hidden" id="findReplaceRow">
+                  <label class="find-bar-field">
+                    <span class="find-bar-label" data-i18n="find.바꾸기">바꾸기</span>
+                    <input type="text" id="replaceInput" placeholder="바꿀 내용" data-i18n-placeholder="find.바꿀_내용" autocomplete="off" spellcheck="false">
+                  </label>
+                  <button type="button" class="format-btn find-replace-btn" id="findReplaceOneButton" title="바꾸기 (Enter)" data-i18n-title="find.바꾸기_설명" data-i18n="find.바꾸기">바꾸기</button>
+                  <button type="button" class="format-btn find-replace-btn" id="findReplaceAllButton" title="모두 바꾸기 (Ctrl+Enter) · 바꾸기 전 원고는 「버전」에 남아요" data-i18n-title="find.모두_바꾸기_설명" data-i18n="find.모두_바꾸기">모두 바꾸기</button>
+                  <button type="button" class="find-opt-chip" data-find-option="includeNotes" aria-pressed="false" title="작가 주석 단락도 찾고 바꾸기" data-i18n-title="find.주석_포함_설명" data-i18n="find.주석_포함">주석 포함</button>
+                  <button type="button" class="find-opt-chip find-advanced-toggle" id="findAdvancedToggle" aria-expanded="false" aria-controls="findAdvancedRow" data-i18n="find.고급">고급</button>
+                  <span class="find-advanced hidden" id="findAdvancedRow">
+                    <button type="button" class="find-opt-chip" data-find-option="regex" aria-pressed="false" title="정규식으로 찾기 · 바꿀 내용에서 $1 같은 묶음을 쓸 수 있어요" data-i18n-title="find.정규식_설명" data-i18n="find.정규식">.* 정규식</button>
+                  </span>
+                </div>
               </div>
 
               <!-- 북마크 목록 패널 (아이콘 행 버튼 · 목차 하단에는 표시하지 않음) -->
@@ -10184,6 +10203,7 @@
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
     <script src="/typeset_metrics.js?v=1.4.45"></script>
     <script src="/pagewrite_model.js?v=1.4.45"></script>
+    <script src="/find_replace_model.js?v=1"></script>
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
     <script src="/app.js?v=1.4.255-c25"></script>

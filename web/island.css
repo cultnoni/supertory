@@ -5152,5 +5152,31 @@ html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn.is-save-fail
 .scene-diff-skip { font-family: var(--font-ui); font-size: 11.5px; color: var(--isl-ink3); text-align: center; }
 .scene-revisions-actions { flex-wrap: wrap; gap: 6px; }
 /* 넓은 패널은 하단 보조 버튼(보통 「닫기」)을 숨기므로, 이 패널의 동작 버튼은 다시 보이게 한다. */
-.is-wide-panel-card .scene-revisions-actions > .secondary { display: inline-flex; align-items: center; height: 32px; min-height: 32px; padding: 0 12px; }
-.scene-revisions-actions button { font-size: 12.5px; }
+.is-wide-panel-card .scene-revisions-actions > .secondary { display: inline-flex; align-items: center; height: 32px; min-height: 32px; padding: 0 12px; font-size: 14px; font-weight: 700; }
+
+/* ── 원고 찾아 바꾸기 (docs/design-ai-context-and-style-2026-11.md §7-2) ──
+   하이라이트는 ::highlight(CSS Custom Highlight) — 본문 DOM에 표식을 넣지 않는다. */
+.find-bar { flex-direction: column; align-items: stretch !important; gap: 4px !important; }
+.find-bar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.find-replace-row.hidden, .find-advanced.hidden, .find-bar-error.hidden { display: none !important; }
+.find-replace-toggle svg { display: block; transition: transform 0.15s ease; }
+.find-replace-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.find-opt-chip {
+  border: 1px solid var(--line); background: var(--panel); color: var(--isl-ink2);
+  border-radius: 6px; font-size: 11.5px; line-height: 1.4; padding: 3px 7px; cursor: pointer; white-space: nowrap;
+}
+.find-opt-chip:hover { background: var(--isl-sunk); }
+.find-opt-chip.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel)); color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.find-advanced { display: inline-flex; gap: 6px; }
+.find-replace-btn { font-size: 12px !important; white-space: nowrap; }
+.find-replace-btn:disabled { opacity: 0.45; cursor: default; }
+.find-bar-error { margin: 0; font-size: 11.5px; color: var(--isl-ink2); padding-left: 2px; }
+#findInput.is-invalid { box-shadow: inset 0 0 0 1px var(--isl-st-draft); }
+::highlight(find-hit) { background-color: color-mix(in srgb, var(--isl-st-draft) 38%, transparent); }
+::highlight(find-current) {
+  background-color: color-mix(in srgb, var(--isl-st-draft) 78%, transparent);
+  text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px;
+}

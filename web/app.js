@@ -3584,12 +3584,64 @@ function setupGoalBulkMenu() {
 }
 
 /* —— Find in current manuscript (돋보기) —— */
-let findMatches = [];
+/* —— 원고 찾아 바꾸기 (docs/design-ai-context-and-style-2026-11.md §7-2) ——
+ * 하이라이트는 CSS Custom Highlight로 칠한다: 본문 DOM을 건드리지 않아 저장 문서에 흔적이 남지 않는다.
+ * 일치 계산은 web/find_replace_model.js(순수 함수). 서식으로 나뉜 낱말도 같은 문단이면 찾는다.
+ * 바꾸기는 편집기 입력 경로(execCommand)로 해서 Ctrl+Z·자동 저장·로컬 초안이 그대로 동작한다.
+ */
+const FIND_OPTIONS_KEY = "supertory.findOptions";
+const FIND_HIGHLIGHT = "find-hit";
+const FIND_HIGHLIGHT_CURRENT = "find-current";
+let findMatches = []; // [{ range, start, end, text }]
 let findIndex = -1;
+let findReplacing = false;
+let findSelectionRange = null;
+let findRefreshTimer = null;
+const findOptions = { caseSensitive: false, selectionOnly: false, includeNotes: false, regex: false };
+
+function loadFindOptions() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FIND_OPTIONS_KEY) || "{}");
+    findOptions.caseSensitive = saved.caseSensitive === true;
+    findOptions.includeNotes = saved.includeNotes === true;
+    findOptions.regex = saved.regex === true;
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function saveFindOptions() {
+  try {
+    localStorage.setItem(FIND_OPTIONS_KEY, JSON.stringify({
+      caseSensitive: findOptions.caseSensitive,
+      includeNotes: findOptions.includeNotes,
+      regex: findOptions.regex,
+    }));
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function findHighlightsSupported() {
+  return typeof CSS !== "undefined" && Boolean(CSS.highlights) && typeof Highlight === "function";
+}
+
+function paintFindHighlights() {
+  if (!findHighlightsSupported()) return;
+  if (findMatches.length) CSS.highlights.set(FIND_HIGHLIGHT, new Highlight(...findMatches.map((m) => m.range)));
+  else CSS.highlights.delete(FIND_HIGHLIGHT);
+  const current = findMatches[findIndex];
+  if (current) CSS.highlights.set(FIND_HIGHLIGHT_CURRENT, new Highlight(current.range));
+  else CSS.highlights.delete(FIND_HIGHLIGHT_CURRENT);
+}
 
 function clearFindHighlights(editor = $("sceneContent")) {
-  if (!editor) return;
-  editor.querySelectorAll("mark.find-hit").forEach((mark) => {
+  if (findHighlightsSupported()) {
+    CSS.highlights.delete(FIND_HIGHLIGHT);
+    CSS.highlights.delete(FIND_HIGHLIGHT_CURRENT);
+  }
+  // 예전 방식(본문에 <mark>)이 남아 있으면 걷어 낸다.
+  editor?.querySelectorAll("mark.find-hit").forEach((mark) => {
     const parent = mark.parentNode;
     if (!parent) return;
     while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
@@ -3598,102 +3650,315 @@ function clearFindHighlights(editor = $("sceneContent")) {
   });
   findMatches = [];
   findIndex = -1;
-  if (typeof scheduleDictHighlightRefresh === "function") scheduleDictHighlightRefresh(0);
 }
 
 function updateFindCountUi() {
   const el = $("findCount");
-  if (!el) return;
-  if (!findMatches.length) {
-    el.textContent = "0/0";
-    return;
-  }
-  el.textContent = `${findIndex + 1}/${findMatches.length}`;
+  if (el) el.textContent = findMatches.length ? `${findIndex + 1}/${findMatches.length}` : "0/0";
+  updateReplaceButtonsUi();
 }
 
-function setFindCurrent(index) {
+function setFindError(message) {
+  const el = $("findError");
+  if (!el) return;
+  el.textContent = message || "";
+  el.classList.toggle("hidden", !message);
+  $("findInput")?.classList.toggle("is-invalid", Boolean(message));
+}
+
+/** 본문 텍스트를 문단(block) 단위 조각으로 모은다. 주석 단락은 옵션을 켰을 때만. */
+function collectFindSegments(editor) {
+  const segments = [];
+  const nodes = [];
+  if (!editor) return { segments, nodes };
+  const BLOCK_TAGS = /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|TR|TD|TH|PRE|UL|OL|TABLE|SECTION|ARTICLE|FIGURE)$/;
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (node.nodeType === 1) {
+        if (!findOptions.includeNotes && node.matches?.("[data-author-note], .st-author-note")) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+      return node.nodeValue ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    },
+  });
+  let block = 0;
+  let lastBlockEl = null;
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.nodeType === 1) {
+      if (node.tagName === "BR" || BLOCK_TAGS.test(node.tagName)) block += 1;
+      continue;
+    }
+    const blockEl = node.parentElement?.closest("p,div,li,h1,h2,h3,h4,h5,h6,blockquote,td,th,pre") || null;
+    if (blockEl !== lastBlockEl) {
+      block += 1;
+      lastBlockEl = blockEl;
+    }
+    segments.push({ text: node.nodeValue, block });
+    nodes.push(node);
+  }
+  return { segments, nodes };
+}
+
+function findRangeFromOffsets(model, index, nodes, start, end) {
+  const a = model.locate(index, start, "start");
+  const b = model.locate(index, end, "end");
+  if (!a || !b || !nodes[a.segment] || !nodes[b.segment]) return null;
+  const range = document.createRange();
+  range.setStart(nodes[a.segment], a.offset);
+  range.setEnd(nodes[b.segment], b.offset);
+  return range;
+}
+
+function rangeInsideSelection(range, selection) {
+  try {
+    return range.compareBoundaryPoints(Range.START_TO_START, selection) >= 0
+      && range.compareBoundaryPoints(Range.END_TO_END, selection) <= 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+function setFindCurrent(index, { scroll = true } = {}) {
   if (!findMatches.length) {
     findIndex = -1;
+    paintFindHighlights();
     updateFindCountUi();
     return;
   }
-  findMatches.forEach((m) => m.classList.remove("find-hit-current"));
   findIndex = ((index % findMatches.length) + findMatches.length) % findMatches.length;
-  const mark = findMatches[findIndex];
-  mark.classList.add("find-hit-current");
-  try {
-    mark.scrollIntoView({ block: "center", behavior: "smooth", inline: "nearest" });
-  } catch (_) {
-    mark.scrollIntoView(true);
+  paintFindHighlights();
+  if (scroll) {
+    const target = findMatches[findIndex].range.startContainer;
+    const el = target.nodeType === 1 ? target : target.parentElement;
+    try {
+      el?.scrollIntoView({ block: "center", behavior: "smooth", inline: "nearest" });
+    } catch (_) {
+      el?.scrollIntoView(true);
+    }
   }
   updateFindCountUi();
 }
 
-function runFindInEditor(query) {
+function runFindInEditor(query, { keepIndex = false, scroll = true } = {}) {
   const editor = $("sceneContent");
   if (!editor) return;
+  const previous = findIndex;
   clearFindHighlights(editor);
+  setFindError("");
   const q = String(query || "");
-  if (!q) {
+  const model = window.FindReplaceModel;
+  if (!q || !model) {
     updateFindCountUi();
     return;
   }
-  const needle = q.toLowerCase();
-  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
-      if (node.parentElement?.closest?.("mark.find-hit")) return NodeFilter.FILTER_REJECT;
-      return NodeFilter.FILTER_ACCEPT;
-    },
-  });
-  const textNodes = [];
-  while (walker.nextNode()) textNodes.push(walker.currentNode);
-
-  const marks = [];
-  for (const node of textNodes) {
-    const text = node.nodeValue;
-    const lower = text.toLowerCase();
-    let from = 0;
-    const parts = [];
-    while (from < text.length) {
-      const at = lower.indexOf(needle, from);
-      if (at < 0) {
-        parts.push(document.createTextNode(text.slice(from)));
-        break;
-      }
-      if (at > from) parts.push(document.createTextNode(text.slice(from, at)));
-      const mark = document.createElement("mark");
-      mark.className = "find-hit";
-      mark.textContent = text.slice(at, at + q.length);
-      parts.push(mark);
-      marks.push(mark);
-      from = at + q.length;
-    }
-    if (parts.length === 1 && parts[0].nodeType === 3) continue;
-    const parent = node.parentNode;
-    if (!parent) continue;
-    for (const p of parts) parent.insertBefore(p, node);
-    parent.removeChild(node);
+  const { segments, nodes } = collectFindSegments(editor);
+  const index = model.buildIndex(segments);
+  const result = model.findMatches(index.flat, q, findOptions);
+  if (result.error) {
+    setFindError(i18n.t("find.정규식이_올바르지_않아요"));
+    updateFindCountUi();
+    return;
   }
-  findMatches = marks;
-  if (findMatches.length) setFindCurrent(0);
-  else updateFindCountUi();
-  if (typeof scheduleDictHighlightRefresh === "function") scheduleDictHighlightRefresh(0);
+  const matches = [];
+  result.matches.forEach((m) => {
+    const range = findRangeFromOffsets(model, index, nodes, m.start, m.end);
+    if (!range) return;
+    if (findOptions.selectionOnly && findSelectionRange && !rangeInsideSelection(range, findSelectionRange)) return;
+    matches.push({ range, start: m.start, end: m.end, text: m.text });
+  });
+  findMatches = matches;
+  if (!findMatches.length) {
+    updateFindCountUi();
+    paintFindHighlights();
+    return;
+  }
+  const next = keepIndex && previous >= 0 ? Math.min(previous, findMatches.length - 1) : 0;
+  setFindCurrent(next, { scroll });
 }
 
-function openFindBar() {
+function scheduleFindRefresh() {
+  if (findReplacing || $("findBar")?.classList.contains("hidden")) return;
+  const q = $("findInput")?.value || "";
+  if (!q) return;
+  if (findRefreshTimer) window.clearTimeout(findRefreshTimer);
+  findRefreshTimer = window.setTimeout(() => runFindInEditor(q, { keepIndex: true, scroll: false }), 250);
+}
+
+function isReplaceRowOpen() {
+  return !$("findReplaceRow")?.classList.contains("hidden");
+}
+
+function setReplaceRowOpen(open) {
+  $("findReplaceRow")?.classList.toggle("hidden", !open);
+  $("findReplaceToggle")?.setAttribute("aria-expanded", open ? "true" : "false");
+  $("findReplaceToggle")?.classList.toggle("is-active", open);
+}
+
+function canReplaceInEditor({ quiet = false } = {}) {
+  const editor = $("sceneContent");
+  if (!editor || !state.sceneId) return false;
+  if (!editor.isContentEditable) {
+    if (!quiet) toast(i18n.t("find.잠긴_회차는_바꿀_수_없어요"));
+    return false;
+  }
+  return true;
+}
+
+function updateReplaceButtonsUi() {
+  const can = canReplaceInEditor({ quiet: true });
+  const has = findMatches.length > 0;
+  ["findReplaceOneButton", "findReplaceAllButton"].forEach((id) => {
+    const btn = $(id);
+    if (btn) btn.disabled = !can || !has;
+  });
+}
+
+function syncFindOptionChips() {
+  document.querySelectorAll("[data-find-option]").forEach((chip) => {
+    const key = chip.getAttribute("data-find-option");
+    const on = Boolean(findOptions[key]);
+    chip.classList.toggle("is-active", on);
+    chip.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  const regexChip = document.querySelector('[data-find-option="regex"]');
+  if (regexChip && findOptions.regex) $("findAdvancedRow")?.classList.remove("hidden");
+}
+
+function toggleFindOption(key) {
+  if (!(key in findOptions)) return;
+  if (key === "selectionOnly" && !findOptions.selectionOnly) {
+    const editor = $("sceneContent");
+    const selection = window.getSelection();
+    const range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+    if (!range || range.collapsed || !editor?.contains(range.commonAncestorContainer)) {
+      toast(i18n.t("find.원고에서_범위를_먼저_선택해_주세요"));
+      return;
+    }
+    findSelectionRange = range.cloneRange();
+  }
+  findOptions[key] = !findOptions[key];
+  if (key === "selectionOnly" && !findOptions.selectionOnly) findSelectionRange = null;
+  saveFindOptions();
+  syncFindOptionChips();
+  runFindInEditor($("findInput")?.value || "", { scroll: false });
+}
+
+/** 한 곳을 편집기 입력 경로로 바꾼다(Ctrl+Z로 되돌릴 수 있게). */
+function applyFindReplacementAt(range, text) {
+  const editor = $("sceneContent");
+  if (!editor || !range) return false;
+  editor.focus({ preventScroll: true });
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range.cloneRange());
+  let ok = false;
+  try {
+    ok = text
+      ? document.execCommand("insertText", false, text)
+      : document.execCommand("delete", false);
+  } catch (_) {
+    ok = false;
+  }
+  if (!ok) {
+    range.deleteContents();
+    if (text) range.insertNode(document.createTextNode(text));
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  return true;
+}
+
+function findReplacementText(matchText) {
+  return window.FindReplaceModel.replacementFor(
+    matchText,
+    $("findInput")?.value || "",
+    $("replaceInput")?.value || "",
+    findOptions,
+  );
+}
+
+function replaceCurrentFind() {
+  if (!canReplaceInEditor()) return;
+  const q = $("findInput")?.value || "";
+  const current = findMatches[findIndex];
+  if (!q || !current) {
+    toast(i18n.t("find.바꿀_곳이_없어요"));
+    return;
+  }
+  findReplacing = true;
+  try {
+    applyFindReplacementAt(current.range, findReplacementText(current.text));
+  } finally {
+    findReplacing = false;
+  }
+  runFindInEditor(q, { keepIndex: true });
+  $("replaceInput")?.focus({ preventScroll: true });
+}
+
+function replaceAllFind() {
+  if (!canReplaceInEditor()) return;
+  const editor = $("sceneContent");
+  const q = $("findInput")?.value || "";
+  runFindInEditor(q, { scroll: false });
+  const plan = findMatches.map((m) => ({ start: m.start, end: m.end, text: m.text }));
+  if (!q || !plan.length) {
+    toast(i18n.t("find.바꿀_곳이_없어요"));
+    return;
+  }
+  if (!($("replaceInput")?.value || "")
+    && !confirm(i18n.t("find.빈_내용으로_n곳을_지울까요", { n: plan.length }))) {
+    return;
+  }
+  // 바꾸기 직전 원고를 이전 버전에 ★로 남긴다(persistScene은 첫 await 전에 지금 본문을 읽는다).
+  checkpointSceneBefore("before_replace_all");
+  const model = window.FindReplaceModel;
+  let done = 0;
+  findReplacing = true;
+  try {
+    // 뒤에서부터 바꾸면 앞쪽 일치의 위치가 그대로라 매번 다시 계산해도 어긋나지 않는다.
+    for (let i = plan.length - 1; i >= 0; i -= 1) {
+      const { segments, nodes } = collectFindSegments(editor);
+      const index = model.buildIndex(segments);
+      const range = findRangeFromOffsets(model, index, nodes, plan[i].start, plan[i].end);
+      if (!range || range.toString() !== plan[i].text) continue;
+      applyFindReplacementAt(range, findReplacementText(plan[i].text));
+      done += 1;
+    }
+  } finally {
+    findReplacing = false;
+  }
+  runFindInEditor(q, { scroll: false });
+  toast(i18n.t("find.n곳을_바꿨어요", { n: done }));
+}
+
+function openFindBar({ replace = false } = {}) {
   const bar = $("findBar");
   const toggle = $("findToggleButton");
   if (!bar) return;
   if ($("formatToolbarShell")?.classList.contains("is-collapsed")) {
     applyMsToolbarCollapsed("format", false, { toastMsg: false });
   }
+  // 원고에서 한 줄짜리 짧은 글을 골라 두었으면 찾을 내용으로 채운다.
+  const editor = $("sceneContent");
+  const selection = window.getSelection();
+  const picked = selection && selection.rangeCount && editor?.contains(selection.getRangeAt(0).commonAncestorContainer)
+    ? selection.toString()
+    : "";
+  if (picked && picked.length <= 60 && !/\n/.test(picked) && $("findInput")) $("findInput").value = picked;
   bar.classList.remove("hidden");
   toggle?.setAttribute("aria-expanded", "true");
-  requestAnimationFrame(() => {
-    $("findInput")?.focus();
-    $("findInput")?.select();
-  });
+  if (replace) setReplaceRowOpen(true);
+  syncFindOptionChips();
+  updateReplaceButtonsUi();
+  // 막대가 보이게 된 직후 바로 초점을 옮긴다(화면 갱신 콜백에 기대지 않는다: 창이 가려지면 멈춘다).
+  const findEl = $("findInput");
+  if (replace && findEl?.value) $("replaceInput")?.focus();
+  else {
+    findEl?.focus();
+    findEl?.select();
+  }
   const q = $("findInput")?.value || "";
   if (q) runFindInEditor(q);
 }
@@ -3703,11 +3968,19 @@ function closeFindBar() {
   const toggle = $("findToggleButton");
   bar?.classList.add("hidden");
   toggle?.setAttribute("aria-expanded", "false");
+  if (findOptions.selectionOnly) {
+    findOptions.selectionOnly = false;
+    findSelectionRange = null;
+    syncFindOptionChips();
+  }
+  setFindError("");
   clearFindHighlights();
   updateFindCountUi();
 }
 
 function setupFindBar() {
+  loadFindOptions();
+  syncFindOptionChips();
   $("findToggleButton")?.addEventListener("click", () => {
     if (typeof closeIconGuidePopovers === "function") closeIconGuidePopovers("");
     if ($("findBar")?.classList.contains("hidden")) openFindBar();
@@ -3716,12 +3989,30 @@ function setupFindBar() {
   $("findCloseButton")?.addEventListener("click", closeFindBar);
   $("findNextButton")?.addEventListener("click", () => setFindCurrent(findIndex + 1));
   $("findPrevButton")?.addEventListener("click", () => setFindCurrent(findIndex - 1));
-  let findTimer = null;
-  $("findInput")?.addEventListener("input", () => {
-    if (findTimer) window.clearTimeout(findTimer);
-    findTimer = window.setTimeout(() => runFindInEditor($("findInput")?.value || ""), 120);
+  $("findReplaceToggle")?.addEventListener("click", () => {
+    setReplaceRowOpen(!isReplaceRowOpen());
+    if (isReplaceRowOpen()) $("replaceInput")?.focus();
   });
-  $("findInput")?.addEventListener("keydown", (event) => {
+  $("findReplaceOneButton")?.addEventListener("click", replaceCurrentFind);
+  $("findReplaceAllButton")?.addEventListener("click", replaceAllFind);
+  $("findAdvancedToggle")?.addEventListener("click", () => {
+    const row = $("findAdvancedRow");
+    row?.classList.toggle("hidden");
+    $("findAdvancedToggle")?.setAttribute("aria-expanded", row && !row.classList.contains("hidden") ? "true" : "false");
+  });
+  document.querySelectorAll("[data-find-option]").forEach((chip) => {
+    chip.addEventListener("click", () => toggleFindOption(chip.getAttribute("data-find-option")));
+  });
+  let findTimer = null;
+  const findInput = $("findInput");
+  findInput?.addEventListener("input", (event) => {
+    if (event.isComposing) return; // 한글 조합 중에는 기다린다
+    if (findTimer) window.clearTimeout(findTimer);
+    findTimer = window.setTimeout(() => runFindInEditor(findInput.value || ""), 120);
+  });
+  findInput?.addEventListener("compositionend", () => runFindInEditor(findInput.value || ""));
+  findInput?.addEventListener("keydown", (event) => {
+    if (event.isComposing) return;
     if (event.key === "Enter") {
       event.preventDefault();
       if (event.shiftKey) setFindCurrent(findIndex - 1);
@@ -3731,15 +4022,29 @@ function setupFindBar() {
       closeFindBar();
     }
   });
+  $("replaceInput")?.addEventListener("keydown", (event) => {
+    if (event.isComposing) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (event.ctrlKey || event.metaKey) replaceAllFind();
+      else replaceCurrentFind();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeFindBar();
+    }
+  });
+  // 찾기 막대가 열려 있는 동안 원고가 바뀌면 일치를 다시 계산한다.
+  $("sceneContent")?.addEventListener("input", scheduleFindRefresh);
   document.addEventListener("keydown", (event) => {
     if (!(event.ctrlKey || event.metaKey)) return;
-    if (event.key.toLowerCase() !== "f") return;
+    const key = event.key.toLowerCase();
+    if (key !== "f" && key !== "h") return;
     // Only when scene editor is visible
     if ($("sceneWorkspace")?.classList.contains("hidden")) return;
     if (isFocusWriteOpen()) return;
     if (typeof isViewerOpen === "function" && isViewerOpen()) return;
     event.preventDefault();
-    openFindBar();
+    openFindBar({ replace: key === "h" });
   });
 }
 
@@ -3807,11 +4112,29 @@ function sceneRevisionMarkText(mark) {
   return key ? i18n.t(key) : "";
 }
 
+// 저장 메모는 저장한 그때의 언어로 남는다. 알려진 메모는 지금 화면 언어로 바꿔 보여 준다.
+const SCENE_REVISION_ROUTINE_NOTES = {
+  "자동 저장": "app.자동_저장", "Auto-save": "app.자동_저장", "Autoguardado": "app.자동_저장",
+  "저장": "app.저장", "Save": "app.저장", "Guardar": "app.저장",
+  "수동 저장": "app.수동_저장", "Manual save": "app.수동_저장", "Guardado manual": "app.수동_저장",
+};
+const SCENE_REVISION_PREFIX_NOTES = [
+  ["문서 가져오기", "revisions.메모_문서_가져오기"],
+  ["교정 파이프라인 반영", "revisions.메모_교정본_반영"],
+  ["교정고 자동 매칭 가져오기", "revisions.메모_교정본_반영"],
+  ["폰 초안 반영", "revisions.메모_폰_초안_반영"],
+];
+
 function sceneRevisionNoteText(note) {
   const raw = String(note || "").trim();
   const restored = /^@restore:(\d+)$/.exec(raw);
   if (restored) return i18n.t("revisions.n번에서_되돌림", { n: restored[1] });
   if (!raw) return i18n.t("app.저장");
+  if (SCENE_REVISION_ROUTINE_NOTES[raw]) return i18n.t(SCENE_REVISION_ROUTINE_NOTES[raw]);
+  for (const [prefix, key] of SCENE_REVISION_PREFIX_NOTES) {
+    if (raw === prefix) return i18n.t(key);
+    if (raw.startsWith(`${prefix}:`)) return `${i18n.t(key)}:${raw.slice(prefix.length + 1)}`;
+  }
   return raw;
 }
 
@@ -3819,11 +4142,7 @@ function isRoutineSceneRevision(row) {
   if (!row || row.is_current || (Array.isArray(row.marks) && row.marks.length)) return false;
   const note = String(row.save_note || "").trim();
   if (note.startsWith("@")) return false;
-  const routine = new Set([
-    "", "저장", "자동 저장", "수동 저장",
-    i18n.t("app.저장"), i18n.t("app.자동_저장"), i18n.t("app.수동_저장"),
-  ]);
-  return routine.has(note);
+  return note === "" || Boolean(SCENE_REVISION_ROUTINE_NOTES[note]);
 }
 
 /** 날짜별로 묶고, 10분 안쪽으로 이어진 평범한 저장은 한 줄로 접는다(최신이 위). */
@@ -4253,10 +4572,11 @@ function insertSelectedSceneRevisionText() {
 }
 
 /**
- * AI 결과를 원고에 넣기 직전 원고를 이전 버전에 ★로 남긴다(설계 결정 8).
- * 넣기를 늦추거나 막지 않는다: 저장·표시는 뒤에서 진행되고, 실패해도 조용히 넘어간다.
+ * 원고를 바꾸는 작업(AI 결과 넣기·모두 바꾸기) 직전 원고를 이전 버전에 ★로 남긴다(설계 결정 8).
+ * 작업을 늦추거나 막지 않는다: 저장·표시는 뒤에서 진행되고, 실패해도 조용히 넘어간다.
+ * persistScene은 첫 await 전에 본문을 읽으므로, 이 함수를 부른 직후 원고를 바꿔도 바뀌기 전 원고가 저장된다.
  */
-function checkpointBeforeAiInsert() {
+function checkpointSceneBefore(reason) {
   if (!state.sceneId) return;
   const sceneId = Number(state.sceneId);
   const mark = (revisionNo) => {
@@ -4264,7 +4584,7 @@ function checkpointBeforeAiInsert() {
     if (!no) return;
     api(`/api/scenes/${sceneId}/checkpoint`, {
       method: "POST",
-      body: JSON.stringify({ reason: "before_ai_insert", revision_no: no }),
+      body: JSON.stringify({ reason, revision_no: no }),
     }).catch((error) => console.warn("[supertory] checkpoint skipped", error));
   };
   try {
@@ -4277,7 +4597,7 @@ function checkpointBeforeAiInsert() {
       return;
     }
     cancelScheduledAutoSave();
-    // persistScene은 첫 await 전에 지금 본문을 읽으므로, AI 결과를 넣기 전 원고가 저장된다.
+    // persistScene은 첫 await 전에 지금 본문을 읽으므로, 바뀌기 전 원고가 저장된다.
     persistScene({ quiet: true })
       .then((saved) => {
         if (saved && !saved.localOnly) mark(saved.revision_no ?? state.scene?.revision_no);
@@ -4286,6 +4606,10 @@ function checkpointBeforeAiInsert() {
   } catch (error) {
     console.warn("[supertory] checkpoint skipped", error);
   }
+}
+
+function checkpointBeforeAiInsert() {
+  checkpointSceneBefore("before_ai_insert");
 }
 
 function setupSceneRevisions() {
