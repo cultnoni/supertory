@@ -8441,6 +8441,7 @@ const statusWindowState = {
   lastCaret: null,
   /** 세계관 스위치: auto(키워드·이미 쓴 상태창으로 정함) · on · off */
   mode: "auto",
+  draftProjectId: 0,
   /** 이 작품의 어느 회차든 원고에 상태창 블록이 있는지(서버가 셈) */
   hasBlocks: false,
 };
@@ -8883,34 +8884,37 @@ function statusWindowDraftFrom(preset) {
   return JSON.parse(JSON.stringify(normalizeStatusWindowPreset(preset) || normalizeStatusWindowPreset({ name: i18n.t("statusWindow.새_프리셋") })));
 }
 
+/** 프리셋 관리는 설정집 메인 보드(가운데)에 연다. 서식줄 팝업·위젯·설정집 → 모두 여기로 온다. */
 async function openStatusWindowPresets() {
-  if (!state.projectId) {
+  const pid = Number(state.projectId) || 0;
+  if (!pid) {
     toast(i18n.t("statusWindow.작품을_먼저_열어_주세요"));
     return;
   }
-  const modal = $("statusWindowPresetsModal");
-  if (!modal) return;
   await loadStatusWindowPresets({ force: true });
-  const first = statusWindowState.presets[0];
-  statusWindowState.editingId = first ? first.id : "";
-  statusWindowState.draft = statusWindowDraftFrom(first || statusWindowTemplates()[0]);
-  if (!first) {
-    statusWindowState.draft.id = statusWindowNewId();
-    statusWindowState.editingId = "";
+  // 저장하지 않은 편집이 있으면(다른 화면에 다녀온 경우) 그대로 이어서 보여 준다.
+  const keepDraft = statusWindowState.dirty && statusWindowState.draft && statusWindowState.draftProjectId === pid;
+  if (!keepDraft) {
+    const first = statusWindowState.presets[0];
+    statusWindowState.editingId = first ? first.id : "";
+    statusWindowState.draft = statusWindowDraftFrom(first || statusWindowTemplates()[0]);
+    if (!first) {
+      statusWindowState.draft.id = statusWindowNewId();
+      statusWindowState.editingId = "";
+    }
+    statusWindowState.dirty = !first;
   }
-  statusWindowState.dirty = !first;
-  presentModalInWidePanel(modal, {
-    id: "statusWindowPresetsModal",
-    title: i18n.t("statusWindow.상태창_프리셋"),
-    sourceEl: document.querySelector("#formatToolbar .format-status-window-btn"),
-  });
-  renderStatusWindowPresets();
+  statusWindowState.draftProjectId = pid;
+  openSettingsCollectionMain("statusWindow");
+  try {
+    if (activeSettingsMainTabKey() === "statusWindow") addSettingsTab("statusWindow");
+    if (isAnySettingsMainViewOpen()) collapseSettingsSectionAfterMainOpen();
+    renderEpisodeChrome();
+  } catch (_) { /* 탭 줄이 없어도 화면은 열린다 */ }
 }
 
 function closeStatusWindowPresets() {
-  const modal = $("statusWindowPresetsModal");
-  releaseWideHostedModal(modal);
-  modal?.classList.add("hidden");
+  if (state.settingsCollectionKind === "statusWindow") closeSettingsCollectionMain().catch(handleError);
 }
 
 function renderStatusWindowPresetList() {
@@ -44318,6 +44322,15 @@ const SETTINGS_COLLECTION_MAIN = {
     section: "cliche",
     listId: "clicheFields",
     hideAdd: true,
+  },
+  // 상태창 프리셋 관리: 가운데 메인 화면에 연다(오른쪽 위젯은 넣기 바로가기만).
+  statusWindow: {
+    title: i18n.t('statusWindow.상태창_프리셋'),
+    hint: "",
+    section: "statusWindow",
+    listId: "statusWindowManager",
+    hideAdd: true,
+    render: () => renderStatusWindowPresets(),
   },
   readingInvite: {
     title: i18n.t('app.읽기_권한_초대'),
