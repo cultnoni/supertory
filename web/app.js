@@ -43070,6 +43070,7 @@ const SETTINGS_BOOKMARK_META = {
   },
   keywords: { title: i18n.t('app.장르_키워드'), open: () => openKeywordBoard() },
   style: { title: i18n.t('style.내_문체'), open: () => openSettingsCollectionMain("style") },
+  promise: { title: i18n.t('app.장르_약속'), open: () => openSettingsCollectionMain("promise") },
   cliche: { title: i18n.t('app.장르_클리셰'), open: () => openSettingsCollectionMain("cliche") },
   // Per-doc keys (field → buttons / bookmarks)
   synopsis: { title: i18n.t('app.시놉시스'), open: () => openSettingsDocMain("synopsis") },
@@ -44001,6 +44002,13 @@ const SETTINGS_COLLECTION_MAIN = {
     hint: "",
     section: "style",
     listId: "styleFields",
+    hideAdd: true,
+  },
+  promise: {
+    title: i18n.t('app.장르_약속'),
+    hint: "",
+    section: "promise",
+    listId: "promiseFields",
     hideAdd: true,
   },
   cliche: {
