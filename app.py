@@ -60,6 +60,9 @@ import document_import
 import env_loader
 import genre_clusters
 import literary_form
+import continue_directions
+import status_window
+import style_profile
 import tory_notifications
 import genre_tool_routing
 import prompt_pipelines
@@ -333,6 +336,8 @@ from routes import (  # noqa: E402
     glump_api,
     reader_api,
     scene_revision_api,
+    status_window_api,
+    style_profile_api,
     success_pattern_api,
     translation_api,
     webnovel_cliche_api,
@@ -5055,6 +5060,11 @@ def plain_text_from_content(content: str, *, include_author_notes: bool = False)
     return text.strip()
 
 
+def export_plain_text_from_content(content: str) -> str:
+    """내보내기용 글: ``plain_text_from_content``와 같되, 「텍스트 안전」 상태창은 틀 글자를 뺀 줄글로."""
+    return plain_text_from_content(status_window.to_text_safe_html(content or ""))
+
+
 def compute_text_stats(plain_text: str) -> dict:
     """Mirror web/app.js computeTextStats (Unicode code points, no-space, letters)."""
     text = (plain_text or "").replace("\r\n", "\n").replace("\r", "\n")
@@ -6394,6 +6404,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             if webnovel_cliche_api.try_handle_get(self, path):
                 return
+            if style_profile_api.try_handle_get(self, path):
+                return
+            if status_window_api.try_handle_get(self, path):
+                return
             if scene_revision_api.try_handle_get(self, path):
                 return
 
@@ -6950,6 +6964,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return
 
             if webnovel_cliche_api.try_handle_post(self, path, body):
+                return
+
+            if style_profile_api.try_handle_post(self, path, body):
+                return
+
+            if status_window_api.try_handle_post(self, path, body):
                 return
 
             if scene_revision_api.try_handle_post(self, path, body):
@@ -8799,7 +8819,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "successfeedback",
             "foreshadow", "plottwist", "worldscan", "worldscan_multi",
             "worlddesc", "dupcheck", "temphook", "chardebate", "free", "chat", "subsynopsis", "styleblend",
-            "similar_words", "chapter_subtitles",
+            "similar_words", "chapter_subtitles", "continue_directions",
         }
         if mode not in allowed:
             raise ValueError("지원하지 않는 AI 도움 방식입니다.")
@@ -8973,6 +8993,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
         genre_system = (
             self._tory_author_priority_system_prompt(tory_priority)
+            + self._style_profile_system_prompt(mode, project_id_for_priority, body, user_prompt)
             + self._tory_core_identity_system_prompt()
             + self._tory_dynamic_context_system_prompt(
                 main_genre_label=main_genre_label,
@@ -10008,6 +10029,22 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     f"씬 제목: {scene_title or '(없음)'}",
                     f"씬 요약: {scene_synopsis or '(없음)'}",
                 ]
+            elif mode == "continue_directions":
+                # 이어쓰기 「이 장면 맞춤 제안」 — 다음 전개 후보 4개(짧은 칩). continue_directions.py
+                if not str(scene_content or "").strip():
+                    raise ValueError("방향을 제안하려면 원고 본문이 필요해요.")
+                instruction = continue_directions.build_prompt(
+                    plain_text_from_content(str(scene_content or "")),
+                    user_hint=str(body.get("user_hint") or ""),
+                )
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"씬 제목: {scene_title or '(없음)'}",
+                    f"씬 요약: {scene_synopsis or '(없음)'}",
+                ]
             elif mode == "chapter_subtitles":
                 # 회차별 소제목 추천 — episodeContent/genre/recentSubtitles → JSON 4종.
                 # episode_content는 필수값이다. scene_content로 조용히 대체하면 프론트가
@@ -10395,7 +10432,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         if mode == "chapter_subtitles":
             text = self._enforce_chapter_subtitle_lengths(text)
 
+        extra: dict = {}
+        if mode == "continue_directions":
+            extra["directions"] = continue_directions.parse_directions(text)
+
         return {
+            **extra,
             "mode": mode,
             "text": text,
             "model": gemini_client.model_name(),
@@ -10582,6 +10624,49 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "   충돌하는 지시는 무리하게 따르지 말고, 문체·톤 등 반영 가능한\n"
             "   부분만 선택적으로 적용하세요.\n\n"
         )
+
+    @staticmethod
+    def _style_profile_system_prompt(mode: str, project_id: int, body: dict, user_prompt: str) -> str:
+        """「내 문체」 블록 — 글쓰기 모드에서만, 작가 지침 바로 뒤에 넣는다.
+
+        시점·시제·금지어는 토리 체크와 같은 값을 읽는다. 읽다 실패해도 AI 요청은 막지 않는다.
+        """
+        if mode not in style_profile.WRITING_MODES or not project_id:
+            return ""
+        if mode == "free" and not str(body.get("indexed_prompt") or "").strip():
+            # 회차 요약 버튼은 free 모드로 [요약] 지시만 보낸다 — 문체를 넣지 않는다.
+            if "[요약]" in str(user_prompt or "") or "[현재 작업]" in str(user_prompt or ""):
+                return ""
+        try:
+            with database() as connection:
+                profile = style_profile_api.load_profile(connection, project_id)
+                person = tense = None
+                forbidden: list[str] = []
+                try:
+                    row = connection.execute(
+                        "SELECT viewpoint_person, viewpoint_tense, forbidden_words_json "
+                        "FROM project_tory_check WHERE project_id = ?",
+                        (project_id,),
+                    ).fetchone()
+                except sqlite3.OperationalError:
+                    row = None
+                if row is not None:
+                    person = row["viewpoint_person"]
+                    tense = row["viewpoint_tense"]
+                    try:
+                        loaded = json.loads(row["forbidden_words_json"] or "[]")
+                        forbidden = loaded if isinstance(loaded, list) else []
+                    except (TypeError, ValueError):
+                        forbidden = []
+            return style_profile.build_prompt_block(
+                profile,
+                viewpoint_person=person,
+                viewpoint_tense=tense,
+                forbidden_words=forbidden,
+            )
+        except Exception as error:
+            print(f"문체 프로필 건너뜀: {error}")
+            return ""
 
     @staticmethod
     def _tory_core_identity_system_prompt() -> str:
@@ -15044,7 +15129,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             scenes_by_chapter.setdefault(int(scene["chapter_id"]), []).append(
                 {
                     "title": scene["title"] or "",
-                    "content_plain": plain_text_from_content(scene["content_md"] or ""),
+                    "content_plain": export_plain_text_from_content(scene["content_md"] or ""),
                 }
             )
         return [
@@ -15092,7 +15177,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         export_scenes.append(
                             {
                                 "title": scene.get("title") or "",
-                                "content_plain": plain_text_from_content(
+                                "content_plain": export_plain_text_from_content(
                                     scene.get("content_md") or ""
                                 ),
                             }
@@ -15126,7 +15211,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         format_key = typeset_export.format_key_from_body(body)
         preset = get_typeset_service().get_preset(platform_id)
         detail = self.scene_detail(scene_id)
-        plain = plain_text_from_content(str(detail.get("content_md") or ""))
+        plain = export_plain_text_from_content(str(detail.get("content_md") or ""))
         exported = typeset_export.export_typeset_file(
             plain_text=plain,
             preset=preset,

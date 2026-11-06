@@ -261,7 +261,7 @@
 
     <link rel="stylesheet" href="/fonts/pretendard.css?v=1.3.9">
     <link rel="stylesheet" href="/styles.css?v=1.4.265">
-    <link rel="stylesheet" href="/island.css?v=130">
+    <link rel="stylesheet" href="/island.css?v=131">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -970,15 +970,97 @@
                         <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
                       </svg>
                     </span>
-                    <span class="settings-box-title" data-i18n="app.문체">문체</span>
+                    <span class="settings-box-title" data-i18n="style.내_문체">내 문체</span>
                   </button>
-                  <button type="button" class="settings-main-open" data-settings-main="style" aria-label="문체 펼치기" data-i18n-aria-label="app.문체" title="문체 펼치기" data-i18n-title="app.문체">
+                  <button type="button" class="settings-main-open" data-settings-main="style" aria-label="내 문체 펼치기" data-i18n-aria-label="style.내_문체" title="내 문체 펼치기" data-i18n-title="style.내_문체">
                     <span class="settings-main-arrow" aria-hidden="true">→</span>
                   </button>
                 </div>
                 <div class="settings-box-preview" id="stylePreview"></div>
                 <div class="settings-box-body" id="styleBody" hidden>
                   <div class="style-fields" id="styleFields">
+                  <div class="style-profile" id="styleProfileForm">
+                    <p class="style-profile-lead" data-i18n="style.안내">AI가 이어쓰기·다듬기·묘사·직접 요청을 할 때 이 문체를 따라요.</p>
+                    <div class="style-profile-field">
+                      <span class="world-sheet-field-head"><span data-i18n="style.기본_결">기본 결</span></span>
+                      <div class="style-profile-chips" id="styleProfilePresets" role="group" aria-label="기본 결" data-i18n-aria-label="style.기본_결">
+                        <button type="button" class="style-profile-chip" data-style-preset="" data-i18n="style.사용_안_함">사용 안 함</button>
+                        <button type="button" class="style-profile-chip" data-style-preset="speed" data-i18n="style.프리셋_speed">속도감</button>
+                        <button type="button" class="style-profile-chip" data-style-preset="literary" data-i18n="style.프리셋_literary">문예 묘사</button>
+                        <button type="button" class="style-profile-chip" data-style-preset="hardboiled" data-i18n="style.프리셋_hardboiled">건조한 하드보일드</button>
+                        <button type="button" class="style-profile-chip" data-style-preset="healing" data-i18n="style.프리셋_healing">잔잔한 힐링</button>
+                        <button type="button" class="style-profile-chip" data-style-preset="comic" data-i18n="style.프리셋_comic">코믹 경쾌</button>
+                        <button type="button" class="style-profile-chip" data-style-preset="custom" data-i18n="style.프리셋_custom">직접 설정</button>
+                      </div>
+                    </div>
+                    <div class="style-profile-dials" id="styleProfileDials" hidden>
+                      <div class="style-profile-row">
+                        <span class="style-profile-lab" data-i18n="style.전개_속도">전개 속도</span>
+                        <input type="range" min="1" max="5" step="1" data-style-dial="tempo" aria-label="전개 속도" data-i18n-aria-label="style.전개_속도">
+                        <output data-style-dial-out="tempo"></output>
+                      </div>
+                      <div class="style-profile-row">
+                        <span class="style-profile-lab" data-i18n="style.문장_길이">문장 길이</span>
+                        <div class="seg-control style-profile-seg" role="group" aria-label="문장 길이" data-i18n-aria-label="style.문장_길이">
+                          <button type="button" class="seg-control-tab" data-style-length="short" data-i18n="style.짧게">짧게</button>
+                          <button type="button" class="seg-control-tab" data-style-length="medium" data-i18n="style.보통">보통</button>
+                          <button type="button" class="seg-control-tab" data-style-length="long" data-i18n="style.길게">길게</button>
+                        </div>
+                      </div>
+                      <div class="style-profile-row">
+                        <span class="style-profile-lab" data-i18n="style.대사_비중">대사 비중</span>
+                        <input type="range" min="0" max="100" step="10" data-style-dial="dialogue_ratio" aria-label="대사 비중" data-i18n-aria-label="style.대사_비중">
+                        <output data-style-dial-out="dialogue_ratio"></output>
+                      </div>
+                      <div class="style-profile-row">
+                        <span class="style-profile-lab" data-i18n="style.묘사_밀도">묘사 밀도</span>
+                        <input type="range" min="1" max="5" step="1" data-style-dial="description_density" aria-label="묘사 밀도" data-i18n-aria-label="style.묘사_밀도">
+                        <output data-style-dial-out="description_density"></output>
+                      </div>
+                      <div class="style-profile-row">
+                        <span class="style-profile-lab" data-i18n="style.유머">유머</span>
+                        <input type="range" min="0" max="5" step="1" data-style-dial="humor" aria-label="유머" data-i18n-aria-label="style.유머">
+                        <output data-style-dial-out="humor"></output>
+                      </div>
+                      <div class="style-profile-suggest">
+                        <button type="button" class="secondary compact-btn" id="styleProfileSuggestButton" data-i18n="style.내_원고에서_제안_받기">내 원고에서 제안 받기</button>
+                        <p class="style-profile-note" id="styleProfileSuggestResult" aria-live="polite" hidden></p>
+                      </div>
+                    </div>
+                    <div class="style-profile-row style-profile-pov">
+                      <span class="style-profile-lab" data-i18n="style.시점_시제">시점·시제</span>
+                      <select id="styleProfilePerson" aria-label="시점" data-i18n-aria-label="style.시점">
+                        <option value="" data-i18n="style.정하지_않음">정하지 않음</option>
+                        <option value="first" data-i18n="style.1인칭">1인칭</option>
+                        <option value="third" data-i18n="style.3인칭">3인칭</option>
+                      </select>
+                      <select id="styleProfileTense" aria-label="시제" data-i18n-aria-label="style.시제">
+                        <option value="" data-i18n="style.정하지_않음">정하지 않음</option>
+                        <option value="past" data-i18n="style.과거형">과거형</option>
+                        <option value="present" data-i18n="style.현재형">현재형</option>
+                      </select>
+                    </div>
+                    <label class="world-cat-field">
+                      <span class="world-sheet-field-head"><span data-i18n="style.즐겨_쓰는_표현">즐겨 쓰는 표현</span></span>
+                      <input type="text" id="styleProfilePreferred" placeholder="쉼표로 구분. 예: 묵묵히, 피식" data-i18n-placeholder="style.즐겨_쓰는_표현_안내">
+                    </label>
+                    <label class="world-cat-field">
+                      <span class="world-sheet-field-head"><span data-i18n="style.쓰지_않는_표현">쓰지 않는 표현</span> <span class="style-author-only" data-i18n="style.토리_체크와_같음">토리 체크 금칙어와 같음</span></span>
+                      <input type="text" id="styleProfileForbidden" placeholder="쉼표로 구분. 예: 갑자기, 순간" data-i18n-placeholder="style.쓰지_않는_표현_안내">
+                    </label>
+                    <label class="world-cat-field">
+                      <span class="world-sheet-field-head"><span data-i18n="style.문체_메모">문체 메모</span></span>
+                      <textarea id="styleProfileHabits" rows="3" maxlength="2000" placeholder="AI가 알아 두면 좋은 내 문장 습관. 예: 문단 끝은 짧은 한 문장으로 끊는다" data-i18n-placeholder="style.문체_메모_안내"></textarea>
+                    </label>
+                    <label class="world-cat-field">
+                      <span class="world-sheet-field-head"><span data-i18n="style.문체_예시">문체 예시</span> <span class="style-author-only" id="styleProfileSampleCount"></span></span>
+                      <textarea id="styleProfileSample" rows="4" maxlength="800" placeholder="내 문체가 잘 드러난 본문을 붙여 넣으세요(800자까지). AI는 내용이 아니라 문장 결만 참고해요." data-i18n-placeholder="style.문체_예시_안내"></textarea>
+                    </label>
+                    <div class="style-profile-sample-actions">
+                      <button type="button" class="secondary compact-btn" id="styleProfileSampleFromEditor" data-i18n="style.원고에서_고른_부분_넣기">원고에서 고른 부분 넣기</button>
+                    </div>
+                  </div>
+                  <div class="style-literary-fields" id="styleLiteraryFields">
                   <div class="settings-field-head is-actions-only" id="toriFillStyleRow" hidden>
                     <div class="settings-field-actions">
                       <button type="button" class="secondary compact-btn settings-icon-btn" id="toriFillStyleButton" data-tori-fill="style" title="토리야 작성해줘" data-i18n-title="app.토리야_작성해줘" aria-label="토리야 작성해줘" data-i18n-aria-label="app.토리야_작성해줘">
@@ -1010,6 +1092,7 @@
                     <span class="world-sheet-field-head"><span data-i18n="app.고치고_싶은_습관">고치고 싶은 습관</span> <span class="style-author-only" data-i18n="app.작가만_작성">작가만 작성</span></span>
                     <textarea data-style-field="style_habit" rows="3" placeholder="스스로 고치고 싶은 습관을 적어주세요. 예: '~것이다'를 줄이고 싶다" data-i18n-placeholder="app.문체_습관_안내"></textarea>
                   </label>
+                  </div>
                   </div>
                 </div>
               </section>
@@ -2574,14 +2657,33 @@
               <!-- hidden file input for right-click image insert in manuscript -->
               <input id="inlineImageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" hidden>
               <div id="findBar" class="find-bar hidden" role="search" aria-label="원고 찾기" data-i18n-aria-label="index.원고_찾기">
-                <label class="find-bar-field">
-                  <span class="find-bar-label" data-i18n="app.찾기">찾기</span>
-                  <input type="search" id="findInput" placeholder="찾을 내용" data-i18n-placeholder="index.찾을_내용" autocomplete="off" spellcheck="false">
-                </label>
-                <span class="find-bar-count" id="findCount" aria-live="polite">0/0</span>
-                <button type="button" class="format-btn" id="findPrevButton" title="이전 (Shift+Enter)" data-i18n-title="index.찾기_이전_Shift_Enter">↑</button>
-                <button type="button" class="format-btn" id="findNextButton" title="다음 (Enter)" data-i18n-title="index.찾기_다음_Enter">↓</button>
-                <button type="button" class="format-btn" id="findCloseButton" title="닫기 (Esc)" data-i18n-title="index.찾기_닫기_Esc">×</button>
+                <div class="find-bar-row">
+                  <button type="button" class="format-btn find-replace-toggle" id="findReplaceToggle" aria-expanded="false" aria-controls="findReplaceRow" title="바꾸기 열기 (Ctrl+H)" data-i18n-title="find.바꾸기_열기" aria-label="바꾸기 열기 (Ctrl+H)" data-i18n-aria-label="find.바꾸기_열기"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 18 6-6-6-6"/></svg></button>
+                  <label class="find-bar-field">
+                    <span class="find-bar-label" data-i18n="app.찾기">찾기</span>
+                    <input type="search" id="findInput" placeholder="찾을 내용" data-i18n-placeholder="index.찾을_내용" autocomplete="off" spellcheck="false">
+                  </label>
+                  <span class="find-bar-count" id="findCount" aria-live="polite">0/0</span>
+                  <button type="button" class="find-opt-chip" data-find-option="caseSensitive" aria-pressed="false" title="대/소문자 구분" data-i18n-title="find.대소문자_구분" aria-label="대/소문자 구분" data-i18n-aria-label="find.대소문자_구분">Aa</button>
+                  <button type="button" class="find-opt-chip" data-find-option="selectionOnly" aria-pressed="false" title="원고에서 고른 범위 안에서만 찾기" data-i18n-title="find.선택_영역에서만_설명" data-i18n="find.선택_영역">선택 영역</button>
+                  <button type="button" class="format-btn" id="findPrevButton" title="이전 (Shift+Enter)" data-i18n-title="index.찾기_이전_Shift_Enter">↑</button>
+                  <button type="button" class="format-btn" id="findNextButton" title="다음 (Enter)" data-i18n-title="index.찾기_다음_Enter">↓</button>
+                  <button type="button" class="format-btn" id="findCloseButton" title="닫기 (Esc)" data-i18n-title="index.찾기_닫기_Esc">×</button>
+                </div>
+                <p class="find-bar-error hidden" id="findError" role="alert"></p>
+                <div class="find-bar-row find-replace-row hidden" id="findReplaceRow">
+                  <label class="find-bar-field">
+                    <span class="find-bar-label" data-i18n="find.바꾸기">바꾸기</span>
+                    <input type="text" id="replaceInput" placeholder="바꿀 내용" data-i18n-placeholder="find.바꿀_내용" autocomplete="off" spellcheck="false">
+                  </label>
+                  <button type="button" class="format-btn find-replace-btn" id="findReplaceOneButton" title="바꾸기 (Enter)" data-i18n-title="find.바꾸기_설명" data-i18n="find.바꾸기">바꾸기</button>
+                  <button type="button" class="format-btn find-replace-btn" id="findReplaceAllButton" title="모두 바꾸기 (Ctrl+Enter) · 바꾸기 전 원고는 「버전」에 남아요" data-i18n-title="find.모두_바꾸기_설명" data-i18n="find.모두_바꾸기">모두 바꾸기</button>
+                  <button type="button" class="find-opt-chip" data-find-option="includeNotes" aria-pressed="false" title="작가 주석 단락도 찾고 바꾸기" data-i18n-title="find.주석_포함_설명" data-i18n="find.주석_포함">주석 포함</button>
+                  <button type="button" class="find-opt-chip find-advanced-toggle" id="findAdvancedToggle" aria-expanded="false" aria-controls="findAdvancedRow" data-i18n="find.고급">고급</button>
+                  <span class="find-advanced hidden" id="findAdvancedRow">
+                    <button type="button" class="find-opt-chip" data-find-option="regex" aria-pressed="false" title="정규식으로 찾기 · 바꿀 내용에서 $1 같은 묶음을 쓸 수 있어요" data-i18n-title="find.정규식_설명" data-i18n="find.정규식">.* 정규식</button>
+                  </span>
+                </div>
               </div>
 
               <!-- 북마크 목록 패널 (아이콘 행 버튼 · 목차 하단에는 표시하지 않음) -->
@@ -2833,6 +2935,18 @@
                       <circle cx="18.8" cy="12" r="1.45" fill="currentColor" stroke="none"/>
                     </svg>
                   </button>
+                  <button
+                    type="button"
+                    class="format-btn format-status-window-btn"
+                    data-format="statusWindow"
+                    title="상태창 넣기 · 정리" data-i18n-title="statusWindow.상태창_넣기_정리"
+                    aria-label="상태창" data-i18n-aria-label="statusWindow.상태창"
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                    aria-controls="statusWindowMenu"
+                  >
+                    <svg class="format-status-window-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 8.5h18"/><path d="M7 12.5h4M7 16h6"/><path d="M15.5 12.5h1.5M15.5 16h1.5"/></svg>
+                  </button>
                 </div>
                 </div>
                 </div>
@@ -2975,6 +3089,9 @@
                   <button type="button" class="stat-chip" data-stat="letters" data-group="unit" title="클릭: 단어/글자 표시 전환 · 더블클릭: 목표 기준" data-i18n-title="index.클릭_단어_글자_표시_전환_더블클릭_목표_기">
                     <span data-i18n="app.글자">글자</span> <strong>0</strong>
                   </button>
+                  <span class="stat-chip stat-chip-static stat-chip-status-window hidden" id="statsStatusWindowChip" hidden title="상태창을 뺀 본문만 센 값이에요 (왼쪽 값은 상태창 포함)" data-i18n-title="statusWindow.본문만_설명">
+                    <span data-i18n="statusWindow.본문만">본문만</span> <strong>0</strong>
+                  </span>
                   <span class="stat-chip stat-chip-static is-hidden-stat" data-stat="scenes" title="회차 개수" data-i18n-title="index.씬_개수">
                     <span data-i18n="index.씬">회차</span> <strong>0</strong>
                   </span>
@@ -5639,7 +5756,7 @@
               </label>
             </fieldset>
             <label class="foreshadow-field continue-other-scene-wrap tory-other-scene-wrap tory-helper-section-label" id="continueOtherSceneWrap" for="continueOtherSceneSelect">
-              회차 선택
+              <span data-i18n="index.회차_선택">회차 선택</span>
               <select id="continueOtherSceneSelect" aria-label="이어 쓸 회차 선택" data-i18n-aria-label="index.이어_쓸_회차_선택">
                 <option value="" data-i18n="index.회차를_선택하세요">회차를 선택하세요</option>
               </select>
@@ -5671,7 +5788,21 @@
               </label>
             </fieldset>
             <p class="hint tory-helper-hint hidden" id="continueSceneUntilHint" data-i18n="index.분량과_상관없이_장면이_자연스럽게_끝나는_지">분량과 상관없이, 장면이 자연스럽게 끝나는 지점까지 이어 써요.</p>
-            <label class="foreshadow-field tory-helper-section-label">방향 힌트 (선택)
+            <p class="tory-helper-section-label continue-direction-head" data-i18n="continueDir.방향">방향 (선택)</p>
+            <div class="rewrite-preset-row continue-direction-row" id="continueDirectionRow" role="group" aria-label="방향" data-i18n-aria-label="continueDir.방향">
+              <button type="button" class="rewrite-preset-chip" data-continue-direction="tension" data-i18n="continueDir.긴장_고조">긴장 고조</button>
+              <button type="button" class="rewrite-preset-chip" data-continue-direction="monologue" data-i18n="continueDir.내면_독백">내면 독백</button>
+              <button type="button" class="rewrite-preset-chip" data-continue-direction="dialogue" data-i18n="continueDir.대사로_전개">대사로 전개</button>
+              <button type="button" class="rewrite-preset-chip" data-continue-direction="transition" data-i18n="continueDir.장면_전환">장면 전환</button>
+              <button type="button" class="rewrite-preset-chip" data-continue-direction="foreshadow" data-i18n="continueDir.떡밥_암시">떡밥 암시</button>
+              <button type="button" class="rewrite-preset-chip" data-continue-direction="emotion" data-i18n="continueDir.감정_고조">감정 고조</button>
+            </div>
+            <div class="continue-suggest-bar">
+              <button type="button" class="rewrite-preset-more continue-suggest-btn" id="continueSuggestButton" data-i18n="continueDir.이_장면_맞춤_제안">이 장면 맞춤 제안</button>
+              <span class="tory-helper-hint continue-suggest-status" id="continueSuggestStatus" aria-live="polite"></span>
+            </div>
+            <div class="rewrite-preset-row continue-suggest-row hidden" id="continueSuggestRow" role="group" aria-label="이 장면 맞춤 제안" data-i18n-aria-label="continueDir.이_장면_맞춤_제안"></div>
+            <label class="foreshadow-field tory-helper-section-label"><span data-i18n="continueDir.방향_힌트">방향 힌트 (선택)</span>
               <textarea id="continueHint" rows="2" maxlength="500" placeholder="예: 대화 위주로 / 긴장감을 높여 줘 / 다음엔 편지가 도착한다" data-i18n-placeholder="index.예_대화_위주로_긴장감을_높여_줘_다음엔_편"></textarea>
             </label>
           </div>
@@ -7147,6 +7278,7 @@
           <button type="button" class="isl-fp-chip" data-isl-insert="* * *" data-i18n="island.fp_장면전환">장면 전환 ＊＊＊</button>
           <button type="button" class="isl-fp-chip" data-isl-insert="…" data-i18n="island.fp_말줄임표">말줄임표 …</button>
           <button type="button" class="isl-fp-chip" data-isl-fmt="specialChar" data-i18n="island.fp_더많은기호">더 많은 기호</button>
+          <button type="button" class="isl-fp-chip" data-isl-fmt="statusWindow" data-i18n="statusWindow.상태창">상태창</button>
         </div>
       </section>
       <section>
@@ -7208,6 +7340,21 @@
       <button type="button" role="menuitem" class="format-palette-hide-btn" data-ui-feature-hide data-ui-hide-footer>
         <strong data-i18n="index.이_기능_숨기기">이 기능 숨기기</strong>
         <span data-i18n="index.특수문자_버튼을_화면에서_감춰요">특수문자 버튼을 화면에서 감춰요</span>
+      </button>
+    </div>
+
+    <div id="statusWindowMenu" class="format-list-palette status-window-menu hidden" role="menu" aria-label="상태창" data-i18n-aria-label="statusWindow.상태창">
+      <div class="format-list-palette-label" data-i18n="statusWindow.상태창">상태창</div>
+      <p class="status-window-menu-hint" id="statusWindowMenuHint" data-i18n="statusWindow.커서_자리에_넣어요">커서 자리에 넣어요</p>
+      <div class="status-window-menu-list" id="statusWindowMenuList" role="group"></div>
+      <div class="context-menu-divider"></div>
+      <button type="button" role="menuitem" class="status-window-menu-action" id="statusWindowTidyButton">
+        <strong data-i18n="statusWindow.상태창으로_정리">상태창으로 정리</strong>
+        <span data-i18n="statusWindow.상태창으로_정리_설명">적은 값을 프리셋 모양으로 맞춰요</span>
+      </button>
+      <button type="button" role="menuitem" class="status-window-menu-action" id="statusWindowManageButton">
+        <strong data-i18n="statusWindow.프리셋_관리">프리셋 관리</strong>
+        <span data-i18n="statusWindow.프리셋_관리_설명">이 작품의 상태창 모양을 만들고 고쳐요</span>
       </button>
     </div>
 
@@ -9033,6 +9180,72 @@
       </div>
     </div>
 
+    <div id="statusWindowPresetsModal" class="modal hidden tory-helper-modal status-window-presets-modal" role="dialog" aria-modal="true" aria-labelledby="statusWindowPresetsTitle">
+      <div class="modal-backdrop" data-close-status-window></div>
+      <div class="modal-card tory-helper-card status-window-presets-card">
+        <div class="modal-heading">
+          <h2 id="statusWindowPresetsTitle" class="tory-helper-title" data-i18n="statusWindow.상태창_프리셋">상태창 프리셋</h2>
+          <button type="button" class="modal-close" data-close-status-window title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
+        </div>
+        <div class="guide-tip-box tory-lead-tip" role="note">
+          <p class="tory-helper-lead guide-tip-text" data-i18n="statusWindow.안내">이 작품에서 쓸 상태창 모양이에요. 고쳐도 이미 넣은 상태창은 그대로예요.</p>
+        </div>
+        <div class="status-window-presets-top">
+          <div class="status-window-preset-list" id="statusWindowPresetList" role="listbox" aria-label="프리셋" data-i18n-aria-label="statusWindow.프리셋"></div>
+          <select id="statusWindowTemplateSelect" class="status-window-template-select" aria-label="템플릿에서 새로 만들기" data-i18n-aria-label="statusWindow.템플릿에서_새로_만들기"></select>
+        </div>
+        <form class="status-window-preset-form" id="statusWindowPresetForm" onsubmit="return false">
+          <div class="status-window-field-row">
+            <label class="status-window-field">
+              <span class="status-window-label" data-i18n="statusWindow.프리셋_이름">프리셋 이름</span>
+              <input type="text" id="statusWindowPresetName" maxlength="40" placeholder="예: 주인공 상태창" data-i18n-placeholder="statusWindow.프리셋_이름_예시">
+            </label>
+            <label class="status-window-field">
+              <span class="status-window-label" data-i18n="statusWindow.창_제목">창 제목</span>
+              <input type="text" id="statusWindowPresetTitle" maxlength="40" placeholder="예: 상태창 (비우면 제목 줄 없음)" data-i18n-placeholder="statusWindow.창_제목_예시">
+            </label>
+          </div>
+          <div class="status-window-label" data-i18n="statusWindow.틀">틀</div>
+          <div class="isl-fp-chips" id="statusWindowFrameSeg" role="group" aria-label="틀" data-i18n-aria-label="statusWindow.틀"></div>
+          <p class="status-window-hint hidden" id="statusWindowBoxHint" data-i18n="statusWindow.상자형_안내">상자형은 오른쪽 벽 없이 왼쪽 선만 그려요. 읽기 앱의 글꼴이 달라도 줄이 어긋나지 않게요.</p>
+          <div class="status-window-two">
+            <div>
+              <div class="status-window-label" data-i18n="statusWindow.정렬">정렬</div>
+              <div class="isl-fp-chips" id="statusWindowAlignSeg" role="group" aria-label="정렬" data-i18n-aria-label="statusWindow.정렬"></div>
+            </div>
+            <div>
+              <div class="status-window-label" data-i18n="statusWindow.항목_표기">항목 표기</div>
+              <div class="isl-fp-chips" id="statusWindowLabelSeg" role="group" aria-label="항목 표기" data-i18n-aria-label="statusWindow.항목_표기"></div>
+            </div>
+          </div>
+          <div class="status-window-label" data-i18n="statusWindow.항목">항목</div>
+          <div class="status-window-items" id="statusWindowItems"></div>
+          <button type="button" class="secondary status-window-add-item" id="statusWindowAddItem" data-i18n="statusWindow.항목_추가">+ 항목 추가</button>
+          <div class="status-window-two">
+            <div>
+              <div class="status-window-label" data-i18n="statusWindow.편집기_바탕">편집기 바탕</div>
+              <div class="isl-fp-chips" id="statusWindowBgSeg" role="group" aria-label="편집기 바탕" data-i18n-aria-label="statusWindow.편집기_바탕"></div>
+            </div>
+            <div>
+              <div class="status-window-label" data-i18n="statusWindow.편집기_글꼴">편집기 글꼴</div>
+              <div class="isl-fp-chips" id="statusWindowFontSeg" role="group" aria-label="편집기 글꼴" data-i18n-aria-label="statusWindow.편집기_글꼴"></div>
+            </div>
+          </div>
+          <div class="status-window-label" data-i18n="statusWindow.내보내기">내보내기</div>
+          <div class="isl-fp-chips" id="statusWindowExportSeg" role="group" aria-label="내보내기" data-i18n-aria-label="statusWindow.내보내기"></div>
+          <p class="status-window-hint" data-i18n="statusWindow.내보내기_안내">텍스트 안전: 내보낼 때 ━ ┌ │ 같은 틀 글자를 빼고 줄글로 바꿔요. 연재처 편집기에서 모양이 깨질 때 고르세요.</p>
+          <div class="status-window-label" data-i18n="statusWindow.미리보기">미리보기</div>
+          <div class="status-window-preview" id="statusWindowPreview" aria-live="polite"></div>
+        </form>
+        <div class="status-window-presets-actions">
+          <button type="button" class="secondary" id="statusWindowDuplicateButton" data-i18n="statusWindow.복제">복제</button>
+          <button type="button" class="secondary" id="statusWindowDeleteButton" data-i18n="statusWindow.삭제">삭제</button>
+          <span class="status-window-actions-spacer"></span>
+          <button type="button" class="primary" id="statusWindowSaveButton" data-i18n="statusWindow.저장">저장</button>
+        </div>
+      </div>
+    </div>
+
     <div id="sceneRevisionsModal" class="modal hidden tory-helper-modal scene-revisions-modal" role="dialog" aria-modal="true" aria-labelledby="sceneRevisionsTitle">
       <div class="modal-backdrop" data-close-scene-revisions></div>
       <div class="modal-card tory-helper-card scene-revisions-card">
@@ -10177,10 +10390,12 @@
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
     <script src="/typeset_metrics.js?v=1.4.45"></script>
-    <script src="/pagewrite_model.js?v=1.4.45"></script>
+    <script src="/pagewrite_model.js?v=1.4.46"></script>
+    <script src="/find_replace_model.js?v=1"></script>
+    <script src="/status_window_model.js?v=1"></script>
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
-    <script src="/app.js?v=1.4.255-c25"></script>
+    <script src="/app.js?v=1.4.255-c26"></script>
     <script src="/js/gitsi.js?v=1"></script>
     <script src="/feedback_panel.js?v=31"></script>
     <script src="/app-boot.js?v=1"></script>

@@ -5212,5 +5212,180 @@ html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn.is-save-fail
 .scene-diff-skip { font-family: var(--font-ui); font-size: 11.5px; color: var(--isl-ink3); text-align: center; }
 .scene-revisions-actions { flex-wrap: wrap; gap: 6px; }
 /* 넓은 패널은 하단 보조 버튼(보통 「닫기」)을 숨기므로, 이 패널의 동작 버튼은 다시 보이게 한다. */
-.is-wide-panel-card .scene-revisions-actions > .secondary { display: inline-flex; align-items: center; height: 32px; min-height: 32px; padding: 0 12px; }
-.scene-revisions-actions button { font-size: 12.5px; }
+.is-wide-panel-card .scene-revisions-actions > .secondary { display: inline-flex; align-items: center; height: 32px; min-height: 32px; padding: 0 12px; font-size: 14px; font-weight: 700; }
+
+/* ── 원고 찾아 바꾸기 (docs/design-ai-context-and-style-2026-11.md §7-2) ──
+   하이라이트는 ::highlight(CSS Custom Highlight) — 본문 DOM에 표식을 넣지 않는다. */
+.find-bar { flex-direction: column; align-items: stretch !important; gap: 4px !important; }
+.find-bar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.find-replace-row.hidden, .find-advanced.hidden, .find-bar-error.hidden { display: none !important; }
+.find-replace-toggle svg { display: block; transition: transform 0.15s ease; }
+.find-replace-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.find-opt-chip {
+  border: 1px solid var(--line); background: var(--panel); color: var(--isl-ink2);
+  border-radius: 6px; font-size: 11.5px; line-height: 1.4; padding: 3px 7px; cursor: pointer; white-space: nowrap;
+}
+.find-opt-chip:hover { background: var(--isl-sunk); }
+.find-opt-chip.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel)); color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.find-advanced { display: inline-flex; gap: 6px; }
+.find-replace-btn { font-size: 12px !important; white-space: nowrap; }
+.find-replace-btn:disabled { opacity: 0.45; cursor: default; }
+.find-bar-error { margin: 0; font-size: 11.5px; color: var(--isl-ink2); padding-left: 2px; }
+#findInput.is-invalid { box-shadow: inset 0 0 0 1px var(--isl-st-draft); }
+::highlight(find-hit) { background-color: color-mix(in srgb, var(--isl-st-draft) 38%, transparent); }
+::highlight(find-current) {
+  background-color: color-mix(in srgb, var(--isl-st-draft) 78%, transparent);
+  text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px;
+}
+
+/* ── 「내 문체」 프로필 (docs/design-ai-context-and-style-2026-11.md §3) ──
+   설정집 문체 상자(모든 작품). 라벨 12px/700, 입력 12px — 같은 상자의 기존 textarea 모양에 맞춘다.
+   칩은 반경 6·11.5px, 선택 칩은 회녹 20% 바탕 + 진한 회녹 글자 + 회녹 선(§2). */
+.style-profile {
+  --sp-sage: color-mix(in srgb, var(--accent) 22%, var(--isl-ink3));
+  display: grid; gap: 10px; min-width: 0;
+}
+.style-profile-lead { margin: 0; font-size: 12px; line-height: 1.5; color: var(--isl-ink2); }
+.style-profile-field { display: grid; gap: 6px; min-width: 0; }
+.style-profile-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.style-profile-chip {
+  border: 1px solid var(--line); background: var(--panel); color: var(--isl-ink2);
+  border-radius: 6px; font-size: 11.5px; line-height: 1.4; padding: 3px 8px; cursor: pointer; white-space: nowrap;
+}
+.style-profile-chip:hover { background: var(--isl-sunk); color: var(--text-primary); }
+.style-profile-chip.is-active {
+  background: color-mix(in srgb, var(--sp-sage) 20%, var(--panel));
+  color: color-mix(in srgb, var(--sp-sage) 55%, var(--text-primary));
+  border-color: color-mix(in srgb, var(--sp-sage) 45%, var(--panel));
+  font-weight: 600;
+}
+.style-profile-dials { display: grid; gap: 7px; padding: 10px 10px 8px; border-radius: var(--isl-r-sm, 9px); background: var(--isl-sunk); }
+.style-profile-dials[hidden] { display: none; }
+.style-profile-row { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; }
+.style-profile-lab { flex: 0 0 4.8rem; font-size: 12px; font-weight: 700; color: var(--ink, var(--text-primary)); }
+.style-profile-row input[type="range"] { flex: 1 1 auto; min-width: 60px; accent-color: var(--accent); height: 4px; margin: 0; }
+.style-profile-row output { flex: 0 0 2.6rem; text-align: right; font-size: 12px; color: var(--isl-ink2); font-variant-numeric: tabular-nums; }
+.style-profile-seg { flex: 1 1 auto; display: flex; }
+.style-profile-seg .seg-control-tab { flex: 1 1 0; font-size: 12px; padding: 3px 6px; }
+.style-profile-suggest { display: grid; gap: 4px; padding-top: 2px; }
+.style-profile-suggest .compact-btn, .style-profile-sample-actions .compact-btn { justify-self: start; font-size: 12px !important; }
+.style-profile-note { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--isl-ink2); }
+/* 한 줄 입력·선택은 같은 상자의 textarea(1px --line · 반경 6 · --isl-sunk)와 같은 모양, 높이 28 */
+.style-profile-pov select,
+.style-profile input[type="text"] {
+  box-sizing: border-box; height: 28px; min-height: 0; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--isl-sunk); box-shadow: none; font-family: var(--font-ui); font-size: 12px; font-weight: 400; color: var(--text-primary);
+}
+.style-profile-pov select { flex: 1 1 0; min-width: 0; padding-right: 4px; }
+.style-profile input[type="text"] { width: 100%; }
+.style-profile-sample-actions { margin-top: -4px; }
+.style-literary-fields { display: grid; gap: inherit; min-width: 0; }
+.style-literary-fields[hidden] { display: none; }
+
+/* ── 이어쓰기 방향 칩 · AI 결과 「표시된 블록」 (docs/design-ai-context-and-style-2026-11.md §4) ──
+   방향 칩은 다듬기 칩(.rewrite-preset-chip)을 그대로 쓴다. 표시는 ::highlight(ai-insert) — 본문에 표식 없음. */
+.continue-direction-row { margin-bottom: 6px; }
+.continue-suggest-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 2px 0 6px; }
+.continue-suggest-btn:disabled { opacity: 0.5; cursor: default; }
+.continue-suggest-status { margin: 0 !important; font-size: 11.5px; }
+.continue-suggest-row { margin-bottom: 8px; }
+.continue-suggest-row.hidden { display: none !important; }
+.continue-suggest-chip { white-space: normal; text-align: left; line-height: 1.4; }
+::highlight(ai-insert) { background-color: color-mix(in srgb, var(--accent) 14%, transparent); }
+.ai-insert-bar {
+  position: fixed; z-index: 60; display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 6px 5px 10px; border: 1px solid var(--line); border-radius: var(--isl-r-sm, 9px);
+  background: var(--panel); box-shadow: var(--isl-pop-shadow, 0 6px 20px rgba(0,0,0,.12));
+  font-family: var(--font-ui); font-size: 12px; color: var(--isl-ink2);
+}
+.ai-insert-bar.is-offscreen { visibility: hidden; }
+.ai-insert-bar-label { white-space: nowrap; margin-right: 2px; }
+.ai-insert-bar-btn {
+  height: 26px; min-height: 26px; padding: 0 10px; border-radius: 6px;
+  font-family: var(--font-ui); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+/* 「되돌리기」만 막대 색을 쓰고, 「확정」은 앱 공통 .primary 색을 그대로 둔다(크기만 막대에 맞춤). */
+.ai-insert-bar-btn:not(.primary) { border: 1px solid var(--line); background: var(--panel); color: var(--text-primary); }
+.ai-insert-bar-btn:not(.primary):hover { background: var(--isl-sunk); }
+.ai-insert-bar-btn.primary { border: 1px solid transparent; }
+
+/* ── 게임물 상태창 (docs/design-ai-context-and-style-2026-11.md §13) ──
+   원고 안 블록은 독자가 보는 글(주석 단락과 반대). 바탕·글꼴은 블록의 data-sw-* 로만 바꾸고 색은 글자색에서 섞는다.
+   서식줄 「상태창」 → 고르기 팝업(.status-window-menu, 특수문자 팔레트와 같은 틀) → 넓은 패널 「프리셋 관리」. */
+.st-status-window { margin: 0.6em 0; padding: 0.35em 0.75em; border-radius: 6px; }
+.st-status-window[data-sw-bg="soft"] { background: color-mix(in srgb, currentColor 6%, transparent); }
+/* 바탕이 없으면 편집 중에만 옅은 점선으로 블록 범위를 보여 준다(뷰어·내보내기에는 없음). */
+[contenteditable="true"] .st-status-window[data-sw-bg="none"] { outline: 1px dashed color-mix(in srgb, currentColor 18%, transparent); outline-offset: -1px; }
+.st-status-window[data-sw-font="mono"] { font-family: ui-monospace, "D2Coding", "Consolas", "Courier New", monospace; }
+.st-status-window[data-sw-align="center"] { text-align: center; }
+.st-status-window > div, .st-status-window > p { margin: 0; }
+.format-status-window-btn .format-status-window-icon { display: block; }
+
+.status-window-menu { min-width: 250px; max-width: min(300px, calc(100vw - 16px)); }
+.status-window-menu-hint { margin: -2px 2px 0; font-size: 11.5px; color: var(--isl-ink3); }
+.status-window-menu-list { display: grid; gap: 2px; max-height: min(320px, 52vh); overflow-y: auto; }
+.status-window-menu-label { padding: 6px 4px 2px; font-size: 11px; font-weight: 600; color: var(--isl-ink3); }
+.status-window-menu-item {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%;
+  min-height: 30px; padding: 5px 8px; border: 0; border-radius: 7px; background: transparent;
+  font-family: var(--font-ui); font-size: 12.5px; color: var(--text-primary); text-align: left; cursor: pointer;
+}
+.status-window-menu-item:hover, .status-window-menu-item:focus-visible { background: var(--isl-sunk); }
+.status-window-menu-item.is-last { background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.status-window-menu-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-window-menu-sub { flex: 0 1 auto; min-width: 0; font-size: 11px; color: var(--isl-ink3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-window-menu-action {
+  display: grid; gap: 1px; width: 100%; padding: 6px 8px; border: 0; border-radius: 7px; background: transparent;
+  font-family: var(--font-ui); text-align: left; cursor: pointer; color: var(--text-primary);
+}
+.status-window-menu-action strong { font-size: 12.5px; font-weight: 500; }
+.status-window-menu-action span { font-size: 11px; color: var(--isl-ink3); }
+.status-window-menu-action:hover:not(:disabled) { background: var(--isl-sunk); }
+.status-window-menu-action:disabled { opacity: 0.45; cursor: default; }
+
+.stat-chip-status-window.hidden, .stat-chip-status-window[hidden] { display: none !important; }
+.stat-chip-status-window { color: var(--isl-ink3); }
+
+.status-window-presets-card { display: flex; flex-direction: column; gap: 10px; }
+.status-window-presets-top { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.status-window-preset-list { display: flex; flex-wrap: wrap; gap: 4px; flex: 1 1 200px; min-width: 0; }
+.status-window-preset-row {
+  height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+  font-family: var(--font-ui); font-size: 12px; color: var(--isl-ink2); cursor: pointer; white-space: nowrap;
+}
+.status-window-preset-row.is-active { background: var(--isl-sunk); color: var(--text-primary); font-weight: 600; }
+.status-window-preset-row em { font-style: normal; font-weight: 400; color: var(--isl-ink3); }
+.status-window-template-select, .status-window-preset-form input[type="text"], .status-window-item-row select {
+  box-sizing: border-box; height: 28px; min-height: 0; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--isl-sunk); box-shadow: none; font-family: var(--font-ui); font-size: 12px; color: var(--text-primary);
+}
+.status-window-template-select { flex: 0 0 auto; max-width: 100%; }
+.status-window-preset-form { display: grid; gap: 6px; min-width: 0; }
+.status-window-field-row, .status-window-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.status-window-field { display: grid; gap: 4px; min-width: 0; }
+.status-window-field input { width: 100%; }
+.status-window-label { margin-top: 4px; font-size: 12px; font-weight: 700; color: var(--isl-ink2); }
+.status-window-hint { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--isl-ink3); }
+.status-window-hint.hidden { display: none; }
+.status-window-items { display: grid; gap: 4px; }
+.status-window-item-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.9fr) minmax(0, 1fr) 88px 24px 24px 24px; gap: 4px; align-items: center; }
+.status-window-item-row input { width: 100%; }
+.status-window-item-btn {
+  width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; border-radius: 6px; background: transparent;
+  font-size: 13px; color: var(--isl-ink2); cursor: pointer;
+}
+.status-window-item-btn:hover:not(:disabled) { background: var(--isl-sunk); color: var(--text-primary); }
+.status-window-item-btn:disabled { opacity: 0.3; cursor: default; }
+.status-window-add-item { justify-self: start; font-size: 12px !important; }
+.status-window-empty { margin: 0; font-size: 12px; color: var(--isl-ink3); }
+.status-window-preview {
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--page-editor-bg, var(--panel)); color: var(--page-ink, var(--text-primary));
+  font-family: var(--font-editor); font-size: 14px; line-height: 1.7;
+}
+.status-window-preview .st-status-window { margin: 0; }
+.status-window-presets-actions { display: flex; align-items: center; gap: 6px; padding-top: 4px; }
+.status-window-actions-spacer { flex: 1 1 auto; }

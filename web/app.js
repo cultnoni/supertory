@@ -969,6 +969,12 @@ const EDITOR_DATA_ATTR_KEEP = new Set([
   "data-fn-delete",
   "data-sg-hl-ink",
   "data-sg-hl-ink-prev",
+  "data-status-window",
+  "data-sw-frame",
+  "data-sw-align",
+  "data-sw-bg",
+  "data-sw-font",
+  "data-sw-export",
 ]);
 const SPAN_LAYOUT_PROPS = [
   "display", "transform", "transform-origin", "width", "min-width", "max-width",
@@ -1053,11 +1059,14 @@ function getEditorPlainText(editorEl = null, options = null) {
   const editor = editorEl || $("sceneContent");
   if (!editor) return "";
   const includeAuthorNotes = Boolean(options && options.includeAuthorNotes);
-  if (includeAuthorNotes) {
+  // 상태창은 독자가 보는 글이라 기본으로 센다. 맞춤법·토리 체크·「본문만」 글자 수만 뺀다.
+  const excludeStatusWindows = Boolean(options && options.excludeStatusWindows);
+  if (includeAuthorNotes && !excludeStatusWindows) {
     return (editor.innerText || editor.textContent || "").replace(/\u00a0/g, " ");
   }
   const clone = editor.cloneNode(true);
-  clone.querySelectorAll("[data-author-note], .st-author-note").forEach((el) => el.remove());
+  if (!includeAuthorNotes) clone.querySelectorAll("[data-author-note], .st-author-note").forEach((el) => el.remove());
+  if (excludeStatusWindows) clone.querySelectorAll("[data-status-window], .st-status-window").forEach((el) => el.remove());
   return (clone.innerText || clone.textContent || "").replace(/\u00a0/g, " ");
 }
 
@@ -2649,11 +2658,26 @@ function updateSceneStats() {
     node.classList.toggle("is-active", key === metric);
   });
 
+  syncStatusWindowStatChip(isProject ? null : metric);
   updateGoalProgressUi(lastStatusBarCountSnapshot);
   applySpaceSegUi();
   updateChapterSubtitleButtonState(sceneStats.chars_with_space);
   syncDockStatsTracker();
   scheduleToryCheckRefresh();
+}
+
+/** 회차에 상태창이 있으면 「본문만」(상태창을 뺀) 값을 같은 기준으로 옆에 보여 준다. */
+function syncStatusWindowStatChip(metric) {
+  const chip = $("statsStatusWindowChip");
+  if (!chip) return;
+  const editor = $("sceneContent");
+  const has = Boolean(metric && editor && editor.querySelector("[data-status-window], .st-status-window"));
+  chip.classList.toggle("hidden", !has);
+  chip.hidden = !has;
+  if (!has) return;
+  const bodyOnly = computeTextStats(getEditorPlainText(editor, { excludeStatusWindows: true }));
+  const strong = chip.querySelector("strong");
+  if (strong) strong.textContent = formatStatNumber(bodyOnly[metric] ?? 0);
 }
 
 /* —— Goal gauge colors (left-click): solid + gradient —— */
@@ -3584,12 +3608,64 @@ function setupGoalBulkMenu() {
 }
 
 /* —— Find in current manuscript (돋보기) —— */
-let findMatches = [];
+/* —— 원고 찾아 바꾸기 (docs/design-ai-context-and-style-2026-11.md §7-2) ——
+ * 하이라이트는 CSS Custom Highlight로 칠한다: 본문 DOM을 건드리지 않아 저장 문서에 흔적이 남지 않는다.
+ * 일치 계산은 web/find_replace_model.js(순수 함수). 서식으로 나뉜 낱말도 같은 문단이면 찾는다.
+ * 바꾸기는 편집기 입력 경로(execCommand)로 해서 Ctrl+Z·자동 저장·로컬 초안이 그대로 동작한다.
+ */
+const FIND_OPTIONS_KEY = "supertory.findOptions";
+const FIND_HIGHLIGHT = "find-hit";
+const FIND_HIGHLIGHT_CURRENT = "find-current";
+let findMatches = []; // [{ range, start, end, text }]
 let findIndex = -1;
+let findReplacing = false;
+let findSelectionRange = null;
+let findRefreshTimer = null;
+const findOptions = { caseSensitive: false, selectionOnly: false, includeNotes: false, regex: false };
+
+function loadFindOptions() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FIND_OPTIONS_KEY) || "{}");
+    findOptions.caseSensitive = saved.caseSensitive === true;
+    findOptions.includeNotes = saved.includeNotes === true;
+    findOptions.regex = saved.regex === true;
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function saveFindOptions() {
+  try {
+    localStorage.setItem(FIND_OPTIONS_KEY, JSON.stringify({
+      caseSensitive: findOptions.caseSensitive,
+      includeNotes: findOptions.includeNotes,
+      regex: findOptions.regex,
+    }));
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function findHighlightsSupported() {
+  return typeof CSS !== "undefined" && Boolean(CSS.highlights) && typeof Highlight === "function";
+}
+
+function paintFindHighlights() {
+  if (!findHighlightsSupported()) return;
+  if (findMatches.length) CSS.highlights.set(FIND_HIGHLIGHT, new Highlight(...findMatches.map((m) => m.range)));
+  else CSS.highlights.delete(FIND_HIGHLIGHT);
+  const current = findMatches[findIndex];
+  if (current) CSS.highlights.set(FIND_HIGHLIGHT_CURRENT, new Highlight(current.range));
+  else CSS.highlights.delete(FIND_HIGHLIGHT_CURRENT);
+}
 
 function clearFindHighlights(editor = $("sceneContent")) {
-  if (!editor) return;
-  editor.querySelectorAll("mark.find-hit").forEach((mark) => {
+  if (findHighlightsSupported()) {
+    CSS.highlights.delete(FIND_HIGHLIGHT);
+    CSS.highlights.delete(FIND_HIGHLIGHT_CURRENT);
+  }
+  // 예전 방식(본문에 <mark>)이 남아 있으면 걷어 낸다.
+  editor?.querySelectorAll("mark.find-hit").forEach((mark) => {
     const parent = mark.parentNode;
     if (!parent) return;
     while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
@@ -3598,102 +3674,315 @@ function clearFindHighlights(editor = $("sceneContent")) {
   });
   findMatches = [];
   findIndex = -1;
-  if (typeof scheduleDictHighlightRefresh === "function") scheduleDictHighlightRefresh(0);
 }
 
 function updateFindCountUi() {
   const el = $("findCount");
-  if (!el) return;
-  if (!findMatches.length) {
-    el.textContent = "0/0";
-    return;
-  }
-  el.textContent = `${findIndex + 1}/${findMatches.length}`;
+  if (el) el.textContent = findMatches.length ? `${findIndex + 1}/${findMatches.length}` : "0/0";
+  updateReplaceButtonsUi();
 }
 
-function setFindCurrent(index) {
+function setFindError(message) {
+  const el = $("findError");
+  if (!el) return;
+  el.textContent = message || "";
+  el.classList.toggle("hidden", !message);
+  $("findInput")?.classList.toggle("is-invalid", Boolean(message));
+}
+
+/** 본문 텍스트를 문단(block) 단위 조각으로 모은다. 주석 단락은 옵션을 켰을 때만. */
+function collectFindSegments(editor) {
+  const segments = [];
+  const nodes = [];
+  if (!editor) return { segments, nodes };
+  const BLOCK_TAGS = /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|TR|TD|TH|PRE|UL|OL|TABLE|SECTION|ARTICLE|FIGURE)$/;
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (node.nodeType === 1) {
+        if (!findOptions.includeNotes && node.matches?.("[data-author-note], .st-author-note")) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+      return node.nodeValue ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    },
+  });
+  let block = 0;
+  let lastBlockEl = null;
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.nodeType === 1) {
+      if (node.tagName === "BR" || BLOCK_TAGS.test(node.tagName)) block += 1;
+      continue;
+    }
+    const blockEl = node.parentElement?.closest("p,div,li,h1,h2,h3,h4,h5,h6,blockquote,td,th,pre") || null;
+    if (blockEl !== lastBlockEl) {
+      block += 1;
+      lastBlockEl = blockEl;
+    }
+    segments.push({ text: node.nodeValue, block });
+    nodes.push(node);
+  }
+  return { segments, nodes };
+}
+
+function findRangeFromOffsets(model, index, nodes, start, end) {
+  const a = model.locate(index, start, "start");
+  const b = model.locate(index, end, "end");
+  if (!a || !b || !nodes[a.segment] || !nodes[b.segment]) return null;
+  const range = document.createRange();
+  range.setStart(nodes[a.segment], a.offset);
+  range.setEnd(nodes[b.segment], b.offset);
+  return range;
+}
+
+function rangeInsideSelection(range, selection) {
+  try {
+    return range.compareBoundaryPoints(Range.START_TO_START, selection) >= 0
+      && range.compareBoundaryPoints(Range.END_TO_END, selection) <= 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+function setFindCurrent(index, { scroll = true } = {}) {
   if (!findMatches.length) {
     findIndex = -1;
+    paintFindHighlights();
     updateFindCountUi();
     return;
   }
-  findMatches.forEach((m) => m.classList.remove("find-hit-current"));
   findIndex = ((index % findMatches.length) + findMatches.length) % findMatches.length;
-  const mark = findMatches[findIndex];
-  mark.classList.add("find-hit-current");
-  try {
-    mark.scrollIntoView({ block: "center", behavior: "smooth", inline: "nearest" });
-  } catch (_) {
-    mark.scrollIntoView(true);
+  paintFindHighlights();
+  if (scroll) {
+    const target = findMatches[findIndex].range.startContainer;
+    const el = target.nodeType === 1 ? target : target.parentElement;
+    try {
+      el?.scrollIntoView({ block: "center", behavior: "smooth", inline: "nearest" });
+    } catch (_) {
+      el?.scrollIntoView(true);
+    }
   }
   updateFindCountUi();
 }
 
-function runFindInEditor(query) {
+function runFindInEditor(query, { keepIndex = false, scroll = true } = {}) {
   const editor = $("sceneContent");
   if (!editor) return;
+  const previous = findIndex;
   clearFindHighlights(editor);
+  setFindError("");
   const q = String(query || "");
-  if (!q) {
+  const model = window.FindReplaceModel;
+  if (!q || !model) {
     updateFindCountUi();
     return;
   }
-  const needle = q.toLowerCase();
-  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
-      if (node.parentElement?.closest?.("mark.find-hit")) return NodeFilter.FILTER_REJECT;
-      return NodeFilter.FILTER_ACCEPT;
-    },
-  });
-  const textNodes = [];
-  while (walker.nextNode()) textNodes.push(walker.currentNode);
-
-  const marks = [];
-  for (const node of textNodes) {
-    const text = node.nodeValue;
-    const lower = text.toLowerCase();
-    let from = 0;
-    const parts = [];
-    while (from < text.length) {
-      const at = lower.indexOf(needle, from);
-      if (at < 0) {
-        parts.push(document.createTextNode(text.slice(from)));
-        break;
-      }
-      if (at > from) parts.push(document.createTextNode(text.slice(from, at)));
-      const mark = document.createElement("mark");
-      mark.className = "find-hit";
-      mark.textContent = text.slice(at, at + q.length);
-      parts.push(mark);
-      marks.push(mark);
-      from = at + q.length;
-    }
-    if (parts.length === 1 && parts[0].nodeType === 3) continue;
-    const parent = node.parentNode;
-    if (!parent) continue;
-    for (const p of parts) parent.insertBefore(p, node);
-    parent.removeChild(node);
+  const { segments, nodes } = collectFindSegments(editor);
+  const index = model.buildIndex(segments);
+  const result = model.findMatches(index.flat, q, findOptions);
+  if (result.error) {
+    setFindError(i18n.t("find.정규식이_올바르지_않아요"));
+    updateFindCountUi();
+    return;
   }
-  findMatches = marks;
-  if (findMatches.length) setFindCurrent(0);
-  else updateFindCountUi();
-  if (typeof scheduleDictHighlightRefresh === "function") scheduleDictHighlightRefresh(0);
+  const matches = [];
+  result.matches.forEach((m) => {
+    const range = findRangeFromOffsets(model, index, nodes, m.start, m.end);
+    if (!range) return;
+    if (findOptions.selectionOnly && findSelectionRange && !rangeInsideSelection(range, findSelectionRange)) return;
+    matches.push({ range, start: m.start, end: m.end, text: m.text });
+  });
+  findMatches = matches;
+  if (!findMatches.length) {
+    updateFindCountUi();
+    paintFindHighlights();
+    return;
+  }
+  const next = keepIndex && previous >= 0 ? Math.min(previous, findMatches.length - 1) : 0;
+  setFindCurrent(next, { scroll });
 }
 
-function openFindBar() {
+function scheduleFindRefresh() {
+  if (findReplacing || $("findBar")?.classList.contains("hidden")) return;
+  const q = $("findInput")?.value || "";
+  if (!q) return;
+  if (findRefreshTimer) window.clearTimeout(findRefreshTimer);
+  findRefreshTimer = window.setTimeout(() => runFindInEditor(q, { keepIndex: true, scroll: false }), 250);
+}
+
+function isReplaceRowOpen() {
+  return !$("findReplaceRow")?.classList.contains("hidden");
+}
+
+function setReplaceRowOpen(open) {
+  $("findReplaceRow")?.classList.toggle("hidden", !open);
+  $("findReplaceToggle")?.setAttribute("aria-expanded", open ? "true" : "false");
+  $("findReplaceToggle")?.classList.toggle("is-active", open);
+}
+
+function canReplaceInEditor({ quiet = false } = {}) {
+  const editor = $("sceneContent");
+  if (!editor || !state.sceneId) return false;
+  if (!editor.isContentEditable) {
+    if (!quiet) toast(i18n.t("find.잠긴_회차는_바꿀_수_없어요"));
+    return false;
+  }
+  return true;
+}
+
+function updateReplaceButtonsUi() {
+  const can = canReplaceInEditor({ quiet: true });
+  const has = findMatches.length > 0;
+  ["findReplaceOneButton", "findReplaceAllButton"].forEach((id) => {
+    const btn = $(id);
+    if (btn) btn.disabled = !can || !has;
+  });
+}
+
+function syncFindOptionChips() {
+  document.querySelectorAll("[data-find-option]").forEach((chip) => {
+    const key = chip.getAttribute("data-find-option");
+    const on = Boolean(findOptions[key]);
+    chip.classList.toggle("is-active", on);
+    chip.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  const regexChip = document.querySelector('[data-find-option="regex"]');
+  if (regexChip && findOptions.regex) $("findAdvancedRow")?.classList.remove("hidden");
+}
+
+function toggleFindOption(key) {
+  if (!(key in findOptions)) return;
+  if (key === "selectionOnly" && !findOptions.selectionOnly) {
+    const editor = $("sceneContent");
+    const selection = window.getSelection();
+    const range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+    if (!range || range.collapsed || !editor?.contains(range.commonAncestorContainer)) {
+      toast(i18n.t("find.원고에서_범위를_먼저_선택해_주세요"));
+      return;
+    }
+    findSelectionRange = range.cloneRange();
+  }
+  findOptions[key] = !findOptions[key];
+  if (key === "selectionOnly" && !findOptions.selectionOnly) findSelectionRange = null;
+  saveFindOptions();
+  syncFindOptionChips();
+  runFindInEditor($("findInput")?.value || "", { scroll: false });
+}
+
+/** 한 곳을 편집기 입력 경로로 바꾼다(Ctrl+Z로 되돌릴 수 있게). */
+function applyFindReplacementAt(range, text) {
+  const editor = $("sceneContent");
+  if (!editor || !range) return false;
+  editor.focus({ preventScroll: true });
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range.cloneRange());
+  let ok = false;
+  try {
+    ok = text
+      ? document.execCommand("insertText", false, text)
+      : document.execCommand("delete", false);
+  } catch (_) {
+    ok = false;
+  }
+  if (!ok) {
+    range.deleteContents();
+    if (text) range.insertNode(document.createTextNode(text));
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  return true;
+}
+
+function findReplacementText(matchText) {
+  return window.FindReplaceModel.replacementFor(
+    matchText,
+    $("findInput")?.value || "",
+    $("replaceInput")?.value || "",
+    findOptions,
+  );
+}
+
+function replaceCurrentFind() {
+  if (!canReplaceInEditor()) return;
+  const q = $("findInput")?.value || "";
+  const current = findMatches[findIndex];
+  if (!q || !current) {
+    toast(i18n.t("find.바꿀_곳이_없어요"));
+    return;
+  }
+  findReplacing = true;
+  try {
+    applyFindReplacementAt(current.range, findReplacementText(current.text));
+  } finally {
+    findReplacing = false;
+  }
+  runFindInEditor(q, { keepIndex: true });
+  $("replaceInput")?.focus({ preventScroll: true });
+}
+
+function replaceAllFind() {
+  if (!canReplaceInEditor()) return;
+  const editor = $("sceneContent");
+  const q = $("findInput")?.value || "";
+  runFindInEditor(q, { scroll: false });
+  const plan = findMatches.map((m) => ({ start: m.start, end: m.end, text: m.text }));
+  if (!q || !plan.length) {
+    toast(i18n.t("find.바꿀_곳이_없어요"));
+    return;
+  }
+  if (!($("replaceInput")?.value || "")
+    && !confirm(i18n.t("find.빈_내용으로_n곳을_지울까요", { n: plan.length }))) {
+    return;
+  }
+  // 바꾸기 직전 원고를 이전 버전에 ★로 남긴다(persistScene은 첫 await 전에 지금 본문을 읽는다).
+  checkpointSceneBefore("before_replace_all");
+  const model = window.FindReplaceModel;
+  let done = 0;
+  findReplacing = true;
+  try {
+    // 뒤에서부터 바꾸면 앞쪽 일치의 위치가 그대로라 매번 다시 계산해도 어긋나지 않는다.
+    for (let i = plan.length - 1; i >= 0; i -= 1) {
+      const { segments, nodes } = collectFindSegments(editor);
+      const index = model.buildIndex(segments);
+      const range = findRangeFromOffsets(model, index, nodes, plan[i].start, plan[i].end);
+      if (!range || range.toString() !== plan[i].text) continue;
+      applyFindReplacementAt(range, findReplacementText(plan[i].text));
+      done += 1;
+    }
+  } finally {
+    findReplacing = false;
+  }
+  runFindInEditor(q, { scroll: false });
+  toast(i18n.t("find.n곳을_바꿨어요", { n: done }));
+}
+
+function openFindBar({ replace = false } = {}) {
   const bar = $("findBar");
   const toggle = $("findToggleButton");
   if (!bar) return;
   if ($("formatToolbarShell")?.classList.contains("is-collapsed")) {
     applyMsToolbarCollapsed("format", false, { toastMsg: false });
   }
+  // 원고에서 한 줄짜리 짧은 글을 골라 두었으면 찾을 내용으로 채운다.
+  const editor = $("sceneContent");
+  const selection = window.getSelection();
+  const picked = selection && selection.rangeCount && editor?.contains(selection.getRangeAt(0).commonAncestorContainer)
+    ? selection.toString()
+    : "";
+  if (picked && picked.length <= 60 && !/\n/.test(picked) && $("findInput")) $("findInput").value = picked;
   bar.classList.remove("hidden");
   toggle?.setAttribute("aria-expanded", "true");
-  requestAnimationFrame(() => {
-    $("findInput")?.focus();
-    $("findInput")?.select();
-  });
+  if (replace) setReplaceRowOpen(true);
+  syncFindOptionChips();
+  updateReplaceButtonsUi();
+  // 막대가 보이게 된 직후 바로 초점을 옮긴다(화면 갱신 콜백에 기대지 않는다: 창이 가려지면 멈춘다).
+  const findEl = $("findInput");
+  if (replace && findEl?.value) $("replaceInput")?.focus();
+  else {
+    findEl?.focus();
+    findEl?.select();
+  }
   const q = $("findInput")?.value || "";
   if (q) runFindInEditor(q);
 }
@@ -3703,11 +3992,19 @@ function closeFindBar() {
   const toggle = $("findToggleButton");
   bar?.classList.add("hidden");
   toggle?.setAttribute("aria-expanded", "false");
+  if (findOptions.selectionOnly) {
+    findOptions.selectionOnly = false;
+    findSelectionRange = null;
+    syncFindOptionChips();
+  }
+  setFindError("");
   clearFindHighlights();
   updateFindCountUi();
 }
 
 function setupFindBar() {
+  loadFindOptions();
+  syncFindOptionChips();
   $("findToggleButton")?.addEventListener("click", () => {
     if (typeof closeIconGuidePopovers === "function") closeIconGuidePopovers("");
     if ($("findBar")?.classList.contains("hidden")) openFindBar();
@@ -3716,12 +4013,30 @@ function setupFindBar() {
   $("findCloseButton")?.addEventListener("click", closeFindBar);
   $("findNextButton")?.addEventListener("click", () => setFindCurrent(findIndex + 1));
   $("findPrevButton")?.addEventListener("click", () => setFindCurrent(findIndex - 1));
-  let findTimer = null;
-  $("findInput")?.addEventListener("input", () => {
-    if (findTimer) window.clearTimeout(findTimer);
-    findTimer = window.setTimeout(() => runFindInEditor($("findInput")?.value || ""), 120);
+  $("findReplaceToggle")?.addEventListener("click", () => {
+    setReplaceRowOpen(!isReplaceRowOpen());
+    if (isReplaceRowOpen()) $("replaceInput")?.focus();
   });
-  $("findInput")?.addEventListener("keydown", (event) => {
+  $("findReplaceOneButton")?.addEventListener("click", replaceCurrentFind);
+  $("findReplaceAllButton")?.addEventListener("click", replaceAllFind);
+  $("findAdvancedToggle")?.addEventListener("click", () => {
+    const row = $("findAdvancedRow");
+    row?.classList.toggle("hidden");
+    $("findAdvancedToggle")?.setAttribute("aria-expanded", row && !row.classList.contains("hidden") ? "true" : "false");
+  });
+  document.querySelectorAll("[data-find-option]").forEach((chip) => {
+    chip.addEventListener("click", () => toggleFindOption(chip.getAttribute("data-find-option")));
+  });
+  let findTimer = null;
+  const findInput = $("findInput");
+  findInput?.addEventListener("input", (event) => {
+    if (event.isComposing) return; // 한글 조합 중에는 기다린다
+    if (findTimer) window.clearTimeout(findTimer);
+    findTimer = window.setTimeout(() => runFindInEditor(findInput.value || ""), 120);
+  });
+  findInput?.addEventListener("compositionend", () => runFindInEditor(findInput.value || ""));
+  findInput?.addEventListener("keydown", (event) => {
+    if (event.isComposing) return;
     if (event.key === "Enter") {
       event.preventDefault();
       if (event.shiftKey) setFindCurrent(findIndex - 1);
@@ -3731,15 +4046,29 @@ function setupFindBar() {
       closeFindBar();
     }
   });
+  $("replaceInput")?.addEventListener("keydown", (event) => {
+    if (event.isComposing) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (event.ctrlKey || event.metaKey) replaceAllFind();
+      else replaceCurrentFind();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeFindBar();
+    }
+  });
+  // 찾기 막대가 열려 있는 동안 원고가 바뀌면 일치를 다시 계산한다.
+  $("sceneContent")?.addEventListener("input", scheduleFindRefresh);
   document.addEventListener("keydown", (event) => {
     if (!(event.ctrlKey || event.metaKey)) return;
-    if (event.key.toLowerCase() !== "f") return;
+    const key = event.key.toLowerCase();
+    if (key !== "f" && key !== "h") return;
     // Only when scene editor is visible
     if ($("sceneWorkspace")?.classList.contains("hidden")) return;
     if (isFocusWriteOpen()) return;
     if (typeof isViewerOpen === "function" && isViewerOpen()) return;
     event.preventDefault();
-    openFindBar();
+    openFindBar({ replace: key === "h" });
   });
 }
 
@@ -3807,11 +4136,29 @@ function sceneRevisionMarkText(mark) {
   return key ? i18n.t(key) : "";
 }
 
+// 저장 메모는 저장한 그때의 언어로 남는다. 알려진 메모는 지금 화면 언어로 바꿔 보여 준다.
+const SCENE_REVISION_ROUTINE_NOTES = {
+  "자동 저장": "app.자동_저장", "Auto-save": "app.자동_저장", "Autoguardado": "app.자동_저장",
+  "저장": "app.저장", "Save": "app.저장", "Guardar": "app.저장",
+  "수동 저장": "app.수동_저장", "Manual save": "app.수동_저장", "Guardado manual": "app.수동_저장",
+};
+const SCENE_REVISION_PREFIX_NOTES = [
+  ["문서 가져오기", "revisions.메모_문서_가져오기"],
+  ["교정 파이프라인 반영", "revisions.메모_교정본_반영"],
+  ["교정고 자동 매칭 가져오기", "revisions.메모_교정본_반영"],
+  ["폰 초안 반영", "revisions.메모_폰_초안_반영"],
+];
+
 function sceneRevisionNoteText(note) {
   const raw = String(note || "").trim();
   const restored = /^@restore:(\d+)$/.exec(raw);
   if (restored) return i18n.t("revisions.n번에서_되돌림", { n: restored[1] });
   if (!raw) return i18n.t("app.저장");
+  if (SCENE_REVISION_ROUTINE_NOTES[raw]) return i18n.t(SCENE_REVISION_ROUTINE_NOTES[raw]);
+  for (const [prefix, key] of SCENE_REVISION_PREFIX_NOTES) {
+    if (raw === prefix) return i18n.t(key);
+    if (raw.startsWith(`${prefix}:`)) return `${i18n.t(key)}:${raw.slice(prefix.length + 1)}`;
+  }
   return raw;
 }
 
@@ -3819,11 +4166,7 @@ function isRoutineSceneRevision(row) {
   if (!row || row.is_current || (Array.isArray(row.marks) && row.marks.length)) return false;
   const note = String(row.save_note || "").trim();
   if (note.startsWith("@")) return false;
-  const routine = new Set([
-    "", "저장", "자동 저장", "수동 저장",
-    i18n.t("app.저장"), i18n.t("app.자동_저장"), i18n.t("app.수동_저장"),
-  ]);
-  return routine.has(note);
+  return note === "" || Boolean(SCENE_REVISION_ROUTINE_NOTES[note]);
 }
 
 /** 날짜별로 묶고, 10분 안쪽으로 이어진 평범한 저장은 한 줄로 접는다(최신이 위). */
@@ -4253,10 +4596,11 @@ function insertSelectedSceneRevisionText() {
 }
 
 /**
- * AI 결과를 원고에 넣기 직전 원고를 이전 버전에 ★로 남긴다(설계 결정 8).
- * 넣기를 늦추거나 막지 않는다: 저장·표시는 뒤에서 진행되고, 실패해도 조용히 넘어간다.
+ * 원고를 바꾸는 작업(AI 결과 넣기·모두 바꾸기) 직전 원고를 이전 버전에 ★로 남긴다(설계 결정 8).
+ * 작업을 늦추거나 막지 않는다: 저장·표시는 뒤에서 진행되고, 실패해도 조용히 넘어간다.
+ * persistScene은 첫 await 전에 본문을 읽으므로, 이 함수를 부른 직후 원고를 바꿔도 바뀌기 전 원고가 저장된다.
  */
-function checkpointBeforeAiInsert() {
+function checkpointSceneBefore(reason) {
   if (!state.sceneId) return;
   const sceneId = Number(state.sceneId);
   const mark = (revisionNo) => {
@@ -4264,7 +4608,7 @@ function checkpointBeforeAiInsert() {
     if (!no) return;
     api(`/api/scenes/${sceneId}/checkpoint`, {
       method: "POST",
-      body: JSON.stringify({ reason: "before_ai_insert", revision_no: no }),
+      body: JSON.stringify({ reason, revision_no: no }),
     }).catch((error) => console.warn("[supertory] checkpoint skipped", error));
   };
   try {
@@ -4277,7 +4621,7 @@ function checkpointBeforeAiInsert() {
       return;
     }
     cancelScheduledAutoSave();
-    // persistScene은 첫 await 전에 지금 본문을 읽으므로, AI 결과를 넣기 전 원고가 저장된다.
+    // persistScene은 첫 await 전에 지금 본문을 읽으므로, 바뀌기 전 원고가 저장된다.
     persistScene({ quiet: true })
       .then((saved) => {
         if (saved && !saved.localOnly) mark(saved.revision_no ?? state.scene?.revision_no);
@@ -4286,6 +4630,10 @@ function checkpointBeforeAiInsert() {
   } catch (error) {
     console.warn("[supertory] checkpoint skipped", error);
   }
+}
+
+function checkpointBeforeAiInsert() {
+  checkpointSceneBefore("before_ai_insert");
 }
 
 function setupSceneRevisions() {
@@ -8072,6 +8420,723 @@ function setupFormatListPalette() {
   window.addEventListener("resize", hideFormatListPalette);
 }
 
+/* —— 게임물 상태창 (docs/design-ai-context-and-style-2026-11.md §13) ——
+ * 서식줄 「상태창」 → 프리셋 고르기 → 커서 자리에 상태창 블록. 블록 안에서 「상태창으로 정리」.
+ * 블록: <div class="st-status-window" data-status-window="프리셋 id" data-sw-*> 안에 줄마다 <div>.
+ * 주석 단락과 반대로 독자가 보는 글이라 저장·내보내기·뷰어·글자 수에 들어간다.
+ * 맞춤법 검사와 토리 체크는 상태창 글자를 빼고 본다(오탐 방지). 줄 규칙은 web/status_window_model.js.
+ */
+const STATUS_WINDOW_LAST_KEY = "supertory.statusWindow.lastPreset";
+const STATUS_WINDOW_SELECTOR = "[data-status-window], .st-status-window";
+const STATUS_WINDOW_DATA_ATTRS = ["data-sw-frame", "data-sw-align", "data-sw-bg", "data-sw-font", "data-sw-export"];
+const statusWindowState = {
+  projectId: 0,
+  presets: [],
+  loaded: false,
+  editor: null,
+  range: null,
+  editingId: "",
+  draft: null,
+  dirty: false,
+};
+
+function statusWindowModel() {
+  return (typeof window !== "undefined" && window.StatusWindowModel) || null;
+}
+
+function statusWindowTemplates() {
+  const t = (key) => i18n.t(`statusWindow.${key}`);
+  const item = (name, def = "", type = "text", group = "") => ({ name: t(name), default: def, type, group: group ? t(group) : "" });
+  return [
+    {
+      id: "tpl_basic", name: t("tpl_기본"), title: t("상태창"), frame: "divider", align: "left", label_style: "colon",
+      items: [
+        item("i_이름"), item("i_레벨", "1", "number"), item("i_직업"), item("i_칭호"),
+        item("i_생명력", "100/100", "ratio", "g_상태"), item("i_마나", "100/100", "ratio", "g_상태"),
+        item("i_힘", "10", "number", "g_능력치"), item("i_민첩", "10", "number", "g_능력치"),
+        item("i_체력", "10", "number", "g_능력치"), item("i_지능", "10", "number", "g_능력치"),
+        item("i_행운", "10", "number", "g_능력치"),
+      ],
+      display: { background: "soft", font: "body" }, export_mode: "keep",
+    },
+    {
+      id: "tpl_hunter", name: t("tpl_헌터"), title: t("헌터_정보"), frame: "bracket", align: "left", label_style: "colon",
+      items: [item("i_이름"), item("i_등급", "E"), item("i_소속"), item("i_레벨", "1", "number"), item("i_보유_스킬")],
+      display: { background: "soft", font: "body" }, export_mode: "keep",
+    },
+    {
+      id: "tpl_system", name: t("tpl_시스템"), title: t("시스템"), frame: "box", align: "left", label_style: "colon",
+      items: [item("i_레벨", "1", "number"), item("i_경험치", "0/100", "ratio"), item("i_골드", "0", "number"), item("i_남은_포인트", "0", "number")],
+      display: { background: "soft", font: "mono" }, export_mode: "text_safe",
+    },
+    {
+      id: "tpl_simple", name: t("tpl_간단"), title: "", frame: "none", align: "left", label_style: "spaced",
+      items: [item("i_이름"), item("i_레벨", "1", "number"), item("i_생명력", "100/100", "ratio")],
+      display: { background: "none", font: "body" }, export_mode: "keep",
+    },
+    {
+      id: "tpl_stats", name: t("tpl_능력치"), title: t("g_능력치"), frame: "divider", align: "center", label_style: "colon",
+      items: [
+        item("i_힘", "10", "number"), item("i_민첩", "10", "number"), item("i_체력", "10", "number"),
+        item("i_지능", "10", "number"), item("i_행운", "10", "number"), item("i_남은_포인트", "0", "number"),
+      ],
+      display: { background: "soft", font: "body" }, export_mode: "keep",
+    },
+  ];
+}
+
+function normalizeStatusWindowPreset(raw, index = 0) {
+  const model = statusWindowModel();
+  return model ? model.normalizePreset(raw, index) : null;
+}
+
+async function loadStatusWindowPresets({ force = false } = {}) {
+  const pid = Number(state.projectId) || 0;
+  if (!pid) return [];
+  if (!force && statusWindowState.loaded && statusWindowState.projectId === pid) return statusWindowState.presets;
+  const data = await api(`/api/projects/${pid}/status-window-presets`);
+  if (Number(state.projectId) !== pid) return [];
+  statusWindowState.projectId = pid;
+  statusWindowState.presets = Array.isArray(data?.presets) ? data.presets : [];
+  statusWindowState.loaded = true;
+  return statusWindowState.presets;
+}
+
+async function saveStatusWindowPresets(presets) {
+  const pid = Number(state.projectId) || 0;
+  if (!pid) throw new Error(i18n.t("statusWindow.작품을_먼저_열어_주세요"));
+  const data = await api(`/api/projects/${pid}/status-window-presets`, {
+    method: "POST",
+    body: JSON.stringify({ presets }),
+  });
+  statusWindowState.projectId = pid;
+  statusWindowState.presets = Array.isArray(data?.presets) ? data.presets : [];
+  statusWindowState.loaded = true;
+  return statusWindowState.presets;
+}
+
+function findStatusWindowPreset(id) {
+  const key = String(id || "");
+  if (!key) return null;
+  return statusWindowState.presets.find((p) => p.id === key)
+    || statusWindowTemplates().find((p) => p.id === key)
+    || null;
+}
+
+function lastStatusWindowPreset() {
+  let id = "";
+  try { id = localStorage.getItem(STATUS_WINDOW_LAST_KEY) || ""; } catch (_) { /* ignore */ }
+  return findStatusWindowPreset(id) || statusWindowState.presets[0] || statusWindowTemplates()[0];
+}
+
+function rememberStatusWindowPreset(id) {
+  try { localStorage.setItem(STATUS_WINDOW_LAST_KEY, String(id || "")); } catch (_) { /* ignore */ }
+}
+
+function statusWindowHostOf(node, editor) {
+  const el = node && node.nodeType === 1 ? node : node?.parentElement;
+  const host = el?.closest?.(STATUS_WINDOW_SELECTOR);
+  return host && editor && editor.contains(host) && host !== editor ? host : null;
+}
+
+function isStatusWindowEditor(editor) {
+  return Boolean(editor && state.sceneId && isManuscriptAuthorNoteEditor(editor));
+}
+
+/** 블록의 줄 글자(줄마다 <div>, 블록 안 <br>도 줄바꿈). */
+function statusWindowLinesOf(block) {
+  if (!block) return [];
+  const lines = [];
+  let current = "";
+  const flush = () => { lines.push(current); current = ""; };
+  const walk = (node, depth) => {
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === 3) { current += child.nodeValue || ""; return; }
+      if (child.nodeType !== 1) return;
+      if (child.tagName === "BR") { flush(); return; }
+      const isLine = /^(DIV|P|LI|H[1-6]|BLOCKQUOTE)$/.test(child.tagName);
+      if (isLine && current) flush();
+      walk(child, depth + 1);
+      if (isLine) flush();
+    });
+  };
+  walk(block, 0);
+  if (current) flush();
+  return lines.map((line) => line.replace(/\u00a0/g, " ").replace(/\u200b/g, ""));
+}
+
+function buildStatusWindowBlock(preset, lines) {
+  const block = document.createElement("div");
+  block.className = "st-status-window";
+  block.setAttribute("data-status-window", preset.id || "custom");
+  block.setAttribute("data-sw-frame", preset.frame);
+  block.setAttribute("data-sw-align", preset.align);
+  block.setAttribute("data-sw-bg", preset.display?.background || "none");
+  block.setAttribute("data-sw-font", preset.display?.font || "body");
+  block.setAttribute("data-sw-export", preset.export_mode || "keep");
+  (lines.length ? lines : [{ text: "" }]).forEach((line) => {
+    const row = document.createElement("div");
+    if (line.text) row.textContent = line.text;
+    else row.appendChild(document.createElement("br"));
+    block.appendChild(row);
+  });
+  return block;
+}
+
+/** 편집기 바로 아래(또는 단 나누기 안) 문단. */
+function statusWindowTopBlock(editor, node) {
+  let el = node && node.nodeType === 1 ? node : node?.parentElement;
+  if (!el || el === editor) return null;
+  while (el && el.parentElement && el.parentElement !== editor && !el.parentElement.classList?.contains("ms-dan")) {
+    el = el.parentElement;
+  }
+  return el && editor.contains(el) ? el : null;
+}
+
+function isEmptyStatusWindowLine(el) {
+  if (!el || el.nodeType !== 1) return false;
+  if (el.querySelector("img, sup.fn-ref, [data-status-window], .st-status-window")) return false;
+  return !String(el.textContent || "").replace(/[\s\u00a0\u200b]/g, "");
+}
+
+/** 커서: 값이 빈 첫 항목 → 없으면 첫 항목 → 없으면 마지막 줄의 끝. lines는 블록을 만든 줄 목록(순서 같음). */
+function placeCaretInStatusWindow(block, lines) {
+  if (!block) return;
+  const rows = [...block.children];
+  const list = Array.isArray(lines) ? lines : [];
+  let index = list.findIndex((line) => line.role === "item" && /[:：\]]$/.test(String(line.text || "").trim()));
+  if (index < 0) index = list.findIndex((line) => line.role === "item");
+  if (index < 0) index = list.map((line) => line.role).lastIndexOf("extra");
+  const target = rows[index] || rows[rows.length - 1];
+  if (!target) return;
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    range.collapse(false);
+    restoreSelection(range);
+  } catch (_) { /* ignore */ }
+}
+
+function notifyStatusWindowEdit(editor) {
+  try { hydrateAuthorNoteUi?.(editor); } catch (_) { /* ignore */ }
+  try { updateEditorPlaceholder(editor); } catch (_) { /* ignore */ }
+  try { editor.dispatchEvent(new Event("input", { bubbles: true })); } catch (_) { /* ignore */ }
+  if (editor.id === "splitSceneBodyEditor") markSplitDirty?.();
+  else if (editor.id === "sceneContent" && state.sceneId) markSceneDirty?.();
+}
+
+function statusWindowEditorAndRange() {
+  const editor = statusWindowState.editor || getActiveRichEditor() || $("sceneContent");
+  let range = statusWindowState.range;
+  try {
+    if (range && !editor.contains(range.commonAncestorContainer)) range = null;
+  } catch (_) { range = null; }
+  if (!range) range = currentEditorRange(editor);
+  return { editor, range };
+}
+
+function statusWindowGuard(editor) {
+  if (!isStatusWindowEditor(editor)) {
+    toast(i18n.t("statusWindow.원고_회차에서만_쓸_수_있어요"));
+    return false;
+  }
+  if (!editor.isContentEditable) {
+    toast(i18n.t("statusWindow.지금은_원고를_고칠_수_없어요"));
+    return false;
+  }
+  if (!statusWindowModel()) {
+    toast(i18n.t("statusWindow.상태창을_불러오지_못했어요"));
+    return false;
+  }
+  return true;
+}
+
+/** 고른 범위에 걸친 문단(편집기 바로 아래 줄)들. 상태창 안이면 그 상태창 하나. */
+function statusWindowSelectedBlocks(editor, range) {
+  if (!range || range.collapsed) return [];
+  const parents = new Set([editor, ...editor.querySelectorAll(".ms-dan")]);
+  const out = [];
+  parents.forEach((parent) => {
+    [...parent.children].forEach((child) => {
+      if (child.classList?.contains("ms-dan")) return;
+      try {
+        if (range.intersectsNode(child)) out.push(child);
+      } catch (_) { /* ignore */ }
+    });
+  });
+  return out.filter((block) => !block.closest(".fn-footer"));
+}
+
+function insertStatusWindow(presetId) {
+  const { editor, range } = statusWindowEditorAndRange();
+  if (!statusWindowGuard(editor)) return;
+  const preset = normalizeStatusWindowPreset(findStatusWindowPreset(presetId) || lastStatusWindowPreset());
+  if (!preset) return;
+  const model = statusWindowModel();
+  rememberStatusWindowPreset(preset.id);
+  focusEditor(editor);
+
+  // 글을 고른 채 누르면 그 글을 상태창으로 정리한다(글은 잃지 않는다).
+  const selected = statusWindowSelectedBlocks(editor, range);
+  if (selected.length) {
+    // 그림·각주·주석 단락은 줄 글자로 옮길 수 없으니 바꾸지 않는다(원고 보호).
+    if (selected.some((block) => block.matches("img, sup.fn-ref, [data-author-note], .st-author-note")
+      || block.querySelector("img, sup.fn-ref, [data-author-note], .st-author-note"))) {
+      toast(i18n.t("statusWindow.그림_각주_주석이_있는_글은_바꿀_수_없어요"));
+      return;
+    }
+    const lines = [];
+    selected.forEach((block) => lines.push(...statusWindowLinesOf(block)));
+    const tidy = model.tidyLines(preset, lines);
+    const next = buildStatusWindowBlock(preset, tidy);
+    selected[0].parentNode.insertBefore(next, selected[0]);
+    selected.forEach((block) => block.remove());
+    ensureLineAfterStatusWindow(next);
+    placeCaretInStatusWindow(next, tidy);
+    notifyStatusWindowEdit(editor);
+    return;
+  }
+
+  const rendered = model.renderLines(preset);
+  const block = buildStatusWindowBlock(preset, rendered);
+  const anchor = range ? range.startContainer : null;
+  const host = statusWindowHostOf(anchor, editor);
+  const top = host || statusWindowTopBlock(editor, anchor);
+  if (top && !host && isEmptyStatusWindowLine(top)) {
+    top.replaceWith(block);
+  } else if (top) {
+    top.after(block);
+  } else if (range && anchor === editor) {
+    const ref = editor.childNodes[range.startOffset] || null;
+    editor.insertBefore(block, ref);
+  } else {
+    editor.appendChild(block);
+  }
+  ensureLineAfterStatusWindow(block);
+  placeCaretInStatusWindow(block, rendered);
+  notifyStatusWindowEdit(editor);
+}
+
+function ensureLineAfterStatusWindow(block) {
+  const next = block.nextElementSibling;
+  if (next && !next.matches(STATUS_WINDOW_SELECTOR)) return;
+  const line = document.createElement("div");
+  line.appendChild(document.createElement("br"));
+  block.after(line);
+}
+
+function tidyStatusWindowAtCaret() {
+  const { editor, range } = statusWindowEditorAndRange();
+  if (!statusWindowGuard(editor)) return;
+  const model = statusWindowModel();
+  const host = range ? statusWindowHostOf(range.startContainer, editor) : null;
+  if (!host) {
+    if (range && !range.collapsed && statusWindowSelectedBlocks(editor, range).length) {
+      insertStatusWindow(lastStatusWindowPreset()?.id);
+      return;
+    }
+    toast(i18n.t("statusWindow.상태창_안에_커서를_두거나_글을_골라_주세요"));
+    return;
+  }
+  let preset = findStatusWindowPreset(host.getAttribute("data-status-window"));
+  if (!preset) {
+    preset = lastStatusWindowPreset();
+    toast(i18n.t("statusWindow.프리셋이_없어_마지막_프리셋으로_정리했어요", { name: preset?.name || "" }));
+  }
+  preset = normalizeStatusWindowPreset(preset);
+  if (!preset) return;
+  const tidy = model.tidyLines(preset, statusWindowLinesOf(host));
+  const next = buildStatusWindowBlock(preset, tidy);
+  host.replaceWith(next);
+  ensureLineAfterStatusWindow(next);
+  focusEditor(editor);
+  placeCaretInStatusWindow(next, tidy);
+  notifyStatusWindowEdit(editor);
+}
+
+/* 서식줄 팝업 */
+function hideStatusWindowMenu() {
+  const menu = $("statusWindowMenu");
+  if (!menu) return;
+  menu.classList.add("hidden");
+  document.querySelectorAll(".format-status-window-btn").forEach((btn) => btn.setAttribute("aria-expanded", "false"));
+}
+
+function renderStatusWindowMenu() {
+  const host = $("statusWindowMenuList");
+  if (!host) return;
+  const last = lastStatusWindowPreset();
+  const row = (preset) => `
+    <button type="button" class="status-window-menu-item${preset.id === last?.id ? " is-last" : ""}" role="menuitem" data-sw-insert="${escapeHtml(preset.id)}">
+      <span class="status-window-menu-name">${escapeHtml(preset.name)}</span>
+      <span class="status-window-menu-sub">${escapeHtml(preset.items.slice(0, 3).map((it) => it.name).join(" · "))}</span>
+    </button>`;
+  const mine = statusWindowState.presets;
+  const parts = [];
+  if (mine.length) {
+    parts.push(`<div class="status-window-menu-label">${escapeHtml(i18n.t("statusWindow.이_작품_프리셋"))}</div>`);
+    parts.push(mine.map(row).join(""));
+  }
+  parts.push(`<div class="status-window-menu-label">${escapeHtml(i18n.t("statusWindow.기본_템플릿"))}</div>`);
+  parts.push(statusWindowTemplates().map(row).join(""));
+  host.innerHTML = parts.join("");
+}
+
+async function showStatusWindowMenu(anchorBtn, editor = null) {
+  const menu = $("statusWindowMenu");
+  if (!menu || !anchorBtn) return;
+  anchorBtn = resolveToolbarOverflowAnchor(anchorBtn);
+  hideFormatSpecialPalette?.();
+  hideFormatListPalette?.();
+  hideFormatColorPalette?.();
+  const ed = editor || getActiveRichEditor() || $("sceneContent");
+  statusWindowState.editor = ed;
+  const live = currentEditorRange(ed);
+  statusWindowState.range = live ? live.cloneRange() : null;
+  const inside = live ? Boolean(statusWindowHostOf(live.startContainer, ed)) : false;
+  const tidyBtn = $("statusWindowTidyButton");
+  if (tidyBtn) tidyBtn.disabled = !inside && !(live && !live.collapsed);
+  const hint = $("statusWindowMenuHint");
+  if (hint) {
+    hint.textContent = live && !live.collapsed && !inside
+      ? i18n.t("statusWindow.고른_글을_상태창으로_바꿔요")
+      : i18n.t("statusWindow.커서_자리에_넣어요");
+  }
+  renderStatusWindowMenu();
+  menu.classList.remove("hidden");
+  anchorBtn.setAttribute("aria-expanded", "true");
+  const place = () => {
+    const rect = anchorBtn.getBoundingClientRect();
+    const pad = 8;
+    const pw = menu.offsetWidth || 280;
+    const ph = menu.offsetHeight || 260;
+    let left = rect.left;
+    let top = rect.bottom + 4;
+    if (left + pw > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - pw - pad);
+    if (top + ph > window.innerHeight - pad) top = Math.max(pad, rect.top - ph - 4);
+    menu.style.left = `${Math.max(pad, left)}px`;
+    menu.style.top = `${Math.max(pad, top)}px`;
+  };
+  place();
+  try {
+    await loadStatusWindowPresets();
+    if (!menu.classList.contains("hidden")) {
+      renderStatusWindowMenu();
+      place();
+    }
+  } catch (error) {
+    // 프리셋을 못 불러와도 기본 템플릿으로는 넣을 수 있다.
+    console.warn("status window presets", error);
+  }
+}
+
+function setupStatusWindowMenu() {
+  const menu = $("statusWindowMenu");
+  if (!menu || menu.dataset.bound === "1") return;
+  menu.dataset.bound = "1";
+  menu.addEventListener("mousedown", (event) => {
+    if (!event.target.closest("input, select, textarea")) event.preventDefault();
+  });
+  menu.addEventListener("click", (event) => {
+    const pick = event.target.closest("[data-sw-insert]");
+    if (pick) {
+      hideStatusWindowMenu();
+      try { insertStatusWindow(pick.getAttribute("data-sw-insert")); } catch (error) { handleError(error); }
+      return;
+    }
+    if (event.target.closest("#statusWindowTidyButton")) {
+      hideStatusWindowMenu();
+      try { tidyStatusWindowAtCaret(); } catch (error) { handleError(error); }
+      return;
+    }
+    if (event.target.closest("#statusWindowManageButton")) {
+      hideStatusWindowMenu();
+      openStatusWindowPresets().catch(handleError);
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("#statusWindowMenu, .format-status-window-btn, [data-isl-fmt='statusWindow']")) return;
+    hideStatusWindowMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideStatusWindowMenu();
+  });
+  window.addEventListener("resize", hideStatusWindowMenu);
+}
+
+/* 프리셋 관리(넓은 패널) */
+function statusWindowNewId() {
+  return `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+}
+
+function statusWindowDraftFrom(preset) {
+  return JSON.parse(JSON.stringify(normalizeStatusWindowPreset(preset) || normalizeStatusWindowPreset({ name: i18n.t("statusWindow.새_프리셋") })));
+}
+
+async function openStatusWindowPresets() {
+  if (!state.projectId) {
+    toast(i18n.t("statusWindow.작품을_먼저_열어_주세요"));
+    return;
+  }
+  const modal = $("statusWindowPresetsModal");
+  if (!modal) return;
+  await loadStatusWindowPresets({ force: true });
+  const first = statusWindowState.presets[0];
+  statusWindowState.editingId = first ? first.id : "";
+  statusWindowState.draft = statusWindowDraftFrom(first || statusWindowTemplates()[0]);
+  if (!first) {
+    statusWindowState.draft.id = statusWindowNewId();
+    statusWindowState.editingId = "";
+  }
+  statusWindowState.dirty = !first;
+  presentModalInWidePanel(modal, {
+    id: "statusWindowPresetsModal",
+    title: i18n.t("statusWindow.상태창_프리셋"),
+    sourceEl: document.querySelector("#formatToolbar .format-status-window-btn"),
+  });
+  renderStatusWindowPresets();
+}
+
+function closeStatusWindowPresets() {
+  const modal = $("statusWindowPresetsModal");
+  releaseWideHostedModal(modal);
+  modal?.classList.add("hidden");
+}
+
+function renderStatusWindowPresetList() {
+  const list = $("statusWindowPresetList");
+  if (!list) return;
+  const draft = statusWindowState.draft;
+  const rows = statusWindowState.presets.map((preset) => {
+    const on = draft && preset.id === draft.id;
+    return `<button type="button" class="status-window-preset-row${on ? " is-active" : ""}" role="option" aria-selected="${on ? "true" : "false"}" data-sw-edit="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</button>`;
+  });
+  if (draft && !statusWindowState.presets.some((p) => p.id === draft.id)) {
+    rows.push(`<button type="button" class="status-window-preset-row is-active is-new" role="option" aria-selected="true">${escapeHtml(draft.name || i18n.t("statusWindow.새_프리셋"))} <em>${escapeHtml(i18n.t("statusWindow.저장_전"))}</em></button>`);
+  }
+  list.innerHTML = rows.join("") || `<p class="status-window-empty">${escapeHtml(i18n.t("statusWindow.아직_저장한_프리셋이_없어요"))}</p>`;
+  const tpl = $("statusWindowTemplateSelect");
+  if (tpl && !tpl.dataset.filled) {
+    tpl.innerHTML = `<option value="">${escapeHtml(i18n.t("statusWindow.템플릿에서_새로_만들기"))}</option>`
+      + statusWindowTemplates().map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join("");
+    tpl.dataset.filled = "1";
+  }
+}
+
+function statusWindowSegHtml(name, options, value) {
+  return options.map(([key, label]) => `<button type="button" class="isl-fp-chip${key === value ? " is-active" : ""}" data-sw-field="${name}" data-sw-value="${key}" aria-pressed="${key === value ? "true" : "false"}">${escapeHtml(label)}</button>`).join("");
+}
+
+function renderStatusWindowPresetForm() {
+  const draft = statusWindowState.draft;
+  const form = $("statusWindowPresetForm");
+  if (!form || !draft) return;
+  const t = (key) => i18n.t(`statusWindow.${key}`);
+  $("statusWindowPresetName").value = draft.name || "";
+  $("statusWindowPresetTitle").value = draft.title || "";
+  $("statusWindowFrameSeg").innerHTML = statusWindowSegHtml("frame", [
+    ["divider", t("틀_구분선")], ["bracket", t("틀_대괄호")], ["box", t("틀_상자")], ["none", t("틀_없음")],
+  ], draft.frame);
+  $("statusWindowAlignSeg").innerHTML = statusWindowSegHtml("align", [["left", t("정렬_왼쪽")], ["center", t("정렬_가운데")]], draft.align);
+  $("statusWindowLabelSeg").innerHTML = statusWindowSegHtml("label_style", [
+    ["colon", t("표기_쌍점")], ["spaced", t("표기_띄운_쌍점")], ["bracket", t("표기_대괄호")],
+  ], draft.label_style);
+  $("statusWindowBgSeg").innerHTML = statusWindowSegHtml("background", [["none", t("바탕_없음")], ["soft", t("바탕_연하게")]], draft.display.background);
+  $("statusWindowFontSeg").innerHTML = statusWindowSegHtml("font", [["body", t("글꼴_본문")], ["mono", t("글꼴_고정폭")]], draft.display.font);
+  $("statusWindowExportSeg").innerHTML = statusWindowSegHtml("export_mode", [["keep", t("내보내기_모양_유지")], ["text_safe", t("내보내기_텍스트_안전")]], draft.export_mode);
+  $("statusWindowBoxHint")?.classList.toggle("hidden", draft.frame !== "box");
+  const typeOptions = (value) => [["text", t("유형_글")], ["number", t("유형_숫자")], ["ratio", t("유형_현재_최대")]]
+    .map(([key, label]) => `<option value="${key}"${key === value ? " selected" : ""}>${escapeHtml(label)}</option>`).join("");
+  $("statusWindowItems").innerHTML = draft.items.map((item, index) => `
+    <div class="status-window-item-row" data-sw-item="${index}">
+      <input type="text" class="status-window-item-name" data-sw-item-field="name" value="${escapeHtml(item.name)}" maxlength="40" placeholder="${escapeHtml(t("항목_이름"))}" aria-label="${escapeHtml(t("항목_이름"))}">
+      <input type="text" class="status-window-item-group" data-sw-item-field="group" value="${escapeHtml(item.group)}" maxlength="20" placeholder="${escapeHtml(t("묶음"))}" aria-label="${escapeHtml(t("묶음"))}">
+      <input type="text" class="status-window-item-default" data-sw-item-field="default" value="${escapeHtml(item.default)}" maxlength="80" placeholder="${escapeHtml(item.type === "ratio" ? "100/100" : t("기본값"))}" aria-label="${escapeHtml(t("기본값"))}">
+      <select data-sw-item-field="type" aria-label="${escapeHtml(t("값_유형"))}">${typeOptions(item.type)}</select>
+      <button type="button" class="status-window-item-btn" data-sw-item-move="-1" title="${escapeHtml(t("위로"))}" aria-label="${escapeHtml(t("위로"))}"${index === 0 ? " disabled" : ""}>↑</button>
+      <button type="button" class="status-window-item-btn" data-sw-item-move="1" title="${escapeHtml(t("아래로"))}" aria-label="${escapeHtml(t("아래로"))}"${index === draft.items.length - 1 ? " disabled" : ""}>↓</button>
+      <button type="button" class="status-window-item-btn" data-sw-item-remove title="${escapeHtml(t("항목_빼기"))}" aria-label="${escapeHtml(t("항목_빼기"))}">×</button>
+    </div>`).join("") || `<p class="status-window-empty">${escapeHtml(t("항목을_하나_이상_넣어_주세요"))}</p>`;
+  renderStatusWindowPreview();
+  const saved = statusWindowState.presets.some((p) => p.id === draft.id);
+  $("statusWindowDuplicateButton").disabled = !saved;
+  $("statusWindowDeleteButton").disabled = !saved;
+  $("statusWindowSaveButton").disabled = !statusWindowState.dirty;
+}
+
+function renderStatusWindowPreview() {
+  const box = $("statusWindowPreview");
+  const draft = statusWindowState.draft;
+  const model = statusWindowModel();
+  if (!box || !draft || !model) return;
+  const preset = normalizeStatusWindowPreset(draft);
+  box.innerHTML = "";
+  box.appendChild(buildStatusWindowBlock(preset, model.renderLines(preset)));
+}
+
+function renderStatusWindowPresets() {
+  renderStatusWindowPresetList();
+  renderStatusWindowPresetForm();
+}
+
+function markStatusWindowDraftDirty({ rerender = false } = {}) {
+  statusWindowState.dirty = true;
+  if (rerender) renderStatusWindowPresets();
+  else {
+    renderStatusWindowPreview();
+    const save = $("statusWindowSaveButton");
+    if (save) save.disabled = false;
+  }
+}
+
+function confirmDiscardStatusWindowDraft() {
+  if (!statusWindowState.dirty) return true;
+  return window.confirm(i18n.t("statusWindow.저장하지_않은_변경을_버릴까요"));
+}
+
+async function saveStatusWindowDraft() {
+  const draft = normalizeStatusWindowPreset(statusWindowState.draft);
+  if (!draft) return;
+  if (!draft.items.length) {
+    toast(i18n.t("statusWindow.항목을_하나_이상_넣어_주세요"));
+    return;
+  }
+  const list = statusWindowState.presets.slice();
+  const at = list.findIndex((p) => p.id === draft.id);
+  if (at >= 0) list[at] = draft;
+  else {
+    if (list.length >= (statusWindowModel()?.LIMITS.presets || 30)) {
+      toast(i18n.t("statusWindow.프리셋은_30개까지_저장할_수_있어요"));
+      return;
+    }
+    list.push(draft);
+  }
+  const saved = await saveStatusWindowPresets(list);
+  statusWindowState.draft = statusWindowDraftFrom(saved.find((p) => p.id === draft.id) || draft);
+  statusWindowState.editingId = statusWindowState.draft.id;
+  statusWindowState.dirty = false;
+  renderStatusWindowPresets();
+  toast(i18n.t("statusWindow.프리셋을_저장했어요"));
+}
+
+async function deleteStatusWindowDraft() {
+  const draft = statusWindowState.draft;
+  if (!draft || !statusWindowState.presets.some((p) => p.id === draft.id)) return;
+  if (!window.confirm(i18n.t("statusWindow.프리셋을_지울까요", { name: draft.name }))) return;
+  const saved = await saveStatusWindowPresets(statusWindowState.presets.filter((p) => p.id !== draft.id));
+  const next = saved[0];
+  statusWindowState.draft = statusWindowDraftFrom(next || statusWindowTemplates()[0]);
+  if (!next) statusWindowState.draft.id = statusWindowNewId();
+  statusWindowState.dirty = !next;
+  renderStatusWindowPresets();
+  toast(i18n.t("statusWindow.프리셋을_지웠어요"));
+}
+
+function startStatusWindowDraftFrom(source, { copy = false } = {}) {
+  const draft = statusWindowDraftFrom(source);
+  draft.id = statusWindowNewId();
+  if (copy) draft.name = i18n.t("statusWindow.사본_이름", { name: draft.name });
+  statusWindowState.draft = draft;
+  statusWindowState.dirty = true;
+  renderStatusWindowPresets();
+  $("statusWindowPresetName")?.focus();
+}
+
+function setupStatusWindowPresets() {
+  const modal = $("statusWindowPresetsModal");
+  if (!modal || modal.dataset.bound === "1") return;
+  modal.dataset.bound = "1";
+  modal.querySelectorAll("[data-close-status-window]").forEach((el) => el.addEventListener("click", () => {
+    if (!confirmDiscardStatusWindowDraft()) return;
+    statusWindowState.dirty = false;
+    closeStatusWindowPresets();
+  }));
+  $("statusWindowPresetList")?.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-sw-edit]");
+    if (!row) return;
+    const preset = statusWindowState.presets.find((p) => p.id === row.getAttribute("data-sw-edit"));
+    if (!preset || preset.id === statusWindowState.draft?.id) return;
+    if (!confirmDiscardStatusWindowDraft()) return;
+    statusWindowState.draft = statusWindowDraftFrom(preset);
+    statusWindowState.dirty = false;
+    renderStatusWindowPresets();
+  });
+  $("statusWindowTemplateSelect")?.addEventListener("change", (event) => {
+    const id = event.target.value;
+    event.target.value = "";
+    const tpl = statusWindowTemplates().find((p) => p.id === id);
+    if (!tpl || !confirmDiscardStatusWindowDraft()) return;
+    startStatusWindowDraftFrom(tpl);
+  });
+  $("statusWindowDuplicateButton")?.addEventListener("click", () => {
+    if (!statusWindowState.draft || !confirmDiscardStatusWindowDraft()) return;
+    startStatusWindowDraftFrom(statusWindowState.draft, { copy: true });
+  });
+  $("statusWindowDeleteButton")?.addEventListener("click", () => deleteStatusWindowDraft().catch(handleError));
+  $("statusWindowSaveButton")?.addEventListener("click", () => saveStatusWindowDraft().catch(handleError));
+  $("statusWindowAddItem")?.addEventListener("click", () => {
+    const draft = statusWindowState.draft;
+    if (!draft) return;
+    if (draft.items.length >= (statusWindowModel()?.LIMITS.items || 40)) return;
+    draft.items.push({ name: "", group: draft.items[draft.items.length - 1]?.group || "", default: "", type: "text" });
+    markStatusWindowDraftDirty({ rerender: true });
+    const rows = $("statusWindowItems")?.querySelectorAll(".status-window-item-name");
+    rows?.[rows.length - 1]?.focus();
+  });
+  $("statusWindowPresetName")?.addEventListener("input", (event) => {
+    statusWindowState.draft.name = event.target.value;
+    markStatusWindowDraftDirty();
+  });
+  $("statusWindowPresetTitle")?.addEventListener("input", (event) => {
+    statusWindowState.draft.title = event.target.value;
+    markStatusWindowDraftDirty();
+  });
+  $("statusWindowPresetForm")?.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-sw-field]");
+    if (chip) {
+      const field = chip.getAttribute("data-sw-field");
+      const value = chip.getAttribute("data-sw-value");
+      const draft = statusWindowState.draft;
+      if (field === "background" || field === "font") draft.display[field] = value;
+      else draft[field] = value;
+      markStatusWindowDraftDirty({ rerender: true });
+      return;
+    }
+    const row = event.target.closest("[data-sw-item]");
+    if (!row) return;
+    const index = Number(row.getAttribute("data-sw-item"));
+    const items = statusWindowState.draft.items;
+    const move = event.target.closest("[data-sw-item-move]");
+    if (move) {
+      const to = index + Number(move.getAttribute("data-sw-item-move"));
+      if (to < 0 || to >= items.length) return;
+      [items[index], items[to]] = [items[to], items[index]];
+      markStatusWindowDraftDirty({ rerender: true });
+      return;
+    }
+    if (event.target.closest("[data-sw-item-remove]")) {
+      items.splice(index, 1);
+      markStatusWindowDraftDirty({ rerender: true });
+    }
+  });
+  const onItemField = (event) => {
+    const input = event.target.closest("[data-sw-item-field]");
+    const row = event.target.closest("[data-sw-item]");
+    if (!input || !row) return;
+    const item = statusWindowState.draft.items[Number(row.getAttribute("data-sw-item"))];
+    if (!item) return;
+    item[input.getAttribute("data-sw-item-field")] = input.value;
+    markStatusWindowDraftDirty();
+  };
+  $("statusWindowItems")?.addEventListener("input", onItemField);
+  $("statusWindowItems")?.addEventListener("change", onItemField);
+}
+
+function setupStatusWindow() {
+  setupStatusWindowMenu();
+  setupStatusWindowPresets();
+}
+
 /* —— 특수문자 삽입 —— */
 const SPECIAL_CHARS_UNIQUE = [
   "※", "★", "☆", "○", "●", "◎", "◇", "◆", "□", "■",
@@ -8574,6 +9639,13 @@ function setupRichEditorSurface({ editor, toolbar = null, page, onInput, resolve
       });
       return;
     }
+    // 상태창: 프리셋 고르기 팝업
+    if (format === "statusWindow") {
+      rememberSelection();
+      setUiFeatureCtxTarget?.(button);
+      showStatusWindowMenu(button, getEd()).catch(handleError);
+      return;
+    }
     // 특수문자: open palette
     if (format === "specialChar") {
       rememberSelection();
@@ -8740,6 +9812,7 @@ function setupRichEditor() {
   setupFormatColorPalette();
   setupFormatListPalette();
   setupFormatSpecialPalette();
+  setupStatusWindow();
   setupFormatApplyAllMenu();
   // 본문 서식도구 하나를 원고·설정 문서(작품소개/기획의도 등)가 함께 쓴다 — 설정 문서가 열려 있으면 그쪽 편집기에 적용.
   setupRichEditorSurface({
@@ -9273,9 +10346,12 @@ function applyLiteraryLengthTagDisplay() {
 
 function applyLiteraryTrackUi() {
   const show = Boolean(state.projectId) && isLiteraryTrackTarget();
+  // 「내 문체」 상자는 모든 작품에 보인다. 문학 전용 칸(서술 기본값~고치고 싶은 습관)만 문학에서 보인다.
   document.querySelectorAll('[data-settings-section="style"]').forEach((el) => {
-    setClusterFeatureHidden(el, !show);
+    setClusterFeatureHidden(el, !state.projectId);
   });
+  setElHidden($("styleLiteraryFields"), !show);
+  if (state.projectId) ensureStyleProfileLoaded();
   setElHidden($("literaryFormBoard"), !show);
   setElHidden($("literaryFormSidebar"), !show);
   setElHidden($("contestPrepBoard"), !show);
@@ -9685,6 +10761,289 @@ function setupStyleFields() {
       scheduleStyleFieldSave(el.getAttribute("data-style-field") || "");
     });
   });
+  setupStyleProfile();
+}
+
+/* —— 「내 문체」 프로필 (docs/design-ai-context-and-style-2026-11.md §3) ——
+   모든 작품에 보인다. 저장은 /style-profile, 시점·시제·금지어는 토리 체크(/tory-check)와 같은 값.
+   AI 글쓰기 요청에는 서버가 [작가 문체 프로필] 블록으로 넣는다(앱에서 프롬프트를 고치지 않는다). */
+const STYLE_PROFILE_DIALS = ["tempo", "dialogue_ratio", "description_density", "humor"];
+const styleProfileState = {
+  projectId: 0,
+  loadGen: 0,
+  profile: null,
+  presets: {},
+  saveTimer: 0,
+  pending: {},
+};
+
+function emptyStyleProfile() {
+  return {
+    preset: "",
+    tempo: null,
+    sentence_length: null,
+    dialogue_ratio: null,
+    description_density: null,
+    humor: null,
+    habits_md: "",
+    preferred_words: [],
+    sample_text: "",
+  };
+}
+
+function styleProfileDialText(key, value) {
+  if (value == null || value === "") return "";
+  if (key === "dialogue_ratio") return `${value}%`;
+  return `${value}/5`;
+}
+
+function splitStyleWords(raw) {
+  const seen = new Set();
+  return String(raw || "")
+    .split(/[,\n]/)
+    .map((word) => word.replace(/\s+/g, " ").trim())
+    .filter((word) => {
+      const key = word.toLowerCase();
+      if (!word || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function renderStyleProfile() {
+  const root = $("styleProfileForm");
+  if (!root) return;
+  const profile = styleProfileState.profile || emptyStyleProfile();
+  const preset = String(profile.preset || "");
+  root.querySelectorAll("[data-style-preset]").forEach((chip) => {
+    const on = chip.getAttribute("data-style-preset") === preset;
+    chip.classList.toggle("is-active", on);
+    chip.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  setElHidden($("styleProfileDials"), !preset);
+  STYLE_PROFILE_DIALS.forEach((key) => {
+    const input = root.querySelector(`[data-style-dial="${key}"]`);
+    const out = root.querySelector(`[data-style-dial-out="${key}"]`);
+    const fallback = styleProfileState.presets?.custom?.[key];
+    const value = profile[key] != null ? profile[key] : fallback;
+    if (input && document.activeElement !== input && value != null) input.value = String(value);
+    if (out) out.textContent = styleProfileDialText(key, input ? Number(input.value) : value);
+  });
+  const length = profile.sentence_length || "";
+  root.querySelectorAll("[data-style-length]").forEach((tab) => {
+    const on = tab.getAttribute("data-style-length") === length;
+    tab.classList.toggle("active", on);
+    tab.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  const person = $("styleProfilePerson");
+  const tense = $("styleProfileTense");
+  if (person && document.activeElement !== person) person.value = toryCheckState.viewpoint_person || "";
+  if (tense && document.activeElement !== tense) tense.value = toryCheckState.viewpoint_tense || "";
+  const preferred = $("styleProfilePreferred");
+  if (preferred && document.activeElement !== preferred) {
+    preferred.value = (profile.preferred_words || []).join(", ");
+  }
+  const forbidden = $("styleProfileForbidden");
+  if (forbidden && document.activeElement !== forbidden) {
+    forbidden.value = (toryCheckState.forbidden_words || []).join(", ");
+  }
+  const habits = $("styleProfileHabits");
+  if (habits && document.activeElement !== habits) habits.value = String(profile.habits_md || "");
+  const sample = $("styleProfileSample");
+  if (sample && document.activeElement !== sample) sample.value = String(profile.sample_text || "");
+  updateStyleProfileSampleCount();
+}
+
+function updateStyleProfileSampleCount() {
+  const count = $("styleProfileSampleCount");
+  const sample = $("styleProfileSample");
+  if (!count || !sample) return;
+  const length = String(sample.value || "").length;
+  count.textContent = length ? i18n.t("style.글자_수", { count: length.toLocaleString(), max: "800" }) : "";
+}
+
+async function loadStyleProfile(projectId) {
+  const pid = Number(projectId) || 0;
+  const gen = ++styleProfileState.loadGen;
+  if (!pid) {
+    styleProfileState.projectId = 0;
+    styleProfileState.profile = emptyStyleProfile();
+    renderStyleProfile();
+    return;
+  }
+  const [data] = await Promise.all([
+    api(`/api/projects/${pid}/style-profile`),
+    toryCheckState.loadedProjectId === pid ? Promise.resolve() : loadToryCheckSettings(pid),
+  ]);
+  if (gen !== styleProfileState.loadGen || Number(state.projectId) !== pid) return;
+  styleProfileState.projectId = pid;
+  styleProfileState.profile = { ...emptyStyleProfile(), ...(data?.profile || {}) };
+  styleProfileState.presets = data?.presets || {};
+  renderStyleProfile();
+}
+
+function ensureStyleProfileLoaded() {
+  const pid = Number(state.projectId) || 0;
+  if (styleProfileState.projectId === pid && styleProfileState.profile) {
+    renderStyleProfile();
+    return;
+  }
+  loadStyleProfile(pid).catch(handleError);
+}
+
+/** 보낸 키만 바꿔 저장한다. 입력이 이어지면 모아서 한 번에 보낸다. */
+function queueStyleProfileSave(patch, { immediate = false } = {}) {
+  const pid = Number(state.projectId) || 0;
+  if (!pid) return;
+  styleProfileState.profile = { ...(styleProfileState.profile || emptyStyleProfile()), ...patch };
+  styleProfileState.pending = { ...styleProfileState.pending, ...patch };
+  window.clearTimeout(styleProfileState.saveTimer);
+  const run = () => {
+    const body = styleProfileState.pending;
+    styleProfileState.pending = {};
+    if (!Object.keys(body).length) return;
+    api(`/api/projects/${pid}/style-profile`, { method: "POST", body: JSON.stringify(body) })
+      .then((data) => {
+        if (Number(state.projectId) !== pid || Object.keys(styleProfileState.pending).length) return;
+        styleProfileState.profile = { ...emptyStyleProfile(), ...(data?.profile || {}) };
+        renderStyleProfile();
+      })
+      .catch(handleError);
+  };
+  if (immediate) run();
+  else styleProfileState.saveTimer = window.setTimeout(run, 600);
+}
+
+function chooseStyleProfilePreset(preset) {
+  const key = String(preset || "");
+  const patch = { preset: key };
+  // 프리셋을 바꾸면 다이얼을 그 프리셋 기본값으로 맞춘다(직접 설정은 지금 값을 그대로 둔다).
+  const values = key && key !== "custom" ? styleProfileState.presets?.[key] : null;
+  if (values) Object.assign(patch, values);
+  if (key === "custom") {
+    const current = styleProfileState.profile || {};
+    const base = styleProfileState.presets?.custom || {};
+    ["tempo", "sentence_length", "dialogue_ratio", "description_density", "humor"].forEach((field) => {
+      patch[field] = current[field] != null ? current[field] : base[field];
+    });
+  }
+  queueStyleProfileSave(patch, { immediate: true });
+  renderStyleProfile();
+}
+
+/** 다이얼을 손으로 바꾸면 프리셋은 「직접 설정」으로 바뀐다. */
+function changeStyleProfileDial(patch) {
+  const next = { ...patch };
+  if (styleProfileState.profile?.preset && styleProfileState.profile.preset !== "custom") next.preset = "custom";
+  queueStyleProfileSave(next);
+  renderStyleProfile();
+}
+
+async function suggestStyleProfileFromManuscript() {
+  const pid = Number(state.projectId) || 0;
+  if (!pid) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  const button = $("styleProfileSuggestButton");
+  const note = $("styleProfileSuggestResult");
+  if (button) button.disabled = true;
+  try {
+    const data = await api(`/api/projects/${pid}/style-profile/suggest`);
+    if (Number(state.projectId) !== pid) return;
+    if (!data?.enough) {
+      if (note) {
+        note.textContent = i18n.t("style.제안_원고_부족", {
+          chars: Number(data?.chars || 0).toLocaleString(),
+          min: Number(data?.min_chars || 1000).toLocaleString(),
+        });
+        note.hidden = false;
+      }
+      return;
+    }
+    changeStyleProfileDial({ ...(data.values || {}) });
+    if (note) {
+      const source = data.from_complete ? i18n.t("style.완성_회차") : i18n.t("style.쓴_회차");
+      let text = i18n.t("style.제안_결과", {
+        scenes: Number(data.scene_count || 0).toLocaleString(),
+        source,
+        avg: String(data.avg_sentence_chars ?? ""),
+        dialogue: String(data.values?.dialogue_ratio ?? ""),
+      });
+      if (Array.isArray(data.frequent_words) && data.frequent_words.length) {
+        text += ` ${i18n.t("style.자주_쓰는_낱말", { words: data.frequent_words.slice(0, 8).join(", ") })}`;
+      }
+      note.textContent = text;
+      note.hidden = false;
+    }
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function insertStyleProfileSampleFromEditor() {
+  const editor = $("sceneContent");
+  const range = editor ? getUsableEditorRange(editor) : null;
+  const text = range ? String(range.toString() || "").trim() : "";
+  if (!text) {
+    toast(i18n.t("style.원고에서_먼저_고르세요"));
+    return;
+  }
+  const sample = $("styleProfileSample");
+  const value = text.slice(0, 800);
+  if (sample) sample.value = value;
+  updateStyleProfileSampleCount();
+  queueStyleProfileSave({ sample_text: value }, { immediate: true });
+  if (text.length > 800) toast(i18n.t("style.예시_800자까지"));
+}
+
+function setupStyleProfile() {
+  const root = $("styleProfileForm");
+  if (!root || root.dataset.bound === "1") return;
+  root.dataset.bound = "1";
+  root.querySelectorAll("[data-style-preset]").forEach((chip) => {
+    chip.addEventListener("click", () => chooseStyleProfilePreset(chip.getAttribute("data-style-preset")));
+  });
+  root.querySelectorAll("[data-style-dial]").forEach((input) => {
+    const key = input.getAttribute("data-style-dial");
+    input.addEventListener("input", () => {
+      const out = root.querySelector(`[data-style-dial-out="${key}"]`);
+      if (out) out.textContent = styleProfileDialText(key, Number(input.value));
+    });
+    input.addEventListener("change", () => changeStyleProfileDial({ [key]: Number(input.value) }));
+  });
+  root.querySelectorAll("[data-style-length]").forEach((tab) => {
+    tab.addEventListener("click", () => changeStyleProfileDial({ sentence_length: tab.getAttribute("data-style-length") }));
+  });
+  // 바뀐 칸 하나만 보낸다(둘을 연달아 바꿀 때 앞 요청이 뒤 값을 지우지 않게).
+  const onViewpoint = (field, value) => {
+    persistToryCheckSettings({ [field]: value || null })
+      .then(() => scheduleToryCheckRefresh({ immediate: true }))
+      .catch(handleError);
+  };
+  $("styleProfilePerson")?.addEventListener("change", (event) => onViewpoint("viewpoint_person", event.target.value));
+  $("styleProfileTense")?.addEventListener("change", (event) => onViewpoint("viewpoint_tense", event.target.value));
+  $("styleProfilePreferred")?.addEventListener("change", (event) => {
+    queueStyleProfileSave({ preferred_words: splitStyleWords(event.target.value) }, { immediate: true });
+  });
+  $("styleProfileForbidden")?.addEventListener("change", (event) => {
+    persistToryCheckSettings({ forbidden_words: splitStyleWords(event.target.value) })
+      .then(() => {
+        scheduleToryCheckRefresh({ immediate: true });
+        renderStyleProfile();
+      })
+      .catch(handleError);
+  });
+  $("styleProfileHabits")?.addEventListener("input", (event) => {
+    queueStyleProfileSave({ habits_md: String(event.target.value || "").slice(0, 2000) });
+  });
+  $("styleProfileSample")?.addEventListener("input", (event) => {
+    updateStyleProfileSampleCount();
+    queueStyleProfileSave({ sample_text: String(event.target.value || "").slice(0, 800) });
+  });
+  $("styleProfileSuggestButton")?.addEventListener("click", () => {
+    suggestStyleProfileFromManuscript().catch(handleError);
+  });
+  // 버튼을 누르는 순간 편집기 선택이 풀리지 않게 mousedown에서 기억해 둔다.
+  $("styleProfileSampleFromEditor")?.addEventListener("mousedown", () => rememberLastEditorSelection($("sceneContent")));
+  $("styleProfileSampleFromEditor")?.addEventListener("click", insertStyleProfileSampleFromEditor);
 }
 
 function bindLiteraryFormRadios() {
@@ -21613,7 +22972,7 @@ function runToryCheckActiveTab() {
     return;
   }
   const tab = toryCheckState.tab;
-  const result = engine.analyze(tab, getEditorPlainText(), toryCheckSettingsPayload());
+  const result = engine.analyze(tab, getEditorPlainText(null, { excludeStatusWindows: true }), toryCheckSettingsPayload());
   paintToryCheckResult(result);
 }
 
@@ -30465,6 +31824,140 @@ function getContinueUserHint() {
   return String($("continueHint")?.value || "").trim();
 }
 
+/* —— 이어쓰기 방향 칩 + 「이 장면 맞춤 제안」 (docs/design-ai-context-and-style-2026-11.md §4.1) ——
+   칩은 방향 힌트 칸을 채운다. 3버전(후킹·전개·전환)이 모두 같은 힌트를 받으므로 모두 그 방향을 따른다.
+   칩 이름은 i18n, 채우는 문장은 한국어로 고정한다(모델이 받는 지시가 언어에 따라 흔들리지 않게). */
+const CONTINUE_DIRECTION_HINTS = {
+  tension: "긴장감을 끌어올리는 방향으로 이어 써 줘",
+  monologue: "인물의 내면 독백을 중심으로 이어 써 줘",
+  dialogue: "대사로 장면을 밀고 나가 줘",
+  transition: "장면을 전환해 다음 장소나 시간으로 넘어가 줘",
+  foreshadow: "앞으로 드러날 떡밥을 슬쩍 암시해 줘",
+  emotion: "인물의 감정을 고조시키는 방향으로 이어 써 줘",
+};
+let continueSuggestInFlight = false;
+let continueSuggestSceneId = 0;
+
+function syncContinueDirectionChips() {
+  const value = getContinueUserHint();
+  document.querySelectorAll("#continueDirectionRow [data-continue-direction]").forEach((chip) => {
+    const on = CONTINUE_DIRECTION_HINTS[chip.getAttribute("data-continue-direction")] === value;
+    chip.classList.toggle("is-active", on);
+    chip.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  document.querySelectorAll("#continueSuggestRow [data-continue-suggestion]").forEach((chip) => {
+    const on = chip.getAttribute("data-continue-suggestion") === value;
+    chip.classList.toggle("is-active", on);
+    chip.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+function setContinueHintValue(text) {
+  const el = $("continueHint");
+  if (!el) return;
+  // 같은 칩을 다시 누르면 힌트를 비운다.
+  el.value = getContinueUserHint() === text ? "" : String(text || "").slice(0, 500);
+  syncContinueDirectionChips();
+}
+
+function renderContinueSuggestions(directions) {
+  const row = $("continueSuggestRow");
+  if (!row) return;
+  row.replaceChildren();
+  (directions || []).forEach((text) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "rewrite-preset-chip continue-suggest-chip";
+    chip.setAttribute("data-continue-suggestion", text);
+    chip.textContent = text;
+    row.appendChild(chip);
+  });
+  row.classList.toggle("hidden", !(directions || []).length);
+  syncContinueDirectionChips();
+}
+
+async function requestContinueSuggestions() {
+  if (continueSuggestInFlight) return;
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  if (!state.sceneId) return toast(i18n.t("app.이어_쓰려면_먼저_씬을_열어_주세요"));
+  const scenePlain = manuscriptPlainForTory(getEditorContent() || "");
+  if (!scenePlain) return toast(i18n.t("app.이어_쓰려면_원고_본문이_필요해요_본문을_먼"));
+  const button = $("continueSuggestButton");
+  const status = $("continueSuggestStatus");
+  const sceneId = state.sceneId;
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  continueSuggestInFlight = true;
+  if (button) button.disabled = true;
+  if (status) status.textContent = i18n.t("continueDir.제안_받는_중");
+  try {
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify({
+        mode: "continue_directions",
+        project_title: project?.title || "",
+        purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+        main_genre: mainGenre,
+        sub_genre: subGenre,
+        main_genre_label: mainGenreLabel(mainGenre),
+        sub_genre_label: subGenreLabel(mainGenre, subGenre),
+        keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+        scene_title: state.scene?.title || $("sceneTitle")?.value || "",
+        scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+        scene_content: scenePlain,
+        user_hint: getContinueUserHint(),
+        project_id: state.projectId || null,
+        ...buildToryProjectContextPayload(),
+      }),
+    });
+    if (state.sceneId !== sceneId) return;
+    const directions = Array.isArray(result?.directions) ? result.directions.filter(Boolean) : [];
+    continueSuggestSceneId = sceneId;
+    renderContinueSuggestions(directions);
+    if (status) status.textContent = directions.length ? i18n.t("continueDir.하나를_고르면_방향_힌트에_들어가요") : i18n.t("continueDir.제안을_받지_못했어요");
+  } catch (error) {
+    if (status) status.textContent = "";
+    handleError(error);
+  } finally {
+    continueSuggestInFlight = false;
+    if (button) button.disabled = false;
+  }
+}
+
+function setupContinueDirectionChips() {
+  // 다른 회차에서 받은 제안은 지금 장면과 맞지 않으므로 지운다.
+  if (continueSuggestSceneId && continueSuggestSceneId !== state.sceneId) {
+    continueSuggestSceneId = 0;
+    renderContinueSuggestions([]);
+    if ($("continueSuggestStatus")) $("continueSuggestStatus").textContent = "";
+  }
+  const row = $("continueDirectionRow");
+  if (!row || row.dataset.bound === "1") {
+    syncContinueDirectionChips();
+    return;
+  }
+  row.dataset.bound = "1";
+  row.addEventListener("click", (event) => {
+    const chip = event.target?.closest?.("[data-continue-direction]");
+    if (!chip) return;
+    event.preventDefault();
+    const hint = CONTINUE_DIRECTION_HINTS[chip.getAttribute("data-continue-direction")];
+    if (hint) setContinueHintValue(hint);
+  });
+  $("continueSuggestRow")?.addEventListener("click", (event) => {
+    const chip = event.target?.closest?.("[data-continue-suggestion]");
+    if (!chip) return;
+    event.preventDefault();
+    setContinueHintValue(chip.getAttribute("data-continue-suggestion") || "");
+  });
+  $("continueSuggestButton")?.addEventListener("click", () => {
+    requestContinueSuggestions().catch(handleError);
+  });
+  $("continueHint")?.addEventListener("input", syncContinueDirectionChips);
+  syncContinueDirectionChips();
+}
+
 /** "current" | "other" — which page to continue from. */
 function getContinueSourceMode() {
   const checked = document.querySelector('input[name="continueSourceMode"]:checked');
@@ -30608,6 +32101,7 @@ function updateContinuePanelVisibility() {
   if (showContinue) {
     renderContinueLengthOptions();
     if (typeof updateContinueSourceUi === "function") updateContinueSourceUi();
+    setupContinueDirectionChips();
   }
   // Panels for popup modes stay visible inside the modal only when that mode is active.
   panel?.classList.toggle("hidden", !showContinue);
@@ -31797,6 +33291,8 @@ function insertTextIntoSceneEditor(text, options = {}) {
       selection.removeAllRanges();
       selection.addRange(range);
       inserted = true;
+      // 넣은 글을 연한 배경으로 표시하고 확정/되돌리기를 띄운다(본문에는 표식을 남기지 않는다).
+      if (options.mark !== false && options.checkpoint !== false) markAiInsertedNode(editor, node);
     }
   }
   if (!inserted) {
@@ -31808,6 +33304,142 @@ function insertTextIntoSceneEditor(text, options = {}) {
   markSceneDirty();
   toast(i18n.t('app.원고에_넣었어요_자동_저장됩니다'));
   return true;
+}
+
+/* —— AI 결과 「표시된 블록」 (docs/design-ai-context-and-style-2026-11.md §4.3, 결정: 일시 표시) ——
+   AI 결과를 원고에 넣으면 그 글을 CSS Custom Highlight로 연하게 칠하고, 바로 아래에 [되돌리기 · 확정] 막대를 띄운다.
+   본문 HTML에는 아무 표식도 넣지 않으므로 저장·내보내기·뷰어에 새지 않는다. 새로고침·회차 이동이면 표시는 사라진다.
+   넣기 직전 원고는 이미 이전 버전에 ★(before_ai_insert)로 남아 있다. */
+const AI_INSERT_HIGHLIGHT = "ai-insert";
+const aiInsertMark = { range: null, editor: null, sceneId: 0, inserted: "", original: null, bar: null, raf: 0, bound: false };
+
+function aiInsertHighlightSupported() {
+  return typeof CSS !== "undefined" && Boolean(CSS.highlights) && typeof Highlight === "function";
+}
+
+function clearAiInsertMark() {
+  if (aiInsertHighlightSupported()) CSS.highlights.delete(AI_INSERT_HIGHLIGHT);
+  aiInsertMark.bar?.remove();
+  window.cancelAnimationFrame(aiInsertMark.raf);
+  Object.assign(aiInsertMark, { range: null, editor: null, sceneId: 0, inserted: "", original: null, bar: null, raf: 0 });
+}
+
+function aiInsertMarkAlive() {
+  const { range, editor, sceneId } = aiInsertMark;
+  if (!range || !editor || !editor.isConnected) return false;
+  if (Number(state.sceneId) !== Number(sceneId)) return false;
+  return editor.contains(range.startContainer) && editor.contains(range.endContainer) && !range.collapsed;
+}
+
+/** node: 방금 넣은 Text 노드. original: 바꾸기(다듬기)였다면 원래 글 — 되돌리면 그 글로 돌아간다. */
+function markAiInsertedNode(editor, node, { original = null } = {}) {
+  clearAiInsertMark();
+  if (!aiInsertHighlightSupported() || !editor || !node || editor.id !== "sceneContent") return;
+  const range = document.createRange();
+  range.setStart(node, 0);
+  range.setEnd(node, node.length);
+  Object.assign(aiInsertMark, {
+    range,
+    editor,
+    sceneId: Number(state.sceneId) || 0,
+    inserted: range.toString(),
+    original: original == null ? null : String(original),
+  });
+  CSS.highlights.set(AI_INSERT_HIGHLIGHT, new Highlight(range));
+  ensureAiInsertBar();
+  bindAiInsertTracking();
+  scheduleAiInsertBarPosition();
+}
+
+function ensureAiInsertBar() {
+  if (aiInsertMark.bar?.isConnected) return aiInsertMark.bar;
+  const bar = document.createElement("div");
+  bar.className = "ai-insert-bar";
+  bar.setAttribute("role", "group");
+  bar.setAttribute("aria-label", i18n.t("aiInsert.AI가_넣은_글"));
+  bar.innerHTML = `<span class="ai-insert-bar-label">${escapeHtml(i18n.t("aiInsert.AI가_넣은_글"))}</span>`
+    + `<button type="button" class="ai-insert-bar-btn" data-ai-insert="revert">${escapeHtml(i18n.t("aiInsert.되돌리기"))}</button>`
+    + `<button type="button" class="ai-insert-bar-btn primary" data-ai-insert="keep">${escapeHtml(i18n.t("aiInsert.확정"))}</button>`;
+  // 막대를 눌러도 편집기 커서가 움직이지 않게 한다.
+  bar.addEventListener("mousedown", (event) => event.preventDefault());
+  bar.addEventListener("click", (event) => {
+    const action = event.target?.closest?.("[data-ai-insert]")?.getAttribute("data-ai-insert");
+    if (action === "keep") confirmAiInsertMark();
+    else if (action === "revert") revertAiInsertMark();
+  });
+  document.body.appendChild(bar);
+  aiInsertMark.bar = bar;
+  return bar;
+}
+
+function confirmAiInsertMark() {
+  clearAiInsertMark();
+  toast(i18n.t("aiInsert.확정했어요"));
+}
+
+function revertAiInsertMark() {
+  if (!aiInsertMarkAlive()) {
+    clearAiInsertMark();
+    return;
+  }
+  const { range, editor, inserted, original } = aiInsertMark;
+  if (range.toString() !== inserted && !window.confirm(i18n.t("aiInsert.고친_내용도_함께_되돌려요"))) return;
+  range.deleteContents();
+  if (original != null && original !== "") {
+    range.insertNode(document.createTextNode(original));
+  }
+  clearAiInsertMark();
+  updateEditorPlaceholder(editor);
+  updateSceneStats();
+  markSceneDirty();
+  toast(original != null ? i18n.t("aiInsert.원래_글로_되돌렸어요") : i18n.t("aiInsert.넣은_글을_뺐어요"));
+}
+
+function aiInsertScrollBox(editor) {
+  let el = editor?.parentElement || null;
+  while (el && el !== document.body) {
+    const overflow = getComputedStyle(el).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return el.getBoundingClientRect();
+    el = el.parentElement;
+  }
+  return { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth };
+}
+
+function positionAiInsertBar() {
+  aiInsertMark.raf = 0;
+  if (!aiInsertMark.range) return;
+  if (!aiInsertMarkAlive()) {
+    clearAiInsertMark();
+    return;
+  }
+  const bar = ensureAiInsertBar();
+  const rects = [...aiInsertMark.range.getClientRects()].filter((rect) => rect.width > 0 || rect.height > 0);
+  const last = rects[rects.length - 1];
+  const box = aiInsertScrollBox(aiInsertMark.editor);
+  if (!last || last.bottom < box.top || last.top > box.bottom) {
+    bar.classList.add("is-offscreen");
+    return;
+  }
+  bar.classList.remove("is-offscreen");
+  const width = bar.offsetWidth || 220;
+  const height = bar.offsetHeight || 32;
+  const top = Math.min(last.bottom + 6, box.bottom - height - 6);
+  const left = Math.max(box.left + 8, Math.min(last.left, box.right - width - 8));
+  bar.style.top = `${Math.round(top)}px`;
+  bar.style.left = `${Math.round(left)}px`;
+}
+
+function scheduleAiInsertBarPosition() {
+  if (!aiInsertMark.range || aiInsertMark.raf) return;
+  aiInsertMark.raf = window.requestAnimationFrame(positionAiInsertBar);
+}
+
+function bindAiInsertTracking() {
+  if (aiInsertMark.bound) return;
+  aiInsertMark.bound = true;
+  document.addEventListener("scroll", scheduleAiInsertBarPosition, true);
+  window.addEventListener("resize", scheduleAiInsertBarPosition);
+  $("sceneContent")?.addEventListener("input", scheduleAiInsertBarPosition);
 }
 
 function insertAiResultIntoEditor(text) {
@@ -34621,6 +36253,13 @@ function setupFormatMorePopover() {
   pop.addEventListener("click", (event) => {
     const fmt = event.target.closest("[data-isl-fmt]");
     if (fmt) {
+      if (fmt.dataset.islFmt === "statusWindow") {
+        close();
+        window.setTimeout(() => {
+          showStatusWindowMenu(btn, getActiveRichEditor() || $("sceneContent")).catch(handleError);
+        }, 0);
+        return;
+      }
       if (fmt.dataset.islFmt === "specialChar") {
         // 숨겨진 툴바 버튼은 위치를 잡을 수 없어 팔레트가 열리자마자 닫힌다 → 더보기 버튼 아래에 직접 연다
         close();
@@ -41430,7 +43069,7 @@ const SETTINGS_BOOKMARK_META = {
     open: () => openSettingsDocMain("synopsis"),
   },
   keywords: { title: i18n.t('app.장르_키워드'), open: () => openKeywordBoard() },
-  style: { title: i18n.t('app.문체'), open: () => openSettingsCollectionMain("style") },
+  style: { title: i18n.t('style.내_문체'), open: () => openSettingsCollectionMain("style") },
   // Per-doc keys (field → buttons / bookmarks)
   synopsis: { title: i18n.t('app.시놉시스'), open: () => openSettingsDocMain("synopsis") },
   logline: { title: i18n.t('app.로그라인'), open: () => openSettingsDocMain("logline") },
@@ -42357,7 +43996,7 @@ const SETTINGS_COLLECTION_MAIN = {
   },
   // 문체: 여섯 칸 입력 묶음을 메인으로 옮겨 표시 (같은 입력칸이라 저장은 그대로)
   style: {
-    title: i18n.t('app.문체'),
+    title: i18n.t('style.내_문체'),
     hint: "",
     section: "style",
     listId: "styleFields",
@@ -61261,6 +62900,7 @@ function pageWriteEmbedTitle(kind) {
     image: "index.쪽쓰기_삽입물_이미지",
     footnote: "index.쪽쓰기_삽입물_각주",
     note: "index.쪽쓰기_삽입물_작가의_말",
+    status: "statusWindow.쪽쓰기_삽입물_상태창",
   }[kind] || "index.쪽쓰기_삽입물_기타";
   return i18n.t(key);
 }
@@ -66596,7 +68236,7 @@ async function runSpellcheck(options = {}) {
   const prefer = options.prefer || "auto"; // auto | gemini
   const editor = getActiveRichEditor() || $("sceneContent");
   if (!editor) return toast(i18n.t('app.검사할_편집기가_없어요'));
-  const text = getEditorPlainText(editor).trim();
+  const text = getEditorPlainText(editor, { excludeStatusWindows: true }).trim();
   if (!text) return toast(i18n.t('app.검사할_글을_먼저_적어_주세요'));
 
   const status = $("spellcheckStatus");
@@ -77889,6 +79529,8 @@ function applyPendingRewriteToEditor() {
       selection?.removeAllRanges();
       selection?.addRange(range);
       applied = true;
+      // 다듬은 글을 표시하고, 되돌리면 원래 문장으로 돌아가게 한다.
+      if (!isSettings) markAiInsertedNode(editor, node, { original });
     }
   } catch (_) {
     applied = false;
@@ -77915,6 +79557,7 @@ function applyPendingRewriteToEditor() {
       selection?.removeAllRanges();
       selection?.addRange(insertRange);
       applied = true;
+      if (!isSettings) markAiInsertedNode(editor, node);
     } catch (_) {
       applied = false;
     }
@@ -78872,6 +80515,7 @@ async function openScene(sceneId, options = {}) {
     toast(i18n.t('app.씬을_열_수_없어요'));
     return;
   }
+  if (nextId !== Number(state.sceneId)) clearAiInsertMark(); // AI 넣은 글 표시는 그 회차에서만
   settingsDocOpenGen += 1; // a pending openSettingsDocMain must not cover the scene
   if (
     typeof isGlumpSprintActive === "function"
