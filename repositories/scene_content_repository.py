@@ -182,3 +182,106 @@ class SceneContentRepository:
         if updated is None:
             raise ValueError("회차를 찾을 수 없습니다.")
         return updated
+
+    # —— 이전 버전(이력 조회)과 체크포인트 표시 ——
+    # scene_revision은 수정·삭제가 막혀 있으므로(트리거) 읽기만 하고,
+    # 체크포인트는 scene_revision_mark(마이그레이션 107)에 따로 기록한다.
+
+    def list_revisions(
+        self, scene_id: int, *, limit: int = 200, offset: int = 0
+    ) -> tuple[list[dict], int]:
+        """Newest first, without bodies. Returns (rows, total)."""
+        scene_id = int(scene_id)
+        total = self.connection.execute(
+            "SELECT COUNT(*) FROM scene_revision WHERE scene_id = ?", (scene_id,)
+        ).fetchone()[0]
+        rows = self.connection.execute(
+            "SELECT revision_no, word_count, save_note, is_current, created_at "
+            "FROM scene_revision WHERE scene_id = ? "
+            "ORDER BY revision_no DESC LIMIT ? OFFSET ?",
+            (scene_id, max(1, int(limit)), max(0, int(offset))),
+        ).fetchall()
+        return [dict(row) for row in rows], int(total or 0)
+
+    def get_revision(self, scene_id: int, revision_no: int) -> dict | None:
+        row = self.connection.execute(
+            "SELECT revision_no, content_md, word_count, save_note, is_current, created_at "
+            "FROM scene_revision WHERE scene_id = ? AND revision_no = ?",
+            (int(scene_id), int(revision_no)),
+        ).fetchone()
+        return _as_dict(row)
+
+    def word_count_before(self, scene_id: int, revision_no: int) -> int | None:
+        """Word count of the revision just before ``revision_no`` (None if first)."""
+        row = self.connection.execute(
+            "SELECT word_count FROM scene_revision WHERE scene_id = ? AND revision_no < ? "
+            "ORDER BY revision_no DESC LIMIT 1",
+            (int(scene_id), int(revision_no)),
+        ).fetchone()
+        return int(row[0] or 0) if row is not None else None
+
+    def list_marks(self, scene_id: int) -> list[dict]:
+        rows = self.connection.execute(
+            "SELECT revision_no, reason, label, created_at FROM scene_revision_mark "
+            "WHERE scene_id = ? ORDER BY revision_no DESC, id ASC",
+            (int(scene_id),),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_mark(
+        self, scene_id: int, revision_no: int, reason: str, label: str = ""
+    ) -> None:
+        """Mark a revision. The same reason twice keeps one row (label updated)."""
+        self.connection.execute(
+            "INSERT INTO scene_revision_mark(scene_id, revision_no, reason, label) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(scene_id, revision_no, reason) DO UPDATE SET label = excluded.label",
+            (int(scene_id), int(revision_no), str(reason), str(label or "")),
+        )
+
+    def remove_marks(
+        self, scene_id: int, revision_no: int, reason: str | None = None
+    ) -> int:
+        if reason is None:
+            cursor = self.connection.execute(
+                "DELETE FROM scene_revision_mark WHERE scene_id = ? AND revision_no = ?",
+                (int(scene_id), int(revision_no)),
+            )
+        else:
+            cursor = self.connection.execute(
+                "DELETE FROM scene_revision_mark "
+                "WHERE scene_id = ? AND revision_no = ? AND reason = ?",
+                (int(scene_id), int(revision_no), str(reason)),
+            )
+        return int(cursor.rowcount or 0)
+
+    def mark_current_before_change(
+        self,
+        scene_id: int,
+        reason: str,
+        *,
+        next_content: str | None = None,
+        skip_blank: bool = True,
+    ) -> int | None:
+        """Mark the current revision before something replaces it.
+
+        When ``next_content`` is given and equals the current body, nothing is
+        replaced, so nothing is marked. An empty body (a brand-new scene) is not
+        worth a checkpoint unless ``skip_blank`` is False. Returns the marked
+        revision number.
+        """
+        current = self.connection.execute(
+            "SELECT revision_no, content_md FROM scene_revision "
+            "WHERE scene_id = ? AND is_current = 1",
+            (int(scene_id),),
+        ).fetchone()
+        if current is None:
+            return None
+        body = str(current["content_md"] or "")
+        if skip_blank and not body.strip():
+            return None
+        if next_content is not None and body == str(next_content):
+            return None
+        revision_no = int(current["revision_no"])
+        self.add_mark(scene_id, revision_no, reason)
+        return revision_no

@@ -332,6 +332,7 @@ from routes import (  # noqa: E402
     gitsi_api,
     glump_api,
     reader_api,
+    scene_revision_api,
     success_pattern_api,
     translation_api,
     webnovel_cliche_api,
@@ -6393,6 +6394,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             if webnovel_cliche_api.try_handle_get(self, path):
                 return
+            if scene_revision_api.try_handle_get(self, path):
+                return
 
             if gitsi_api.try_handle_get(self, path):
                 return
@@ -6947,6 +6950,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return
 
             if webnovel_cliche_api.try_handle_post(self, path, body):
+                return
+
+            if scene_revision_api.try_handle_post(self, path, body):
                 return
 
             if gitsi_api.try_handle_post(self, path, body):
@@ -19815,6 +19821,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         # scene_tag may exist on older DBs with tags enabled.
         try:
             connection.execute("DELETE FROM scene_tag WHERE scene_id = ?", (scene_id,))
+        except sqlite3.Error:
+            pass
+
+        # 이전 버전의 체크포인트 표시(107). 원고 이력과 함께 지운다.
+        try:
+            connection.execute("DELETE FROM scene_revision_mark WHERE scene_id = ?", (scene_id,))
         except sqlite3.Error:
             pass
 

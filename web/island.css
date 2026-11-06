@@ -5100,3 +5100,57 @@ html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn.is-save-fail
   font-weight: 500;
   color: var(--isl-ink2);
 }
+
+/* ── 회차 「이전 버전」 (docs/design-ai-context-and-style-2026-11.md §7-1) ──
+   아이콘줄은 「비교」 바로 뒤. 넓은 패널(.is-wide-panel-card) 안에서 목록 ↔ 상세 두 화면. */
+#formatIconsToolbar [data-icon-key="revisions"] { order: 6; }
+.scene-revisions-card { --isl-diff-ins: color-mix(in srgb, var(--isl-st-complete) 24%, var(--panel)); --isl-diff-del: color-mix(in srgb, var(--isl-st-revision) 55%, var(--panel)); }
+.scene-revisions-view { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.scene-revisions-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.scene-revisions-scene { font-size: 12.5px; color: var(--isl-ink2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scene-revisions-mark-now { font-size: 12px !important; padding: 5px 10px !important; white-space: nowrap; }
+.scene-revisions-label-row { display: flex; gap: 6px; }
+.scene-revisions-label-row input { flex: 1; min-width: 0; font-size: 12.5px; padding: 6px 10px; border: 0; border-radius: var(--isl-r-sm, 9px); background: var(--isl-sunk); color: var(--text-primary); }
+.scene-revisions-list { max-height: min(58vh, 560px); overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.scene-revisions-day { font-size: 11.5px; font-weight: 500; color: var(--isl-ink3); padding: 8px 4px 3px; }
+.scene-revision-row, .scene-revision-group {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 10px;
+  width: 100%; text-align: left; padding: 7px 9px; border: 0; border-radius: var(--isl-r-sm, 9px);
+  background: transparent; color: var(--text-primary); font-size: 12.5px; cursor: pointer;
+}
+.scene-revision-row:hover, .scene-revision-group:hover, .scene-revision-row.is-selected { background: var(--isl-sunk); }
+.scene-revision-group { color: var(--isl-ink2); }
+.scene-revision-group-body { padding-left: 14px; border-left: 1px solid var(--line); margin-left: 9px; }
+.scene-revision-time { font-variant-numeric: tabular-nums; color: var(--isl-ink2); white-space: nowrap; }
+.scene-revision-note { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; overflow-wrap: anywhere; }
+.scene-revision-count { font-size: 11.5px; color: var(--isl-ink3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.scene-revision-count em { font-style: normal; margin-left: 6px; }
+.scene-revision-count em.is-up { color: var(--isl-st-complete); }
+.scene-revision-count em.is-down { color: var(--isl-ink2); }
+.scene-revision-mark, .scene-revision-now { font-size: 11px; border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+.scene-revision-mark { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); color: var(--accent); }
+.scene-revision-now { background: var(--isl-sunk); color: var(--isl-ink2); }
+.scene-revisions-empty { font-size: 12.5px; color: var(--isl-ink3); padding: 12px 4px; margin: 0; }
+.scene-revisions-more { align-self: center; font-size: 12px !important; }
+.scene-revisions-detail-head { display: flex; align-items: baseline; gap: 10px; }
+.scene-revisions-back { border: 0; background: transparent; color: var(--isl-ink2); font-size: 12.5px; padding: 4px 2px; cursor: pointer; white-space: nowrap; }
+.scene-revisions-back:hover { color: var(--text-primary); }
+.scene-revisions-meta { font-size: 12px; color: var(--isl-ink2); min-width: 0; overflow-wrap: anywhere; }
+.scene-revisions-seg { align-self: flex-start; }
+.scene-revisions-body {
+  max-height: min(52vh, 520px); overflow: auto; padding: 12px 14px; border-radius: var(--isl-r-sm, 9px);
+  background: var(--isl-sunk); font-family: var(--font-editor); font-size: 13.5px; line-height: 1.75; color: var(--text-primary);
+}
+.scene-revisions-body p { margin: 0 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.scene-diff-legend { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-family: var(--font-ui); font-size: 11.5px; color: var(--isl-ink2); margin-bottom: 8px; }
+.scene-diff-key { border-radius: 6px; padding: 1px 6px; }
+.scene-diff-key.is-del, .scene-diff-line del { background: var(--isl-diff-del); }
+.scene-diff-key.is-ins, .scene-diff-line ins { background: var(--isl-diff-ins); }
+.scene-diff-line del { text-decoration: line-through; text-decoration-thickness: 1px; }
+.scene-diff-line ins { text-decoration: none; }
+.scene-diff-line.is-same { color: var(--isl-ink2); }
+.scene-diff-skip { font-family: var(--font-ui); font-size: 11.5px; color: var(--isl-ink3); text-align: center; }
+.scene-revisions-actions { flex-wrap: wrap; gap: 6px; }
+/* 넓은 패널은 하단 보조 버튼(보통 「닫기」)을 숨기므로, 이 패널의 동작 버튼은 다시 보이게 한다. */
+.is-wide-panel-card .scene-revisions-actions > .secondary { display: inline-flex; align-items: center; height: 32px; min-height: 32px; padding: 0 12px; }
+.scene-revisions-actions button { font-size: 12.5px; }

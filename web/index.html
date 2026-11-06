@@ -2454,6 +2454,19 @@
                   </span>
                   <span class="format-tool-label" data-i18n="index.비교_보기">비교</span>
                 </button>
+                <button
+                  type="button"
+                  class="format-tool-item format-revisions-btn"
+                  id="sceneRevisionsButton"
+                  data-icon-key="revisions"
+                  title="이전 버전 보기" data-i18n-title="revisions.이전_버전_보기"
+                  aria-label="이전 버전 보기" data-i18n-aria-label="revisions.이전_버전_보기"
+                >
+                  <span class="format-tool-glyph" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+                  </span>
+                  <span class="format-tool-label" data-i18n="revisions.버전">버전</span>
+                </button>
                 <div class="view-mode-control format-split-control" id="formatSplitControl" data-icon-key="split">
                   <button
                     id="splitViewButton"
@@ -9016,6 +9029,48 @@
         <div class="modal-actions">
           <button type="button" class="secondary" data-close-dupcheck-target data-i18n="app.닫기">닫기</button>
           <button type="button" class="primary" id="dupcheckTargetConfirm" data-i18n="app.확인">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="sceneRevisionsModal" class="modal hidden tory-helper-modal scene-revisions-modal" role="dialog" aria-modal="true" aria-labelledby="sceneRevisionsTitle">
+      <div class="modal-backdrop" data-close-scene-revisions></div>
+      <div class="modal-card tory-helper-card scene-revisions-card">
+        <div class="modal-heading">
+          <h2 id="sceneRevisionsTitle" class="tory-helper-title" data-i18n="revisions.이전_버전">이전 버전</h2>
+          <button type="button" class="modal-close" data-close-scene-revisions title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
+        </div>
+        <div class="guide-tip-box tory-lead-tip" role="note">
+          <p class="tory-helper-lead guide-tip-text" data-i18n="revisions.안내">저장할 때마다 이전 버전이 쌓여요. 되돌려도 지금 원고는 「되돌리기 전」으로 남아요.</p>
+        </div>
+        <div class="scene-revisions-view" id="sceneRevisionsListView">
+          <div class="scene-revisions-bar">
+            <span class="scene-revisions-scene" id="sceneRevisionsSceneTitle"></span>
+            <button type="button" class="secondary scene-revisions-mark-now" id="sceneRevisionsMarkNow" data-i18n="revisions.지금_원고_표시하기">★ 지금 원고 표시하기</button>
+          </div>
+          <div class="scene-revisions-label-row hidden" id="sceneRevisionsLabelRow">
+            <input type="text" id="sceneRevisionsLabelInput" maxlength="60" placeholder="예: 1차 퇴고 끝" data-i18n-placeholder="revisions.표시_이름_예시" aria-label="표시 이름" data-i18n-aria-label="revisions.표시_이름">
+            <button type="button" class="primary" id="sceneRevisionsLabelSave" data-i18n="revisions.표시">표시</button>
+          </div>
+          <div class="scene-revisions-list" id="sceneRevisionsList" role="list" aria-live="polite"></div>
+          <button type="button" class="secondary scene-revisions-more hidden" id="sceneRevisionsMore" data-i18n="revisions.더_오래된_버전_보기">더 오래된 버전 보기</button>
+        </div>
+        <div class="scene-revisions-view hidden" id="sceneRevisionsDetailView">
+          <div class="scene-revisions-detail-head">
+            <button type="button" class="scene-revisions-back" id="sceneRevisionsBack" data-i18n="revisions.목록으로">‹ 목록</button>
+            <div class="scene-revisions-meta" id="sceneRevisionsDetailMeta"></div>
+          </div>
+          <div class="seg-control scene-revisions-seg" role="tablist" aria-label="보기" data-i18n-aria-label="revisions.보기">
+            <button type="button" role="tab" class="seg-control-tab is-active" aria-selected="true" data-rev-view="preview" data-i18n="revisions.이_버전">이 버전</button>
+            <button type="button" role="tab" class="seg-control-tab" aria-selected="false" data-rev-view="diff" data-i18n="revisions.지금과_비교">지금과 비교</button>
+          </div>
+          <div class="scene-revisions-body" id="sceneRevisionsBody" tabindex="0"></div>
+          <div class="modal-actions scene-revisions-actions">
+            <button type="button" class="secondary" id="sceneRevisionsStar" data-i18n="revisions.표시하기">★ 표시하기</button>
+            <button type="button" class="secondary" id="sceneRevisionsCopy" data-i18n="revisions.복사">복사</button>
+            <button type="button" class="secondary" id="sceneRevisionsInsertSel" title="이 버전에서 드래그로 고른 부분을 원고 끝에 넣어요" data-i18n-title="revisions.선택한_부분_넣기_설명" data-i18n="revisions.선택한_부분_넣기">선택한 부분 넣기</button>
+            <button type="button" class="primary" id="sceneRevisionsRestore" data-i18n="revisions.이_버전으로_되돌리기">이 버전으로 되돌리기</button>
+          </div>
         </div>
       </div>
     </div>
