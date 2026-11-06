@@ -3743,6 +3743,599 @@ function setupFindBar() {
   });
 }
 
+/* —— 회차 「이전 버전」 (docs/design-ai-context-and-style-2026-11.md §7-1) ——
+ * 이력(scene_revision)은 서버에서 읽기만 한다. 되돌리기는 고른 버전으로 새 버전을 만들고,
+ * 바로 전 원고에는 「되돌리기 전」 ★가 남는다. ★ 표시는 scene_revision_mark에 따로 기록된다.
+ */
+const SCENE_REVISIONS_PAGE = 200;
+const SCENE_REVISIONS_GROUP_GAP_MS = 10 * 60 * 1000;
+const SCENE_REVISIONS_EQUAL_KEEP = 2;
+const SCENE_REVISION_REASON_KEYS = {
+  manual: "revisions.표시_직접",
+  before_restore: "revisions.표시_되돌리기_전",
+  before_ai_insert: "revisions.표시_AI_넣기_전",
+  before_replace_all: "revisions.표시_모두_바꾸기_전",
+  before_complete: "revisions.표시_완성_전",
+  before_overwrite: "revisions.표시_덮어쓰기_전",
+};
+const sceneRevisionsState = {
+  sceneId: null,
+  rows: [],
+  total: 0,
+  selectedNo: null,
+  detail: null,
+  diff: null,
+  view: "preview",
+  expanded: new Set(),
+};
+
+function sceneRevisionsLocaleTag() {
+  const lang = typeof i18n.getLang === "function" ? i18n.getLang() : "ko";
+  if (lang === "en") return "en-US";
+  if (lang === "es") return "es-ES";
+  return "ko-KR";
+}
+
+function parseRevisionTime(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const date = new Date(/Z$|[+-]\d\d:?\d\d$/.test(raw) ? raw : `${raw}Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatRevisionClock(date) {
+  if (!date) return "";
+  return date.toLocaleTimeString(sceneRevisionsLocaleTag(), { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatRevisionDay(date) {
+  if (!date) return "";
+  const today = new Date();
+  const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((dayStart(today) - dayStart(date)) / 86400000);
+  if (days === 0) return i18n.t("revisions.오늘");
+  if (days === 1) return i18n.t("revisions.어제");
+  const options = { month: "long", day: "numeric" };
+  if (date.getFullYear() !== today.getFullYear()) options.year = "numeric";
+  return date.toLocaleDateString(sceneRevisionsLocaleTag(), options);
+}
+
+function sceneRevisionMarkText(mark) {
+  const label = String(mark?.label || "").trim();
+  if (label) return label;
+  const key = SCENE_REVISION_REASON_KEYS[mark?.reason];
+  return key ? i18n.t(key) : "";
+}
+
+function sceneRevisionNoteText(note) {
+  const raw = String(note || "").trim();
+  const restored = /^@restore:(\d+)$/.exec(raw);
+  if (restored) return i18n.t("revisions.n번에서_되돌림", { n: restored[1] });
+  if (!raw) return i18n.t("app.저장");
+  return raw;
+}
+
+function isRoutineSceneRevision(row) {
+  if (!row || row.is_current || (Array.isArray(row.marks) && row.marks.length)) return false;
+  const note = String(row.save_note || "").trim();
+  if (note.startsWith("@")) return false;
+  const routine = new Set([
+    "", "저장", "자동 저장", "수동 저장",
+    i18n.t("app.저장"), i18n.t("app.자동_저장"), i18n.t("app.수동_저장"),
+  ]);
+  return routine.has(note);
+}
+
+/** 날짜별로 묶고, 10분 안쪽으로 이어진 평범한 저장은 한 줄로 접는다(최신이 위). */
+function groupSceneRevisions(rows) {
+  const days = [];
+  let day = null;
+  let run = null;
+  const flushRun = () => {
+    if (!run || !day) return;
+    if (run.rows.length === 1) day.items.push({ type: "row", row: run.rows[0] });
+    else day.items.push({ type: "group", rows: run.rows, key: `g${run.rows[0].revision_no}` });
+    run = null;
+  };
+  rows.forEach((row) => {
+    const at = parseRevisionTime(row.created_at);
+    const label = formatRevisionDay(at);
+    if (!day || day.label !== label) {
+      flushRun();
+      day = { label, items: [] };
+      days.push(day);
+    }
+    if (isRoutineSceneRevision(row)) {
+      const last = run ? run.rows[run.rows.length - 1] : null;
+      const lastAt = last ? parseRevisionTime(last.created_at) : null;
+      if (run && lastAt && at && Math.abs(lastAt - at) <= SCENE_REVISIONS_GROUP_GAP_MS) {
+        run.rows.push(row);
+        return;
+      }
+      flushRun();
+      run = { rows: [row] };
+      return;
+    }
+    flushRun();
+    day.items.push({ type: "row", row });
+  });
+  flushRun();
+  return days;
+}
+
+function sceneRevisionDeltaText(delta) {
+  if (delta == null) return "";
+  if (delta === 0) return "±0";
+  return delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`;
+}
+
+function sceneRevisionRowHtml(row) {
+  const at = parseRevisionTime(row.created_at);
+  const marks = (row.marks || [])
+    .map((mark) => `<span class="scene-revision-mark">★ ${escapeHtml(sceneRevisionMarkText(mark))}</span>`)
+    .join("");
+  const now = row.is_current
+    ? `<span class="scene-revision-now">${escapeHtml(i18n.t("revisions.지금"))}</span>`
+    : "";
+  const deltaClass = row.delta > 0 ? "is-up" : row.delta < 0 ? "is-down" : "";
+  const selected = Number(row.revision_no) === Number(sceneRevisionsState.selectedNo) ? " is-selected" : "";
+  return `<button type="button" class="scene-revision-row${selected}" role="listitem" data-revision-no="${Number(row.revision_no)}">`
+    + `<span class="scene-revision-time">${escapeHtml(formatRevisionClock(at))}</span>`
+    + `<span class="scene-revision-note">${escapeHtml(sceneRevisionNoteText(row.save_note))}${now}${marks}</span>`
+    + `<span class="scene-revision-count">${escapeHtml(i18n.t("revisions.n어절", { n: Number(row.word_count || 0).toLocaleString() }))}`
+    + `<em class="${deltaClass}">${escapeHtml(sceneRevisionDeltaText(row.delta))}</em></span>`
+    + `</button>`;
+}
+
+function sceneRevisionGroupHtml(item) {
+  const newest = item.rows[0];
+  const oldest = item.rows[item.rows.length - 1];
+  const open = sceneRevisionsState.expanded.has(item.key);
+  const from = formatRevisionClock(parseRevisionTime(oldest.created_at));
+  const to = formatRevisionClock(parseRevisionTime(newest.created_at));
+  const span = from === to ? from : `${from}–${to}`;
+  const head = `<button type="button" class="scene-revision-group${open ? " is-open" : ""}" data-revision-group="${escapeHtml(item.key)}" aria-expanded="${open ? "true" : "false"}">`
+    + `<span class="scene-revision-time">${escapeHtml(span)}</span>`
+    + `<span class="scene-revision-note">${escapeHtml(i18n.t("revisions.저장_n건", { n: item.rows.length }))}</span>`
+    + `<span class="scene-revision-count" aria-hidden="true">${open ? "▾" : "▸"}</span>`
+    + `</button>`;
+  if (!open) return head;
+  return `${head}<div class="scene-revision-group-body">${item.rows.map(sceneRevisionRowHtml).join("")}</div>`;
+}
+
+function renderSceneRevisionsList() {
+  const host = $("sceneRevisionsList");
+  if (!host) return;
+  const rows = sceneRevisionsState.rows;
+  if (!rows.length) {
+    host.innerHTML = `<p class="scene-revisions-empty">${escapeHtml(i18n.t("revisions.아직_저장된_버전이_없어요"))}</p>`;
+  } else {
+    host.innerHTML = groupSceneRevisions(rows)
+      .map((day) => `<div class="scene-revisions-day">${escapeHtml(day.label)}</div>`
+        + day.items.map((item) => (item.type === "group" ? sceneRevisionGroupHtml(item) : sceneRevisionRowHtml(item.row))).join(""))
+      .join("");
+  }
+  $("sceneRevisionsMore")?.classList.toggle("hidden", rows.length >= sceneRevisionsState.total);
+}
+
+function showSceneRevisionsView(which) {
+  $("sceneRevisionsListView")?.classList.toggle("hidden", which !== "list");
+  $("sceneRevisionsDetailView")?.classList.toggle("hidden", which !== "detail");
+}
+
+async function loadSceneRevisions({ append = false } = {}) {
+  const sceneId = sceneRevisionsState.sceneId;
+  if (!sceneId) return;
+  const offset = append ? sceneRevisionsState.rows.length : 0;
+  try {
+    const data = await api(`/api/scenes/${sceneId}/revisions?limit=${SCENE_REVISIONS_PAGE}&offset=${offset}`);
+    if (sceneRevisionsState.sceneId !== sceneId) return;
+    const rows = Array.isArray(data?.revisions) ? data.revisions : [];
+    sceneRevisionsState.rows = append ? sceneRevisionsState.rows.concat(rows) : rows;
+    sceneRevisionsState.total = Number(data?.total || sceneRevisionsState.rows.length);
+    renderSceneRevisionsList();
+  } catch (error) {
+    toast(error?.message || i18n.t("revisions.이전_버전을_불러오지_못했어요"));
+  }
+}
+
+async function openSceneRevisions() {
+  if (!state.sceneId) {
+    toast(i18n.t("revisions.회차를_먼저_열어_주세요"));
+    return;
+  }
+  const sceneId = Number(state.sceneId);
+  // 지금 쓰던 내용도 목록에 보이게 먼저 저장한다(로컬 초안은 persistScene이 먼저 남긴다).
+  if (sceneDirty) {
+    cancelScheduledAutoSave();
+    try { await persistScene({ quiet: true }); } catch (_) { /* 원고는 이 기기에 남아 있다 */ }
+  }
+  sceneRevisionsState.sceneId = sceneId;
+  sceneRevisionsState.rows = [];
+  sceneRevisionsState.total = 0;
+  sceneRevisionsState.selectedNo = null;
+  sceneRevisionsState.detail = null;
+  sceneRevisionsState.diff = null;
+  sceneRevisionsState.view = "preview";
+  sceneRevisionsState.expanded = new Set();
+  showSceneRevisionsView("list");
+  $("sceneRevisionsLabelRow")?.classList.add("hidden");
+  const titleEl = $("sceneRevisionsSceneTitle");
+  if (titleEl) titleEl.textContent = $("sceneTitle")?.value?.trim() || state.scene?.title || "";
+  const list = $("sceneRevisionsList");
+  if (list) list.innerHTML = `<p class="scene-revisions-empty">${escapeHtml(i18n.t("revisions.불러오는_중"))}</p>`;
+  presentModalInWidePanel($("sceneRevisionsModal"), {
+    id: "sceneRevisionsModal",
+    title: i18n.t("revisions.이전_버전"),
+    sourceEl: $("sceneRevisionsButton"),
+  });
+  await loadSceneRevisions();
+}
+
+function closeSceneRevisions() {
+  const modal = $("sceneRevisionsModal");
+  releaseWideHostedModal(modal);
+  modal?.classList.add("hidden");
+  sceneRevisionsState.sceneId = null;
+}
+
+function setSceneRevisionsTab(view) {
+  sceneRevisionsState.view = view === "diff" ? "diff" : "preview";
+  document.querySelectorAll("#sceneRevisionsDetailView [data-rev-view]").forEach((btn) => {
+    const on = btn.getAttribute("data-rev-view") === sceneRevisionsState.view;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+}
+
+async function openSceneRevisionDetail(revisionNo) {
+  const sceneId = sceneRevisionsState.sceneId;
+  const no = Number(revisionNo);
+  if (!sceneId || !no) return;
+  sceneRevisionsState.selectedNo = no;
+  sceneRevisionsState.detail = null;
+  sceneRevisionsState.diff = null;
+  setSceneRevisionsTab("preview");
+  showSceneRevisionsView("detail");
+  const body = $("sceneRevisionsBody");
+  if (body) {
+    body.classList.remove("is-diff");
+    body.textContent = i18n.t("revisions.불러오는_중");
+  }
+  const meta = $("sceneRevisionsDetailMeta");
+  if (meta) meta.textContent = "";
+  try {
+    const detail = await api(`/api/scenes/${sceneId}/revisions/${no}`);
+    if (sceneRevisionsState.selectedNo !== no || sceneRevisionsState.sceneId !== sceneId) return;
+    sceneRevisionsState.detail = detail;
+    renderSceneRevisionDetail();
+  } catch (error) {
+    if (body) body.textContent = error?.message || i18n.t("revisions.이전_버전을_불러오지_못했어요");
+  }
+}
+
+function renderSceneRevisionDetail() {
+  const detail = sceneRevisionsState.detail;
+  if (!detail) return;
+  const at = parseRevisionTime(detail.created_at);
+  const meta = $("sceneRevisionsDetailMeta");
+  if (meta) {
+    const marks = (detail.marks || []).map((mark) => `★ ${sceneRevisionMarkText(mark)}`).join(" · ");
+    meta.textContent = [
+      `${formatRevisionDay(at)} ${formatRevisionClock(at)}`,
+      sceneRevisionNoteText(detail.save_note),
+      i18n.t("revisions.n어절", { n: Number(detail.word_count || 0).toLocaleString() }),
+      marks,
+    ].filter(Boolean).join(" · ");
+  }
+  const star = $("sceneRevisionsStar");
+  if (star) {
+    star.textContent = (detail.marks || []).length
+      ? i18n.t("revisions.표시_지우기")
+      : i18n.t("revisions.표시하기");
+  }
+  const restore = $("sceneRevisionsRestore");
+  if (restore) restore.disabled = Boolean(detail.is_current);
+  if (sceneRevisionsState.view === "diff") renderSceneRevisionDiff();
+  else renderSceneRevisionPreview();
+}
+
+function renderSceneRevisionPreview() {
+  const body = $("sceneRevisionsBody");
+  const detail = sceneRevisionsState.detail;
+  if (!body || !detail) return;
+  body.classList.remove("is-diff");
+  const lines = String(detail.plain_text || "").split("\n").map((line) => line.trim()).filter(Boolean);
+  body.innerHTML = lines.length
+    ? lines.map((line) => `<p>${escapeHtml(line)}</p>`).join("")
+    : `<p class="scene-revisions-empty">${escapeHtml(i18n.t("revisions.빈_원고"))}</p>`;
+}
+
+function sceneRevisionDiffLine(text, kind) {
+  if (kind === "del") return `<p class="scene-diff-line is-del"><del>${escapeHtml(text)}</del></p>`;
+  if (kind === "ins") return `<p class="scene-diff-line is-ins"><ins>${escapeHtml(text)}</ins></p>`;
+  return `<p class="scene-diff-line is-same">${escapeHtml(text)}</p>`;
+}
+
+async function renderSceneRevisionDiff() {
+  const body = $("sceneRevisionsBody");
+  const sceneId = sceneRevisionsState.sceneId;
+  const no = sceneRevisionsState.selectedNo;
+  if (!body || !sceneId || !no) return;
+  body.classList.add("is-diff");
+  if (!sceneRevisionsState.diff) {
+    body.textContent = i18n.t("revisions.불러오는_중");
+    try {
+      const diff = await api(`/api/scenes/${sceneId}/revisions/${no}/diff`);
+      if (sceneRevisionsState.selectedNo !== no) return;
+      sceneRevisionsState.diff = diff;
+    } catch (error) {
+      body.textContent = error?.message || i18n.t("revisions.이전_버전을_불러오지_못했어요");
+      return;
+    }
+  }
+  if (sceneRevisionsState.view !== "diff") return;
+  const diff = sceneRevisionsState.diff;
+  const stats = diff?.stats || {};
+  if (stats.identical) {
+    body.innerHTML = `<p class="scene-revisions-empty">${escapeHtml(i18n.t("revisions.지금_원고와_같아요"))}</p>`;
+    return;
+  }
+  const parts = [
+    `<div class="scene-diff-legend">`
+      + `<span class="scene-diff-key is-del">${escapeHtml(i18n.t("revisions.이_버전에만_있음"))}</span>`
+      + `<span class="scene-diff-key is-ins">${escapeHtml(i18n.t("revisions.지금_원고에만_있음"))}</span>`
+      + `<span class="scene-diff-sum">${escapeHtml(i18n.t("revisions.비교_요약", {
+        added: Number(stats.added_chars || 0).toLocaleString(),
+        removed: Number(stats.removed_chars || 0).toLocaleString(),
+      }))}</span>`
+      + `</div>`,
+  ];
+  (diff.ops || []).forEach((op) => {
+    const lines = Array.isArray(op.lines) ? op.lines : [];
+    if (op.type === "equal") {
+      if (lines.length > SCENE_REVISIONS_EQUAL_KEEP * 2 + 1) {
+        lines.slice(0, SCENE_REVISIONS_EQUAL_KEEP).forEach((line) => parts.push(sceneRevisionDiffLine(line, "same")));
+        parts.push(`<p class="scene-diff-skip">${escapeHtml(i18n.t("revisions.같은_문단_n개", { n: lines.length - SCENE_REVISIONS_EQUAL_KEEP * 2 }))}</p>`);
+        lines.slice(-SCENE_REVISIONS_EQUAL_KEEP).forEach((line) => parts.push(sceneRevisionDiffLine(line, "same")));
+      } else {
+        lines.forEach((line) => parts.push(sceneRevisionDiffLine(line, "same")));
+      }
+    } else if (op.type === "delete") {
+      lines.forEach((line) => parts.push(sceneRevisionDiffLine(line, "del")));
+    } else if (op.type === "insert") {
+      lines.forEach((line) => parts.push(sceneRevisionDiffLine(line, "ins")));
+    } else if (op.type === "change") {
+      const inner = (op.parts || []).map((part) => {
+        if (part.op === "delete") return `<del>${escapeHtml(part.text)}</del>`;
+        if (part.op === "insert") return `<ins>${escapeHtml(part.text)}</ins>`;
+        return escapeHtml(part.text);
+      }).join("");
+      parts.push(`<p class="scene-diff-line is-change">${inner}</p>`);
+    }
+  });
+  if (diff.truncated) {
+    parts.push(`<p class="scene-diff-skip">${escapeHtml(i18n.t("revisions.너무_길어_일부만_비교했어요"))}</p>`);
+  }
+  body.innerHTML = parts.join("");
+}
+
+function isOpenSceneLockedComplete() {
+  return ($("sceneStatus")?.value || state.scene?.status || "") === "complete";
+}
+
+async function restoreSelectedSceneRevision() {
+  const detail = sceneRevisionsState.detail;
+  const sceneId = sceneRevisionsState.sceneId;
+  if (!detail || !sceneId || detail.is_current) return;
+  if (Number(state.sceneId) !== sceneId) {
+    toast(i18n.t("revisions.다른_회차가_열려_있어요"));
+    return;
+  }
+  if (isOpenSceneLockedComplete()) {
+    toast(i18n.t("revisions.완성_회차는_잠겨_있어요"));
+    return;
+  }
+  if (!confirm(i18n.t("revisions.되돌리기_확인", { n: detail.revision_no }))) return;
+  // 1) 지금 원고를 먼저 남긴다(로컬 초안 → 서버). 서버에 못 남기면 되돌리지 않는다.
+  cancelScheduledAutoSave();
+  try {
+    const saved = await persistScene({ quiet: true });
+    if (saved?.localOnly) {
+      toast(i18n.t("revisions.저장이_안_돼서_되돌릴_수_없어요"));
+      return;
+    }
+  } catch (_) {
+    toast(i18n.t("revisions.저장이_안_돼서_되돌릴_수_없어요"));
+    return;
+  }
+  if (autoSaveInFlight) await waitForSceneSaveIdle();
+  // 2) 서버가 고른 버전으로 새 버전을 만들고, 바로 전 원고에는 「되돌리기 전」 ★를 남긴다.
+  try {
+    const result = await api(`/api/scenes/${sceneId}/revisions/${detail.revision_no}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ row_version: Number(state.scene?.row_version || 0) }),
+    });
+    await openScene(sceneId);
+    toast(i18n.t("revisions.n번_버전으로_되돌렸어요", { n: result?.restored_from ?? detail.revision_no }));
+    sceneRevisionsState.selectedNo = null;
+    sceneRevisionsState.detail = null;
+    sceneRevisionsState.diff = null;
+    showSceneRevisionsView("list");
+    await loadSceneRevisions();
+  } catch (error) {
+    toast(error?.message || i18n.t("revisions.되돌리지_못했어요"));
+  }
+}
+
+async function toggleSceneRevisionStar() {
+  const detail = sceneRevisionsState.detail;
+  const sceneId = sceneRevisionsState.sceneId;
+  if (!detail || !sceneId) return;
+  const on = !(detail.marks || []).length;
+  try {
+    const result = await api(`/api/scenes/${sceneId}/checkpoint`, {
+      method: "POST",
+      body: JSON.stringify({ revision_no: detail.revision_no, checkpoint: on, reason: "manual" }),
+    });
+    detail.marks = Array.isArray(result?.marks) ? result.marks : [];
+    const row = sceneRevisionsState.rows.find((item) => Number(item.revision_no) === Number(detail.revision_no));
+    if (row) row.marks = detail.marks;
+    renderSceneRevisionDetail();
+  } catch (error) {
+    toast(error?.message || i18n.t("revisions.표시하지_못했어요"));
+  }
+}
+
+async function markCurrentSceneRevision() {
+  const sceneId = sceneRevisionsState.sceneId;
+  if (!sceneId) return;
+  const label = $("sceneRevisionsLabelInput")?.value || "";
+  if (sceneDirty && Number(state.sceneId) === sceneId) {
+    cancelScheduledAutoSave();
+    try { await persistScene({ quiet: true }); } catch (_) { /* 원고는 이 기기에 남아 있다 */ }
+  }
+  if (autoSaveInFlight) await waitForSceneSaveIdle();
+  try {
+    await api(`/api/scenes/${sceneId}/checkpoint`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "manual", label }),
+    });
+    $("sceneRevisionsLabelRow")?.classList.add("hidden");
+    if ($("sceneRevisionsLabelInput")) $("sceneRevisionsLabelInput").value = "";
+    toast(i18n.t("revisions.지금_원고를_표시했어요"));
+    await loadSceneRevisions();
+  } catch (error) {
+    toast(error?.message || i18n.t("revisions.표시하지_못했어요"));
+  }
+}
+
+async function copySceneRevisionText() {
+  const text = String(sceneRevisionsState.detail?.plain_text || "");
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(i18n.t("revisions.복사했어요"));
+  } catch (_) {
+    toast(i18n.t("app.복사에_실패했어요"));
+  }
+}
+
+/** 이전 버전에서 고른 글을 지금 원고 끝에 붙인다(패널을 누르면 원고 커서가 풀리므로 끝에 넣는다). */
+function insertSelectedSceneRevisionText() {
+  const body = $("sceneRevisionsBody");
+  const selection = window.getSelection();
+  let text = "";
+  if (body && selection && selection.rangeCount > 0
+    && body.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+    text = selection.toString().trim();
+  }
+  if (!text) {
+    toast(i18n.t("revisions.넣을_부분을_먼저_선택해_주세요"));
+    return;
+  }
+  if (Number(state.sceneId) !== sceneRevisionsState.sceneId) {
+    toast(i18n.t("revisions.다른_회차가_열려_있어요"));
+    return;
+  }
+  if (isOpenSceneLockedComplete()) {
+    toast(i18n.t("revisions.완성_회차는_잠겨_있어요"));
+    return;
+  }
+  const editor = $("sceneContent");
+  if (!editor) return;
+  const html = escapeHtml(text).replace(/\r\n|\r|\n/g, "<br>");
+  editor.innerHTML = (editor.innerHTML || "") + (editor.innerHTML ? "<br><br>" : "") + html;
+  updateEditorPlaceholder();
+  updateSceneStats();
+  markSceneDirty();
+  toast(i18n.t("revisions.원고_끝에_넣었어요"));
+}
+
+/**
+ * AI 결과를 원고에 넣기 직전 원고를 이전 버전에 ★로 남긴다(설계 결정 8).
+ * 넣기를 늦추거나 막지 않는다: 저장·표시는 뒤에서 진행되고, 실패해도 조용히 넘어간다.
+ */
+function checkpointBeforeAiInsert() {
+  if (!state.sceneId) return;
+  const sceneId = Number(state.sceneId);
+  const mark = (revisionNo) => {
+    const no = Number(revisionNo || 0);
+    if (!no) return;
+    api(`/api/scenes/${sceneId}/checkpoint`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "before_ai_insert", revision_no: no }),
+    }).catch((error) => console.warn("[supertory] checkpoint skipped", error));
+  };
+  try {
+    if (autoSaveInFlight) {
+      waitForSceneSaveIdle().then(() => mark(state.scene?.revision_no)).catch(() => {});
+      return;
+    }
+    if (!sceneDirty) {
+      mark(state.scene?.revision_no);
+      return;
+    }
+    cancelScheduledAutoSave();
+    // persistScene은 첫 await 전에 지금 본문을 읽으므로, AI 결과를 넣기 전 원고가 저장된다.
+    persistScene({ quiet: true })
+      .then((saved) => {
+        if (saved && !saved.localOnly) mark(saved.revision_no ?? state.scene?.revision_no);
+      })
+      .catch(() => {});
+  } catch (error) {
+    console.warn("[supertory] checkpoint skipped", error);
+  }
+}
+
+function setupSceneRevisions() {
+  $("sceneRevisionsButton")?.addEventListener("click", () => { openSceneRevisions(); });
+  document.querySelectorAll("[data-close-scene-revisions]").forEach((el) => {
+    el.addEventListener("click", closeSceneRevisions);
+  });
+  $("sceneRevisionsList")?.addEventListener("click", (event) => {
+    const group = event.target?.closest?.("[data-revision-group]");
+    if (group) {
+      const key = group.getAttribute("data-revision-group");
+      if (sceneRevisionsState.expanded.has(key)) sceneRevisionsState.expanded.delete(key);
+      else sceneRevisionsState.expanded.add(key);
+      renderSceneRevisionsList();
+      return;
+    }
+    const row = event.target?.closest?.("[data-revision-no]");
+    if (row) openSceneRevisionDetail(Number(row.getAttribute("data-revision-no")));
+  });
+  $("sceneRevisionsMore")?.addEventListener("click", () => { loadSceneRevisions({ append: true }); });
+  $("sceneRevisionsBack")?.addEventListener("click", () => {
+    showSceneRevisionsView("list");
+    renderSceneRevisionsList();
+  });
+  document.querySelectorAll("#sceneRevisionsDetailView [data-rev-view]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setSceneRevisionsTab(btn.getAttribute("data-rev-view"));
+      if (sceneRevisionsState.view === "diff") renderSceneRevisionDiff();
+      else renderSceneRevisionPreview();
+    });
+  });
+  $("sceneRevisionsRestore")?.addEventListener("click", () => { restoreSelectedSceneRevision(); });
+  $("sceneRevisionsStar")?.addEventListener("click", () => { toggleSceneRevisionStar(); });
+  $("sceneRevisionsCopy")?.addEventListener("click", () => { copySceneRevisionText(); });
+  $("sceneRevisionsInsertSel")?.addEventListener("click", insertSelectedSceneRevisionText);
+  $("sceneRevisionsMarkNow")?.addEventListener("click", () => {
+    const row = $("sceneRevisionsLabelRow");
+    if (!row) return;
+    row.classList.toggle("hidden");
+    if (!row.classList.contains("hidden")) $("sceneRevisionsLabelInput")?.focus();
+  });
+  $("sceneRevisionsLabelSave")?.addEventListener("click", () => { markCurrentSceneRevision(); });
+  $("sceneRevisionsLabelInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      markCurrentSceneRevision();
+    }
+  });
+}
+
 /* —— AI 유사단어 찾기 (단어찾기) —— */
 const SIMILAR_WORD_MAX_SINGLE = 40;
 const SIMILAR_WORD_MAX_PHRASE = 280;
@@ -5066,6 +5659,7 @@ function setupSceneStats() {
   $("statsCounts")?.addEventListener("dblclick", onStatChipDblClick);
 
   setupFindBar();
+  setupSceneRevisions();
   setupSimilarWordFind();
   setupTypewriterMode();
   setupSmartPunctuation();
@@ -31172,7 +31766,7 @@ async function submitAiAssist(event) {
   }
 }
 
-function insertTextIntoSceneEditor(text) {
+function insertTextIntoSceneEditor(text, options = {}) {
   const content = String(text || "").trim();
   if (!content) {
     toast(i18n.t('app.넣을_결과가_없어요'));
@@ -31184,6 +31778,8 @@ function insertTextIntoSceneEditor(text) {
   }
   const editor = $("sceneContent");
   if (!editor) return false;
+  // AI 결과를 넣기 직전 원고를 이전 버전에 ★로 남긴다(넣기를 막지 않는다).
+  if (options.checkpoint !== false) checkpointBeforeAiInsert();
   editor.focus();
   const plain = getEditorPlainText();
   const needsBreak = plain && !plain.endsWith("\n");
@@ -77614,6 +78210,7 @@ function setupRewriteCompareModal() {
     }
   });
   $("rewriteCompareApplyButton")?.addEventListener("click", () => {
+    checkpointBeforeAiInsert();
     applyPendingRewriteToEditor();
   });
   $("rewriteCompareKeepButton")?.addEventListener("click", () => {

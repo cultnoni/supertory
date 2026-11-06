@@ -173,6 +173,9 @@ class SceneContentService:
             if provided:
                 content = str(html)
                 if current["content_md"] != content:
+                    if status == "complete" and previous_status != "complete":
+                        # 완성 처리 직전 원고(따옴표 변환 전)를 이전 버전에 표시해 둔다.
+                        self._mark_before_change(repo, scene_id, "before_complete", content)
                     words = self.word_count(content)
                     saved = repo.save_new_revision(
                         scene_id,
@@ -208,6 +211,17 @@ class SceneContentService:
             scene_id, mirror_content, mirror_title, project_id
         )
         return result
+
+    @staticmethod
+    def _mark_before_change(repo, scene_id: int, reason: str, next_content: str) -> None:
+        """Checkpoint the version about to be replaced. Never fails the save."""
+        mark = getattr(repo, "mark_current_before_change", None)
+        if not callable(mark):
+            return
+        try:
+            mark(int(scene_id), reason, next_content=next_content)
+        except Exception:  # noqa: BLE001 — a missing mark must not block the manuscript
+            pass
 
     def _schedule_browser_mirror(
         self,
@@ -248,6 +262,8 @@ class SceneContentService:
     ) -> dict:
         """Shared body write for import, proof apply, and phone-draft merge."""
         repo = self.repository_factory(connection)
+        # 가져오기·교정본 반영·폰 초안이 원고를 덮어쓰기 직전 버전을 표시해 둔다.
+        self._mark_before_change(repo, scene_id, "before_overwrite", str(content))
         return repo.save_new_revision(
             scene_id,
             str(content),
