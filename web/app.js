@@ -969,6 +969,12 @@ const EDITOR_DATA_ATTR_KEEP = new Set([
   "data-fn-delete",
   "data-sg-hl-ink",
   "data-sg-hl-ink-prev",
+  "data-status-window",
+  "data-sw-frame",
+  "data-sw-align",
+  "data-sw-bg",
+  "data-sw-font",
+  "data-sw-export",
 ]);
 const SPAN_LAYOUT_PROPS = [
   "display", "transform", "transform-origin", "width", "min-width", "max-width",
@@ -1053,11 +1059,14 @@ function getEditorPlainText(editorEl = null, options = null) {
   const editor = editorEl || $("sceneContent");
   if (!editor) return "";
   const includeAuthorNotes = Boolean(options && options.includeAuthorNotes);
-  if (includeAuthorNotes) {
+  // 상태창은 독자가 보는 글이라 기본으로 센다. 맞춤법·토리 체크·「본문만」 글자 수만 뺀다.
+  const excludeStatusWindows = Boolean(options && options.excludeStatusWindows);
+  if (includeAuthorNotes && !excludeStatusWindows) {
     return (editor.innerText || editor.textContent || "").replace(/\u00a0/g, " ");
   }
   const clone = editor.cloneNode(true);
-  clone.querySelectorAll("[data-author-note], .st-author-note").forEach((el) => el.remove());
+  if (!includeAuthorNotes) clone.querySelectorAll("[data-author-note], .st-author-note").forEach((el) => el.remove());
+  if (excludeStatusWindows) clone.querySelectorAll("[data-status-window], .st-status-window").forEach((el) => el.remove());
   return (clone.innerText || clone.textContent || "").replace(/\u00a0/g, " ");
 }
 
@@ -2649,11 +2658,26 @@ function updateSceneStats() {
     node.classList.toggle("is-active", key === metric);
   });
 
+  syncStatusWindowStatChip(isProject ? null : metric);
   updateGoalProgressUi(lastStatusBarCountSnapshot);
   applySpaceSegUi();
   updateChapterSubtitleButtonState(sceneStats.chars_with_space);
   syncDockStatsTracker();
   scheduleToryCheckRefresh();
+}
+
+/** 회차에 상태창이 있으면 「본문만」(상태창을 뺀) 값을 같은 기준으로 옆에 보여 준다. */
+function syncStatusWindowStatChip(metric) {
+  const chip = $("statsStatusWindowChip");
+  if (!chip) return;
+  const editor = $("sceneContent");
+  const has = Boolean(metric && editor && editor.querySelector("[data-status-window], .st-status-window"));
+  chip.classList.toggle("hidden", !has);
+  chip.hidden = !has;
+  if (!has) return;
+  const bodyOnly = computeTextStats(getEditorPlainText(editor, { excludeStatusWindows: true }));
+  const strong = chip.querySelector("strong");
+  if (strong) strong.textContent = formatStatNumber(bodyOnly[metric] ?? 0);
 }
 
 /* —— Goal gauge colors (left-click): solid + gradient —— */
@@ -8396,6 +8420,723 @@ function setupFormatListPalette() {
   window.addEventListener("resize", hideFormatListPalette);
 }
 
+/* —— 게임물 상태창 (docs/design-ai-context-and-style-2026-11.md §13) ——
+ * 서식줄 「상태창」 → 프리셋 고르기 → 커서 자리에 상태창 블록. 블록 안에서 「상태창으로 정리」.
+ * 블록: <div class="st-status-window" data-status-window="프리셋 id" data-sw-*> 안에 줄마다 <div>.
+ * 주석 단락과 반대로 독자가 보는 글이라 저장·내보내기·뷰어·글자 수에 들어간다.
+ * 맞춤법 검사와 토리 체크는 상태창 글자를 빼고 본다(오탐 방지). 줄 규칙은 web/status_window_model.js.
+ */
+const STATUS_WINDOW_LAST_KEY = "supertory.statusWindow.lastPreset";
+const STATUS_WINDOW_SELECTOR = "[data-status-window], .st-status-window";
+const STATUS_WINDOW_DATA_ATTRS = ["data-sw-frame", "data-sw-align", "data-sw-bg", "data-sw-font", "data-sw-export"];
+const statusWindowState = {
+  projectId: 0,
+  presets: [],
+  loaded: false,
+  editor: null,
+  range: null,
+  editingId: "",
+  draft: null,
+  dirty: false,
+};
+
+function statusWindowModel() {
+  return (typeof window !== "undefined" && window.StatusWindowModel) || null;
+}
+
+function statusWindowTemplates() {
+  const t = (key) => i18n.t(`statusWindow.${key}`);
+  const item = (name, def = "", type = "text", group = "") => ({ name: t(name), default: def, type, group: group ? t(group) : "" });
+  return [
+    {
+      id: "tpl_basic", name: t("tpl_기본"), title: t("상태창"), frame: "divider", align: "left", label_style: "colon",
+      items: [
+        item("i_이름"), item("i_레벨", "1", "number"), item("i_직업"), item("i_칭호"),
+        item("i_생명력", "100/100", "ratio", "g_상태"), item("i_마나", "100/100", "ratio", "g_상태"),
+        item("i_힘", "10", "number", "g_능력치"), item("i_민첩", "10", "number", "g_능력치"),
+        item("i_체력", "10", "number", "g_능력치"), item("i_지능", "10", "number", "g_능력치"),
+        item("i_행운", "10", "number", "g_능력치"),
+      ],
+      display: { background: "soft", font: "body" }, export_mode: "keep",
+    },
+    {
+      id: "tpl_hunter", name: t("tpl_헌터"), title: t("헌터_정보"), frame: "bracket", align: "left", label_style: "colon",
+      items: [item("i_이름"), item("i_등급", "E"), item("i_소속"), item("i_레벨", "1", "number"), item("i_보유_스킬")],
+      display: { background: "soft", font: "body" }, export_mode: "keep",
+    },
+    {
+      id: "tpl_system", name: t("tpl_시스템"), title: t("시스템"), frame: "box", align: "left", label_style: "colon",
+      items: [item("i_레벨", "1", "number"), item("i_경험치", "0/100", "ratio"), item("i_골드", "0", "number"), item("i_남은_포인트", "0", "number")],
+      display: { background: "soft", font: "mono" }, export_mode: "text_safe",
+    },
+    {
+      id: "tpl_simple", name: t("tpl_간단"), title: "", frame: "none", align: "left", label_style: "spaced",
+      items: [item("i_이름"), item("i_레벨", "1", "number"), item("i_생명력", "100/100", "ratio")],
+      display: { background: "none", font: "body" }, export_mode: "keep",
+    },
+    {
+      id: "tpl_stats", name: t("tpl_능력치"), title: t("g_능력치"), frame: "divider", align: "center", label_style: "colon",
+      items: [
+        item("i_힘", "10", "number"), item("i_민첩", "10", "number"), item("i_체력", "10", "number"),
+        item("i_지능", "10", "number"), item("i_행운", "10", "number"), item("i_남은_포인트", "0", "number"),
+      ],
+      display: { background: "soft", font: "body" }, export_mode: "keep",
+    },
+  ];
+}
+
+function normalizeStatusWindowPreset(raw, index = 0) {
+  const model = statusWindowModel();
+  return model ? model.normalizePreset(raw, index) : null;
+}
+
+async function loadStatusWindowPresets({ force = false } = {}) {
+  const pid = Number(state.projectId) || 0;
+  if (!pid) return [];
+  if (!force && statusWindowState.loaded && statusWindowState.projectId === pid) return statusWindowState.presets;
+  const data = await api(`/api/projects/${pid}/status-window-presets`);
+  if (Number(state.projectId) !== pid) return [];
+  statusWindowState.projectId = pid;
+  statusWindowState.presets = Array.isArray(data?.presets) ? data.presets : [];
+  statusWindowState.loaded = true;
+  return statusWindowState.presets;
+}
+
+async function saveStatusWindowPresets(presets) {
+  const pid = Number(state.projectId) || 0;
+  if (!pid) throw new Error(i18n.t("statusWindow.작품을_먼저_열어_주세요"));
+  const data = await api(`/api/projects/${pid}/status-window-presets`, {
+    method: "POST",
+    body: JSON.stringify({ presets }),
+  });
+  statusWindowState.projectId = pid;
+  statusWindowState.presets = Array.isArray(data?.presets) ? data.presets : [];
+  statusWindowState.loaded = true;
+  return statusWindowState.presets;
+}
+
+function findStatusWindowPreset(id) {
+  const key = String(id || "");
+  if (!key) return null;
+  return statusWindowState.presets.find((p) => p.id === key)
+    || statusWindowTemplates().find((p) => p.id === key)
+    || null;
+}
+
+function lastStatusWindowPreset() {
+  let id = "";
+  try { id = localStorage.getItem(STATUS_WINDOW_LAST_KEY) || ""; } catch (_) { /* ignore */ }
+  return findStatusWindowPreset(id) || statusWindowState.presets[0] || statusWindowTemplates()[0];
+}
+
+function rememberStatusWindowPreset(id) {
+  try { localStorage.setItem(STATUS_WINDOW_LAST_KEY, String(id || "")); } catch (_) { /* ignore */ }
+}
+
+function statusWindowHostOf(node, editor) {
+  const el = node && node.nodeType === 1 ? node : node?.parentElement;
+  const host = el?.closest?.(STATUS_WINDOW_SELECTOR);
+  return host && editor && editor.contains(host) && host !== editor ? host : null;
+}
+
+function isStatusWindowEditor(editor) {
+  return Boolean(editor && state.sceneId && isManuscriptAuthorNoteEditor(editor));
+}
+
+/** 블록의 줄 글자(줄마다 <div>, 블록 안 <br>도 줄바꿈). */
+function statusWindowLinesOf(block) {
+  if (!block) return [];
+  const lines = [];
+  let current = "";
+  const flush = () => { lines.push(current); current = ""; };
+  const walk = (node, depth) => {
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === 3) { current += child.nodeValue || ""; return; }
+      if (child.nodeType !== 1) return;
+      if (child.tagName === "BR") { flush(); return; }
+      const isLine = /^(DIV|P|LI|H[1-6]|BLOCKQUOTE)$/.test(child.tagName);
+      if (isLine && current) flush();
+      walk(child, depth + 1);
+      if (isLine) flush();
+    });
+  };
+  walk(block, 0);
+  if (current) flush();
+  return lines.map((line) => line.replace(/\u00a0/g, " ").replace(/\u200b/g, ""));
+}
+
+function buildStatusWindowBlock(preset, lines) {
+  const block = document.createElement("div");
+  block.className = "st-status-window";
+  block.setAttribute("data-status-window", preset.id || "custom");
+  block.setAttribute("data-sw-frame", preset.frame);
+  block.setAttribute("data-sw-align", preset.align);
+  block.setAttribute("data-sw-bg", preset.display?.background || "none");
+  block.setAttribute("data-sw-font", preset.display?.font || "body");
+  block.setAttribute("data-sw-export", preset.export_mode || "keep");
+  (lines.length ? lines : [{ text: "" }]).forEach((line) => {
+    const row = document.createElement("div");
+    if (line.text) row.textContent = line.text;
+    else row.appendChild(document.createElement("br"));
+    block.appendChild(row);
+  });
+  return block;
+}
+
+/** 편집기 바로 아래(또는 단 나누기 안) 문단. */
+function statusWindowTopBlock(editor, node) {
+  let el = node && node.nodeType === 1 ? node : node?.parentElement;
+  if (!el || el === editor) return null;
+  while (el && el.parentElement && el.parentElement !== editor && !el.parentElement.classList?.contains("ms-dan")) {
+    el = el.parentElement;
+  }
+  return el && editor.contains(el) ? el : null;
+}
+
+function isEmptyStatusWindowLine(el) {
+  if (!el || el.nodeType !== 1) return false;
+  if (el.querySelector("img, sup.fn-ref, [data-status-window], .st-status-window")) return false;
+  return !String(el.textContent || "").replace(/[\s\u00a0\u200b]/g, "");
+}
+
+/** 커서: 값이 빈 첫 항목 → 없으면 첫 항목 → 없으면 마지막 줄의 끝. lines는 블록을 만든 줄 목록(순서 같음). */
+function placeCaretInStatusWindow(block, lines) {
+  if (!block) return;
+  const rows = [...block.children];
+  const list = Array.isArray(lines) ? lines : [];
+  let index = list.findIndex((line) => line.role === "item" && /[:：\]]$/.test(String(line.text || "").trim()));
+  if (index < 0) index = list.findIndex((line) => line.role === "item");
+  if (index < 0) index = list.map((line) => line.role).lastIndexOf("extra");
+  const target = rows[index] || rows[rows.length - 1];
+  if (!target) return;
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    range.collapse(false);
+    restoreSelection(range);
+  } catch (_) { /* ignore */ }
+}
+
+function notifyStatusWindowEdit(editor) {
+  try { hydrateAuthorNoteUi?.(editor); } catch (_) { /* ignore */ }
+  try { updateEditorPlaceholder(editor); } catch (_) { /* ignore */ }
+  try { editor.dispatchEvent(new Event("input", { bubbles: true })); } catch (_) { /* ignore */ }
+  if (editor.id === "splitSceneBodyEditor") markSplitDirty?.();
+  else if (editor.id === "sceneContent" && state.sceneId) markSceneDirty?.();
+}
+
+function statusWindowEditorAndRange() {
+  const editor = statusWindowState.editor || getActiveRichEditor() || $("sceneContent");
+  let range = statusWindowState.range;
+  try {
+    if (range && !editor.contains(range.commonAncestorContainer)) range = null;
+  } catch (_) { range = null; }
+  if (!range) range = currentEditorRange(editor);
+  return { editor, range };
+}
+
+function statusWindowGuard(editor) {
+  if (!isStatusWindowEditor(editor)) {
+    toast(i18n.t("statusWindow.원고_회차에서만_쓸_수_있어요"));
+    return false;
+  }
+  if (!editor.isContentEditable) {
+    toast(i18n.t("statusWindow.지금은_원고를_고칠_수_없어요"));
+    return false;
+  }
+  if (!statusWindowModel()) {
+    toast(i18n.t("statusWindow.상태창을_불러오지_못했어요"));
+    return false;
+  }
+  return true;
+}
+
+/** 고른 범위에 걸친 문단(편집기 바로 아래 줄)들. 상태창 안이면 그 상태창 하나. */
+function statusWindowSelectedBlocks(editor, range) {
+  if (!range || range.collapsed) return [];
+  const parents = new Set([editor, ...editor.querySelectorAll(".ms-dan")]);
+  const out = [];
+  parents.forEach((parent) => {
+    [...parent.children].forEach((child) => {
+      if (child.classList?.contains("ms-dan")) return;
+      try {
+        if (range.intersectsNode(child)) out.push(child);
+      } catch (_) { /* ignore */ }
+    });
+  });
+  return out.filter((block) => !block.closest(".fn-footer"));
+}
+
+function insertStatusWindow(presetId) {
+  const { editor, range } = statusWindowEditorAndRange();
+  if (!statusWindowGuard(editor)) return;
+  const preset = normalizeStatusWindowPreset(findStatusWindowPreset(presetId) || lastStatusWindowPreset());
+  if (!preset) return;
+  const model = statusWindowModel();
+  rememberStatusWindowPreset(preset.id);
+  focusEditor(editor);
+
+  // 글을 고른 채 누르면 그 글을 상태창으로 정리한다(글은 잃지 않는다).
+  const selected = statusWindowSelectedBlocks(editor, range);
+  if (selected.length) {
+    // 그림·각주·주석 단락은 줄 글자로 옮길 수 없으니 바꾸지 않는다(원고 보호).
+    if (selected.some((block) => block.matches("img, sup.fn-ref, [data-author-note], .st-author-note")
+      || block.querySelector("img, sup.fn-ref, [data-author-note], .st-author-note"))) {
+      toast(i18n.t("statusWindow.그림_각주_주석이_있는_글은_바꿀_수_없어요"));
+      return;
+    }
+    const lines = [];
+    selected.forEach((block) => lines.push(...statusWindowLinesOf(block)));
+    const tidy = model.tidyLines(preset, lines);
+    const next = buildStatusWindowBlock(preset, tidy);
+    selected[0].parentNode.insertBefore(next, selected[0]);
+    selected.forEach((block) => block.remove());
+    ensureLineAfterStatusWindow(next);
+    placeCaretInStatusWindow(next, tidy);
+    notifyStatusWindowEdit(editor);
+    return;
+  }
+
+  const rendered = model.renderLines(preset);
+  const block = buildStatusWindowBlock(preset, rendered);
+  const anchor = range ? range.startContainer : null;
+  const host = statusWindowHostOf(anchor, editor);
+  const top = host || statusWindowTopBlock(editor, anchor);
+  if (top && !host && isEmptyStatusWindowLine(top)) {
+    top.replaceWith(block);
+  } else if (top) {
+    top.after(block);
+  } else if (range && anchor === editor) {
+    const ref = editor.childNodes[range.startOffset] || null;
+    editor.insertBefore(block, ref);
+  } else {
+    editor.appendChild(block);
+  }
+  ensureLineAfterStatusWindow(block);
+  placeCaretInStatusWindow(block, rendered);
+  notifyStatusWindowEdit(editor);
+}
+
+function ensureLineAfterStatusWindow(block) {
+  const next = block.nextElementSibling;
+  if (next && !next.matches(STATUS_WINDOW_SELECTOR)) return;
+  const line = document.createElement("div");
+  line.appendChild(document.createElement("br"));
+  block.after(line);
+}
+
+function tidyStatusWindowAtCaret() {
+  const { editor, range } = statusWindowEditorAndRange();
+  if (!statusWindowGuard(editor)) return;
+  const model = statusWindowModel();
+  const host = range ? statusWindowHostOf(range.startContainer, editor) : null;
+  if (!host) {
+    if (range && !range.collapsed && statusWindowSelectedBlocks(editor, range).length) {
+      insertStatusWindow(lastStatusWindowPreset()?.id);
+      return;
+    }
+    toast(i18n.t("statusWindow.상태창_안에_커서를_두거나_글을_골라_주세요"));
+    return;
+  }
+  let preset = findStatusWindowPreset(host.getAttribute("data-status-window"));
+  if (!preset) {
+    preset = lastStatusWindowPreset();
+    toast(i18n.t("statusWindow.프리셋이_없어_마지막_프리셋으로_정리했어요", { name: preset?.name || "" }));
+  }
+  preset = normalizeStatusWindowPreset(preset);
+  if (!preset) return;
+  const tidy = model.tidyLines(preset, statusWindowLinesOf(host));
+  const next = buildStatusWindowBlock(preset, tidy);
+  host.replaceWith(next);
+  ensureLineAfterStatusWindow(next);
+  focusEditor(editor);
+  placeCaretInStatusWindow(next, tidy);
+  notifyStatusWindowEdit(editor);
+}
+
+/* 서식줄 팝업 */
+function hideStatusWindowMenu() {
+  const menu = $("statusWindowMenu");
+  if (!menu) return;
+  menu.classList.add("hidden");
+  document.querySelectorAll(".format-status-window-btn").forEach((btn) => btn.setAttribute("aria-expanded", "false"));
+}
+
+function renderStatusWindowMenu() {
+  const host = $("statusWindowMenuList");
+  if (!host) return;
+  const last = lastStatusWindowPreset();
+  const row = (preset) => `
+    <button type="button" class="status-window-menu-item${preset.id === last?.id ? " is-last" : ""}" role="menuitem" data-sw-insert="${escapeHtml(preset.id)}">
+      <span class="status-window-menu-name">${escapeHtml(preset.name)}</span>
+      <span class="status-window-menu-sub">${escapeHtml(preset.items.slice(0, 3).map((it) => it.name).join(" · "))}</span>
+    </button>`;
+  const mine = statusWindowState.presets;
+  const parts = [];
+  if (mine.length) {
+    parts.push(`<div class="status-window-menu-label">${escapeHtml(i18n.t("statusWindow.이_작품_프리셋"))}</div>`);
+    parts.push(mine.map(row).join(""));
+  }
+  parts.push(`<div class="status-window-menu-label">${escapeHtml(i18n.t("statusWindow.기본_템플릿"))}</div>`);
+  parts.push(statusWindowTemplates().map(row).join(""));
+  host.innerHTML = parts.join("");
+}
+
+async function showStatusWindowMenu(anchorBtn, editor = null) {
+  const menu = $("statusWindowMenu");
+  if (!menu || !anchorBtn) return;
+  anchorBtn = resolveToolbarOverflowAnchor(anchorBtn);
+  hideFormatSpecialPalette?.();
+  hideFormatListPalette?.();
+  hideFormatColorPalette?.();
+  const ed = editor || getActiveRichEditor() || $("sceneContent");
+  statusWindowState.editor = ed;
+  const live = currentEditorRange(ed);
+  statusWindowState.range = live ? live.cloneRange() : null;
+  const inside = live ? Boolean(statusWindowHostOf(live.startContainer, ed)) : false;
+  const tidyBtn = $("statusWindowTidyButton");
+  if (tidyBtn) tidyBtn.disabled = !inside && !(live && !live.collapsed);
+  const hint = $("statusWindowMenuHint");
+  if (hint) {
+    hint.textContent = live && !live.collapsed && !inside
+      ? i18n.t("statusWindow.고른_글을_상태창으로_바꿔요")
+      : i18n.t("statusWindow.커서_자리에_넣어요");
+  }
+  renderStatusWindowMenu();
+  menu.classList.remove("hidden");
+  anchorBtn.setAttribute("aria-expanded", "true");
+  const place = () => {
+    const rect = anchorBtn.getBoundingClientRect();
+    const pad = 8;
+    const pw = menu.offsetWidth || 280;
+    const ph = menu.offsetHeight || 260;
+    let left = rect.left;
+    let top = rect.bottom + 4;
+    if (left + pw > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - pw - pad);
+    if (top + ph > window.innerHeight - pad) top = Math.max(pad, rect.top - ph - 4);
+    menu.style.left = `${Math.max(pad, left)}px`;
+    menu.style.top = `${Math.max(pad, top)}px`;
+  };
+  place();
+  try {
+    await loadStatusWindowPresets();
+    if (!menu.classList.contains("hidden")) {
+      renderStatusWindowMenu();
+      place();
+    }
+  } catch (error) {
+    // 프리셋을 못 불러와도 기본 템플릿으로는 넣을 수 있다.
+    console.warn("status window presets", error);
+  }
+}
+
+function setupStatusWindowMenu() {
+  const menu = $("statusWindowMenu");
+  if (!menu || menu.dataset.bound === "1") return;
+  menu.dataset.bound = "1";
+  menu.addEventListener("mousedown", (event) => {
+    if (!event.target.closest("input, select, textarea")) event.preventDefault();
+  });
+  menu.addEventListener("click", (event) => {
+    const pick = event.target.closest("[data-sw-insert]");
+    if (pick) {
+      hideStatusWindowMenu();
+      try { insertStatusWindow(pick.getAttribute("data-sw-insert")); } catch (error) { handleError(error); }
+      return;
+    }
+    if (event.target.closest("#statusWindowTidyButton")) {
+      hideStatusWindowMenu();
+      try { tidyStatusWindowAtCaret(); } catch (error) { handleError(error); }
+      return;
+    }
+    if (event.target.closest("#statusWindowManageButton")) {
+      hideStatusWindowMenu();
+      openStatusWindowPresets().catch(handleError);
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("#statusWindowMenu, .format-status-window-btn, [data-isl-fmt='statusWindow']")) return;
+    hideStatusWindowMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideStatusWindowMenu();
+  });
+  window.addEventListener("resize", hideStatusWindowMenu);
+}
+
+/* 프리셋 관리(넓은 패널) */
+function statusWindowNewId() {
+  return `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+}
+
+function statusWindowDraftFrom(preset) {
+  return JSON.parse(JSON.stringify(normalizeStatusWindowPreset(preset) || normalizeStatusWindowPreset({ name: i18n.t("statusWindow.새_프리셋") })));
+}
+
+async function openStatusWindowPresets() {
+  if (!state.projectId) {
+    toast(i18n.t("statusWindow.작품을_먼저_열어_주세요"));
+    return;
+  }
+  const modal = $("statusWindowPresetsModal");
+  if (!modal) return;
+  await loadStatusWindowPresets({ force: true });
+  const first = statusWindowState.presets[0];
+  statusWindowState.editingId = first ? first.id : "";
+  statusWindowState.draft = statusWindowDraftFrom(first || statusWindowTemplates()[0]);
+  if (!first) {
+    statusWindowState.draft.id = statusWindowNewId();
+    statusWindowState.editingId = "";
+  }
+  statusWindowState.dirty = !first;
+  presentModalInWidePanel(modal, {
+    id: "statusWindowPresetsModal",
+    title: i18n.t("statusWindow.상태창_프리셋"),
+    sourceEl: document.querySelector("#formatToolbar .format-status-window-btn"),
+  });
+  renderStatusWindowPresets();
+}
+
+function closeStatusWindowPresets() {
+  const modal = $("statusWindowPresetsModal");
+  releaseWideHostedModal(modal);
+  modal?.classList.add("hidden");
+}
+
+function renderStatusWindowPresetList() {
+  const list = $("statusWindowPresetList");
+  if (!list) return;
+  const draft = statusWindowState.draft;
+  const rows = statusWindowState.presets.map((preset) => {
+    const on = draft && preset.id === draft.id;
+    return `<button type="button" class="status-window-preset-row${on ? " is-active" : ""}" role="option" aria-selected="${on ? "true" : "false"}" data-sw-edit="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</button>`;
+  });
+  if (draft && !statusWindowState.presets.some((p) => p.id === draft.id)) {
+    rows.push(`<button type="button" class="status-window-preset-row is-active is-new" role="option" aria-selected="true">${escapeHtml(draft.name || i18n.t("statusWindow.새_프리셋"))} <em>${escapeHtml(i18n.t("statusWindow.저장_전"))}</em></button>`);
+  }
+  list.innerHTML = rows.join("") || `<p class="status-window-empty">${escapeHtml(i18n.t("statusWindow.아직_저장한_프리셋이_없어요"))}</p>`;
+  const tpl = $("statusWindowTemplateSelect");
+  if (tpl && !tpl.dataset.filled) {
+    tpl.innerHTML = `<option value="">${escapeHtml(i18n.t("statusWindow.템플릿에서_새로_만들기"))}</option>`
+      + statusWindowTemplates().map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join("");
+    tpl.dataset.filled = "1";
+  }
+}
+
+function statusWindowSegHtml(name, options, value) {
+  return options.map(([key, label]) => `<button type="button" class="isl-fp-chip${key === value ? " is-active" : ""}" data-sw-field="${name}" data-sw-value="${key}" aria-pressed="${key === value ? "true" : "false"}">${escapeHtml(label)}</button>`).join("");
+}
+
+function renderStatusWindowPresetForm() {
+  const draft = statusWindowState.draft;
+  const form = $("statusWindowPresetForm");
+  if (!form || !draft) return;
+  const t = (key) => i18n.t(`statusWindow.${key}`);
+  $("statusWindowPresetName").value = draft.name || "";
+  $("statusWindowPresetTitle").value = draft.title || "";
+  $("statusWindowFrameSeg").innerHTML = statusWindowSegHtml("frame", [
+    ["divider", t("틀_구분선")], ["bracket", t("틀_대괄호")], ["box", t("틀_상자")], ["none", t("틀_없음")],
+  ], draft.frame);
+  $("statusWindowAlignSeg").innerHTML = statusWindowSegHtml("align", [["left", t("정렬_왼쪽")], ["center", t("정렬_가운데")]], draft.align);
+  $("statusWindowLabelSeg").innerHTML = statusWindowSegHtml("label_style", [
+    ["colon", t("표기_쌍점")], ["spaced", t("표기_띄운_쌍점")], ["bracket", t("표기_대괄호")],
+  ], draft.label_style);
+  $("statusWindowBgSeg").innerHTML = statusWindowSegHtml("background", [["none", t("바탕_없음")], ["soft", t("바탕_연하게")]], draft.display.background);
+  $("statusWindowFontSeg").innerHTML = statusWindowSegHtml("font", [["body", t("글꼴_본문")], ["mono", t("글꼴_고정폭")]], draft.display.font);
+  $("statusWindowExportSeg").innerHTML = statusWindowSegHtml("export_mode", [["keep", t("내보내기_모양_유지")], ["text_safe", t("내보내기_텍스트_안전")]], draft.export_mode);
+  $("statusWindowBoxHint")?.classList.toggle("hidden", draft.frame !== "box");
+  const typeOptions = (value) => [["text", t("유형_글")], ["number", t("유형_숫자")], ["ratio", t("유형_현재_최대")]]
+    .map(([key, label]) => `<option value="${key}"${key === value ? " selected" : ""}>${escapeHtml(label)}</option>`).join("");
+  $("statusWindowItems").innerHTML = draft.items.map((item, index) => `
+    <div class="status-window-item-row" data-sw-item="${index}">
+      <input type="text" class="status-window-item-name" data-sw-item-field="name" value="${escapeHtml(item.name)}" maxlength="40" placeholder="${escapeHtml(t("항목_이름"))}" aria-label="${escapeHtml(t("항목_이름"))}">
+      <input type="text" class="status-window-item-group" data-sw-item-field="group" value="${escapeHtml(item.group)}" maxlength="20" placeholder="${escapeHtml(t("묶음"))}" aria-label="${escapeHtml(t("묶음"))}">
+      <input type="text" class="status-window-item-default" data-sw-item-field="default" value="${escapeHtml(item.default)}" maxlength="80" placeholder="${escapeHtml(item.type === "ratio" ? "100/100" : t("기본값"))}" aria-label="${escapeHtml(t("기본값"))}">
+      <select data-sw-item-field="type" aria-label="${escapeHtml(t("값_유형"))}">${typeOptions(item.type)}</select>
+      <button type="button" class="status-window-item-btn" data-sw-item-move="-1" title="${escapeHtml(t("위로"))}" aria-label="${escapeHtml(t("위로"))}"${index === 0 ? " disabled" : ""}>↑</button>
+      <button type="button" class="status-window-item-btn" data-sw-item-move="1" title="${escapeHtml(t("아래로"))}" aria-label="${escapeHtml(t("아래로"))}"${index === draft.items.length - 1 ? " disabled" : ""}>↓</button>
+      <button type="button" class="status-window-item-btn" data-sw-item-remove title="${escapeHtml(t("항목_빼기"))}" aria-label="${escapeHtml(t("항목_빼기"))}">×</button>
+    </div>`).join("") || `<p class="status-window-empty">${escapeHtml(t("항목을_하나_이상_넣어_주세요"))}</p>`;
+  renderStatusWindowPreview();
+  const saved = statusWindowState.presets.some((p) => p.id === draft.id);
+  $("statusWindowDuplicateButton").disabled = !saved;
+  $("statusWindowDeleteButton").disabled = !saved;
+  $("statusWindowSaveButton").disabled = !statusWindowState.dirty;
+}
+
+function renderStatusWindowPreview() {
+  const box = $("statusWindowPreview");
+  const draft = statusWindowState.draft;
+  const model = statusWindowModel();
+  if (!box || !draft || !model) return;
+  const preset = normalizeStatusWindowPreset(draft);
+  box.innerHTML = "";
+  box.appendChild(buildStatusWindowBlock(preset, model.renderLines(preset)));
+}
+
+function renderStatusWindowPresets() {
+  renderStatusWindowPresetList();
+  renderStatusWindowPresetForm();
+}
+
+function markStatusWindowDraftDirty({ rerender = false } = {}) {
+  statusWindowState.dirty = true;
+  if (rerender) renderStatusWindowPresets();
+  else {
+    renderStatusWindowPreview();
+    const save = $("statusWindowSaveButton");
+    if (save) save.disabled = false;
+  }
+}
+
+function confirmDiscardStatusWindowDraft() {
+  if (!statusWindowState.dirty) return true;
+  return window.confirm(i18n.t("statusWindow.저장하지_않은_변경을_버릴까요"));
+}
+
+async function saveStatusWindowDraft() {
+  const draft = normalizeStatusWindowPreset(statusWindowState.draft);
+  if (!draft) return;
+  if (!draft.items.length) {
+    toast(i18n.t("statusWindow.항목을_하나_이상_넣어_주세요"));
+    return;
+  }
+  const list = statusWindowState.presets.slice();
+  const at = list.findIndex((p) => p.id === draft.id);
+  if (at >= 0) list[at] = draft;
+  else {
+    if (list.length >= (statusWindowModel()?.LIMITS.presets || 30)) {
+      toast(i18n.t("statusWindow.프리셋은_30개까지_저장할_수_있어요"));
+      return;
+    }
+    list.push(draft);
+  }
+  const saved = await saveStatusWindowPresets(list);
+  statusWindowState.draft = statusWindowDraftFrom(saved.find((p) => p.id === draft.id) || draft);
+  statusWindowState.editingId = statusWindowState.draft.id;
+  statusWindowState.dirty = false;
+  renderStatusWindowPresets();
+  toast(i18n.t("statusWindow.프리셋을_저장했어요"));
+}
+
+async function deleteStatusWindowDraft() {
+  const draft = statusWindowState.draft;
+  if (!draft || !statusWindowState.presets.some((p) => p.id === draft.id)) return;
+  if (!window.confirm(i18n.t("statusWindow.프리셋을_지울까요", { name: draft.name }))) return;
+  const saved = await saveStatusWindowPresets(statusWindowState.presets.filter((p) => p.id !== draft.id));
+  const next = saved[0];
+  statusWindowState.draft = statusWindowDraftFrom(next || statusWindowTemplates()[0]);
+  if (!next) statusWindowState.draft.id = statusWindowNewId();
+  statusWindowState.dirty = !next;
+  renderStatusWindowPresets();
+  toast(i18n.t("statusWindow.프리셋을_지웠어요"));
+}
+
+function startStatusWindowDraftFrom(source, { copy = false } = {}) {
+  const draft = statusWindowDraftFrom(source);
+  draft.id = statusWindowNewId();
+  if (copy) draft.name = i18n.t("statusWindow.사본_이름", { name: draft.name });
+  statusWindowState.draft = draft;
+  statusWindowState.dirty = true;
+  renderStatusWindowPresets();
+  $("statusWindowPresetName")?.focus();
+}
+
+function setupStatusWindowPresets() {
+  const modal = $("statusWindowPresetsModal");
+  if (!modal || modal.dataset.bound === "1") return;
+  modal.dataset.bound = "1";
+  modal.querySelectorAll("[data-close-status-window]").forEach((el) => el.addEventListener("click", () => {
+    if (!confirmDiscardStatusWindowDraft()) return;
+    statusWindowState.dirty = false;
+    closeStatusWindowPresets();
+  }));
+  $("statusWindowPresetList")?.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-sw-edit]");
+    if (!row) return;
+    const preset = statusWindowState.presets.find((p) => p.id === row.getAttribute("data-sw-edit"));
+    if (!preset || preset.id === statusWindowState.draft?.id) return;
+    if (!confirmDiscardStatusWindowDraft()) return;
+    statusWindowState.draft = statusWindowDraftFrom(preset);
+    statusWindowState.dirty = false;
+    renderStatusWindowPresets();
+  });
+  $("statusWindowTemplateSelect")?.addEventListener("change", (event) => {
+    const id = event.target.value;
+    event.target.value = "";
+    const tpl = statusWindowTemplates().find((p) => p.id === id);
+    if (!tpl || !confirmDiscardStatusWindowDraft()) return;
+    startStatusWindowDraftFrom(tpl);
+  });
+  $("statusWindowDuplicateButton")?.addEventListener("click", () => {
+    if (!statusWindowState.draft || !confirmDiscardStatusWindowDraft()) return;
+    startStatusWindowDraftFrom(statusWindowState.draft, { copy: true });
+  });
+  $("statusWindowDeleteButton")?.addEventListener("click", () => deleteStatusWindowDraft().catch(handleError));
+  $("statusWindowSaveButton")?.addEventListener("click", () => saveStatusWindowDraft().catch(handleError));
+  $("statusWindowAddItem")?.addEventListener("click", () => {
+    const draft = statusWindowState.draft;
+    if (!draft) return;
+    if (draft.items.length >= (statusWindowModel()?.LIMITS.items || 40)) return;
+    draft.items.push({ name: "", group: draft.items[draft.items.length - 1]?.group || "", default: "", type: "text" });
+    markStatusWindowDraftDirty({ rerender: true });
+    const rows = $("statusWindowItems")?.querySelectorAll(".status-window-item-name");
+    rows?.[rows.length - 1]?.focus();
+  });
+  $("statusWindowPresetName")?.addEventListener("input", (event) => {
+    statusWindowState.draft.name = event.target.value;
+    markStatusWindowDraftDirty();
+  });
+  $("statusWindowPresetTitle")?.addEventListener("input", (event) => {
+    statusWindowState.draft.title = event.target.value;
+    markStatusWindowDraftDirty();
+  });
+  $("statusWindowPresetForm")?.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-sw-field]");
+    if (chip) {
+      const field = chip.getAttribute("data-sw-field");
+      const value = chip.getAttribute("data-sw-value");
+      const draft = statusWindowState.draft;
+      if (field === "background" || field === "font") draft.display[field] = value;
+      else draft[field] = value;
+      markStatusWindowDraftDirty({ rerender: true });
+      return;
+    }
+    const row = event.target.closest("[data-sw-item]");
+    if (!row) return;
+    const index = Number(row.getAttribute("data-sw-item"));
+    const items = statusWindowState.draft.items;
+    const move = event.target.closest("[data-sw-item-move]");
+    if (move) {
+      const to = index + Number(move.getAttribute("data-sw-item-move"));
+      if (to < 0 || to >= items.length) return;
+      [items[index], items[to]] = [items[to], items[index]];
+      markStatusWindowDraftDirty({ rerender: true });
+      return;
+    }
+    if (event.target.closest("[data-sw-item-remove]")) {
+      items.splice(index, 1);
+      markStatusWindowDraftDirty({ rerender: true });
+    }
+  });
+  const onItemField = (event) => {
+    const input = event.target.closest("[data-sw-item-field]");
+    const row = event.target.closest("[data-sw-item]");
+    if (!input || !row) return;
+    const item = statusWindowState.draft.items[Number(row.getAttribute("data-sw-item"))];
+    if (!item) return;
+    item[input.getAttribute("data-sw-item-field")] = input.value;
+    markStatusWindowDraftDirty();
+  };
+  $("statusWindowItems")?.addEventListener("input", onItemField);
+  $("statusWindowItems")?.addEventListener("change", onItemField);
+}
+
+function setupStatusWindow() {
+  setupStatusWindowMenu();
+  setupStatusWindowPresets();
+}
+
 /* —— 특수문자 삽입 —— */
 const SPECIAL_CHARS_UNIQUE = [
   "※", "★", "☆", "○", "●", "◎", "◇", "◆", "□", "■",
@@ -8898,6 +9639,13 @@ function setupRichEditorSurface({ editor, toolbar = null, page, onInput, resolve
       });
       return;
     }
+    // 상태창: 프리셋 고르기 팝업
+    if (format === "statusWindow") {
+      rememberSelection();
+      setUiFeatureCtxTarget?.(button);
+      showStatusWindowMenu(button, getEd()).catch(handleError);
+      return;
+    }
     // 특수문자: open palette
     if (format === "specialChar") {
       rememberSelection();
@@ -9064,6 +9812,7 @@ function setupRichEditor() {
   setupFormatColorPalette();
   setupFormatListPalette();
   setupFormatSpecialPalette();
+  setupStatusWindow();
   setupFormatApplyAllMenu();
   // 본문 서식도구 하나를 원고·설정 문서(작품소개/기획의도 등)가 함께 쓴다 — 설정 문서가 열려 있으면 그쪽 편집기에 적용.
   setupRichEditorSurface({
@@ -22223,7 +22972,7 @@ function runToryCheckActiveTab() {
     return;
   }
   const tab = toryCheckState.tab;
-  const result = engine.analyze(tab, getEditorPlainText(), toryCheckSettingsPayload());
+  const result = engine.analyze(tab, getEditorPlainText(null, { excludeStatusWindows: true }), toryCheckSettingsPayload());
   paintToryCheckResult(result);
 }
 
@@ -35504,6 +36253,13 @@ function setupFormatMorePopover() {
   pop.addEventListener("click", (event) => {
     const fmt = event.target.closest("[data-isl-fmt]");
     if (fmt) {
+      if (fmt.dataset.islFmt === "statusWindow") {
+        close();
+        window.setTimeout(() => {
+          showStatusWindowMenu(btn, getActiveRichEditor() || $("sceneContent")).catch(handleError);
+        }, 0);
+        return;
+      }
       if (fmt.dataset.islFmt === "specialChar") {
         // 숨겨진 툴바 버튼은 위치를 잡을 수 없어 팔레트가 열리자마자 닫힌다 → 더보기 버튼 아래에 직접 연다
         close();
@@ -62144,6 +62900,7 @@ function pageWriteEmbedTitle(kind) {
     image: "index.쪽쓰기_삽입물_이미지",
     footnote: "index.쪽쓰기_삽입물_각주",
     note: "index.쪽쓰기_삽입물_작가의_말",
+    status: "statusWindow.쪽쓰기_삽입물_상태창",
   }[kind] || "index.쪽쓰기_삽입물_기타";
   return i18n.t(key);
 }
@@ -67479,7 +68236,7 @@ async function runSpellcheck(options = {}) {
   const prefer = options.prefer || "auto"; // auto | gemini
   const editor = getActiveRichEditor() || $("sceneContent");
   if (!editor) return toast(i18n.t('app.검사할_편집기가_없어요'));
-  const text = getEditorPlainText(editor).trim();
+  const text = getEditorPlainText(editor, { excludeStatusWindows: true }).trim();
   if (!text) return toast(i18n.t('app.검사할_글을_먼저_적어_주세요'));
 
   const status = $("spellcheckStatus");

@@ -61,6 +61,7 @@ import env_loader
 import genre_clusters
 import literary_form
 import continue_directions
+import status_window
 import style_profile
 import tory_notifications
 import genre_tool_routing
@@ -335,6 +336,7 @@ from routes import (  # noqa: E402
     glump_api,
     reader_api,
     scene_revision_api,
+    status_window_api,
     style_profile_api,
     success_pattern_api,
     translation_api,
@@ -5058,6 +5060,11 @@ def plain_text_from_content(content: str, *, include_author_notes: bool = False)
     return text.strip()
 
 
+def export_plain_text_from_content(content: str) -> str:
+    """내보내기용 글: ``plain_text_from_content``와 같되, 「텍스트 안전」 상태창은 틀 글자를 뺀 줄글로."""
+    return plain_text_from_content(status_window.to_text_safe_html(content or ""))
+
+
 def compute_text_stats(plain_text: str) -> dict:
     """Mirror web/app.js computeTextStats (Unicode code points, no-space, letters)."""
     text = (plain_text or "").replace("\r\n", "\n").replace("\r", "\n")
@@ -6399,6 +6406,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return
             if style_profile_api.try_handle_get(self, path):
                 return
+            if status_window_api.try_handle_get(self, path):
+                return
             if scene_revision_api.try_handle_get(self, path):
                 return
 
@@ -6958,6 +6967,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return
 
             if style_profile_api.try_handle_post(self, path, body):
+                return
+
+            if status_window_api.try_handle_post(self, path, body):
                 return
 
             if scene_revision_api.try_handle_post(self, path, body):
@@ -15117,7 +15129,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             scenes_by_chapter.setdefault(int(scene["chapter_id"]), []).append(
                 {
                     "title": scene["title"] or "",
-                    "content_plain": plain_text_from_content(scene["content_md"] or ""),
+                    "content_plain": export_plain_text_from_content(scene["content_md"] or ""),
                 }
             )
         return [
@@ -15165,7 +15177,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         export_scenes.append(
                             {
                                 "title": scene.get("title") or "",
-                                "content_plain": plain_text_from_content(
+                                "content_plain": export_plain_text_from_content(
                                     scene.get("content_md") or ""
                                 ),
                             }
@@ -15199,7 +15211,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         format_key = typeset_export.format_key_from_body(body)
         preset = get_typeset_service().get_preset(platform_id)
         detail = self.scene_detail(scene_id)
-        plain = plain_text_from_content(str(detail.get("content_md") or ""))
+        plain = export_plain_text_from_content(str(detail.get("content_md") or ""))
         exported = typeset_export.export_typeset_file(
             plain_text=plain,
             preset=preset,

@@ -17,9 +17,10 @@
   const WS_ONLY_RE = /^[ \t\r\n\f]*$/;
   const BLOCK_TAGS = new Set(["DIV", "P", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE"]);
   const NOTE_SELECTOR = "[data-author-note],.st-author-note";
+  const STATUS_SELECTOR = "[data-status-window],.st-status-window";
   const BLOCKISH_SELECTOR = "div,p,h1,h2,h3,h4,h5,h6,blockquote,ul,ol,li,table,thead,tbody,tfoot,tr,td,th,"
     + "pre,hr,figure,figcaption,section,article,aside,header,footer,nav,dl,dt,dd,details,summary,form,"
-    + `fieldset,address,main,center,.fn-item,${NOTE_SELECTOR}`;
+    + `fieldset,address,main,center,.fn-item,${NOTE_SELECTOR},${STATUS_SELECTOR}`;
   const ATOMIC_SELECTOR = "img,svg,video,audio,iframe,canvas,input,button,select,textarea,object,embed,"
     + "sup.fn-ref,[contenteditable=false]";
 
@@ -172,7 +173,7 @@
 
   /* ---------- 본문 HTML -> 런 ---------- */
   function classifyRoot(el) {
-    if (el.matches(NOTE_SELECTOR)) return "opaque";
+    if (el.matches(NOTE_SELECTOR) || el.matches(STATUS_SELECTOR)) return "opaque";
     if (el.matches(BLOCKISH_SELECTOR)) {
       if (BLOCK_TAGS.has(el.tagName) && !el.querySelector(BLOCKISH_SELECTOR)) return "block";
       return "opaque";
@@ -183,6 +184,7 @@
 
   function embedKindOf(el) {
     if (el.matches(NOTE_SELECTOR)) return "note";
+    if (el.matches(STATUS_SELECTOR)) return "status";
     if (el.tagName === "IMG" || el.querySelector("img")) return "image";
     if (el.matches("sup.fn-ref")) return "footnote";
     return "other";
@@ -252,7 +254,7 @@
       }
       if (kind === "opaque") {
         const ctx = newCtx(OPAQUE);
-        embeds.push({ html: node.outerHTML, block: true, kind: embedKindOf(node) === "image" ? "image" : (node.matches(NOTE_SELECTOR) ? "note" : "block") });
+        embeds.push({ html: node.outerHTML, block: true, kind: embedKindOf(node) === "image" ? "image" : (node.matches(NOTE_SELECTOR) ? "note" : (node.matches(STATUS_SELECTOR) ? "status" : "block")) });
         push(EMBED_CHAR, [], ctx, embeds.length - 1);
         closeInst(ctx);
       } else {
@@ -349,7 +351,7 @@
     const options = opts || {};
     const frag = doc.createDocumentFragment();
     const stack = []; // { key, el }
-    const GLYPHS = { image: "▣", footnote: "※", note: "✎", block: "▤", other: "◇" };
+    const GLYPHS = { image: "▣", footnote: "※", note: "✎", status: "▦", block: "▤", other: "◇" };
     for (const r of runs) {
       const want = [{ key: `B${r.i}|${blockKey(r.b)}`, shell: null }].concat(r.ch.map((s) => ({ key: s.key, shell: s })));
       let k = 0;
