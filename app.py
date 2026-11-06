@@ -60,6 +60,7 @@ import document_import
 import env_loader
 import genre_clusters
 import literary_form
+import continue_directions
 import style_profile
 import tory_notifications
 import genre_tool_routing
@@ -8806,7 +8807,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "successfeedback",
             "foreshadow", "plottwist", "worldscan", "worldscan_multi",
             "worlddesc", "dupcheck", "temphook", "chardebate", "free", "chat", "subsynopsis", "styleblend",
-            "similar_words", "chapter_subtitles",
+            "similar_words", "chapter_subtitles", "continue_directions",
         }
         if mode not in allowed:
             raise ValueError("지원하지 않는 AI 도움 방식입니다.")
@@ -10016,6 +10017,22 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     f"씬 제목: {scene_title or '(없음)'}",
                     f"씬 요약: {scene_synopsis or '(없음)'}",
                 ]
+            elif mode == "continue_directions":
+                # 이어쓰기 「이 장면 맞춤 제안」 — 다음 전개 후보 4개(짧은 칩). continue_directions.py
+                if not str(scene_content or "").strip():
+                    raise ValueError("방향을 제안하려면 원고 본문이 필요해요.")
+                instruction = continue_directions.build_prompt(
+                    plain_text_from_content(str(scene_content or "")),
+                    user_hint=str(body.get("user_hint") or ""),
+                )
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"씬 제목: {scene_title or '(없음)'}",
+                    f"씬 요약: {scene_synopsis or '(없음)'}",
+                ]
             elif mode == "chapter_subtitles":
                 # 회차별 소제목 추천 — episodeContent/genre/recentSubtitles → JSON 4종.
                 # episode_content는 필수값이다. scene_content로 조용히 대체하면 프론트가
@@ -10403,7 +10420,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         if mode == "chapter_subtitles":
             text = self._enforce_chapter_subtitle_lengths(text)
 
+        extra: dict = {}
+        if mode == "continue_directions":
+            extra["directions"] = continue_directions.parse_directions(text)
+
         return {
+            **extra,
             "mode": mode,
             "text": text,
             "model": gemini_client.model_name(),
