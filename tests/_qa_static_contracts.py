@@ -54,7 +54,7 @@ def main() -> int:
 
     sections = re.findall(r'data-settings-section="([^"]+)"', html)
     ok("HTML settings sections", " → ".join(sections))
-    expected = ["ideas", "intro", "style", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources"]
+    expected = ["ideas", "style", "intro", "logsyn", "keywords", "cliche", "promise", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources"]
     if sections == expected:
         ok("HTML section order matches DEFAULT")
     else:

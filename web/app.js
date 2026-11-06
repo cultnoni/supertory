@@ -43177,6 +43177,8 @@ const SETTINGS_BOOKMARK_META = {
   },
   keywords: { title: i18n.t('app.장르_키워드'), open: () => openKeywordBoard() },
   style: { title: i18n.t('style.내_문체'), open: () => openSettingsCollectionMain("style") },
+  promise: { title: i18n.t('app.장르_약속'), open: () => openSettingsCollectionMain("promise") },
+  cliche: { title: i18n.t('app.장르_클리셰'), open: () => openSettingsCollectionMain("cliche") },
   // Per-doc keys (field → buttons / bookmarks)
   synopsis: { title: i18n.t('app.시놉시스'), open: () => openSettingsDocMain("synopsis") },
   logline: { title: i18n.t('app.로그라인'), open: () => openSettingsDocMain("logline") },
@@ -44109,6 +44111,20 @@ const SETTINGS_COLLECTION_MAIN = {
     listId: "styleFields",
     hideAdd: true,
   },
+  promise: {
+    title: i18n.t('app.장르_약속'),
+    hint: "",
+    section: "promise",
+    listId: "promiseFields",
+    hideAdd: true,
+  },
+  cliche: {
+    title: i18n.t('app.장르_클리셰'),
+    hint: "",
+    section: "cliche",
+    listId: "clicheFields",
+    hideAdd: true,
+  },
   readingInvite: {
     title: i18n.t('app.읽기_권한_초대'),
     hint: "",
@@ -44256,7 +44272,12 @@ function setupSettingsCollectionBoard() {
 const BAIT_STORAGE_PREFIX = "supertory.baits.";
 const SETTINGS_ORDER_PREFIX = "supertory.settingsOrder.";
 // Default 설정집 폴더 순서 (흥행작 프로파일 연결 = 떡밥모음 아래)
+// 기획은 2열: 생각수첩 | 내 문체 / 작품소개·기획의도 | 로그라인·시놉시스 / 장르 키워드 | 장르 클리셰(문학이면 장르 약속)
 const DEFAULT_SETTINGS_ORDER = [
+  "ideas", "style", "intro", "logsyn", "keywords", "cliche", "promise", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
+];
+/** 바로 앞 기본 순서. 끌어서 바꾸지 않았다면(새 상자 정리까지 끝난 뒤 이것과 같으면) 새 기본으로 맞춘다. */
+const PREVIOUS_DEFAULT_SETTINGS_ORDER = [
   "ideas", "intro", "style", "promise", "cliche", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
 ];
 /** Prior factory defaults — snap exact matches once to the current DEFAULT. */
@@ -54622,6 +54643,10 @@ function loadSettingsOrder() {
     ) {
       ordered.splice(inviteAt, 1);
       ordered.splice(ordered.indexOf("sources"), 0, "readingInvite");
+    }
+    if (ordered.length === PREVIOUS_DEFAULT_SETTINGS_ORDER.length
+      && PREVIOUS_DEFAULT_SETTINGS_ORDER.every((key, i) => ordered[i] === key)) {
+      ordered = [...DEFAULT_SETTINGS_ORDER];
     }
     return ordered;
   } catch (_) {
