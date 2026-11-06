@@ -5101,6 +5101,66 @@ html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn.is-save-fail
   color: var(--isl-ink2);
 }
 
+/* ── 토리 알림(떡밥 회수·직접 만든 알림) 창 ──
+   다른 토리 창과 같은 크기: 안내 문장은 .tory-helper-question(13.5px/700),
+   하단 버튼은 토리 도우미 공통 크기(14px/700 · 높이 40). 버튼이 4개라 오른쪽 정렬하면 두 줄로 쏠려
+   보이므로, 가운데 정렬된 본문에 맞춰 한 줄에 2개씩 같은 폭으로 놓는다(1개만 남으면 한 줄 전체). */
+.bait-notify-lead { font-size: 13.5px !important; font-weight: 700 !important; }
+.bait-notify-list li strong { font-weight: 600; }
+#baitNotifyModal .bait-notify-actions { justify-content: stretch !important; }
+#baitNotifyModal .bait-notify-actions > button {
+  flex: 1 1 calc(50% - 4px) !important;
+  min-width: 0 !important;
+  min-height: 40px;
+  padding: 8px 12px !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  line-height: 1.25;
+  box-sizing: border-box;
+}
+
+/* ── 가운데 모달 공통 크기 (2026-11-06 전체 모달 측정 후 통일) ──
+   지침 §4 모달: 머리글 18px/700, 하단 버튼은 오른쪽 정렬. 하단 버튼 크기는 토리 창 공통 규칙
+   (14px/700 · 높이 40)을 모든 가운데 모달에 쓴다. 넓은 패널(.is-wide-panel-card)은 자체 규칙
+   (머리글 14px/500 · 버튼 높이 32)을 따르므로 제외한다. */
+.modal-card:not(.is-wide-panel-card) .modal-heading h2 {
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  line-height: 1.3;
+}
+.modal-card:not(.is-wide-panel-card) .modal-actions {
+  justify-content: flex-end !important;
+  flex-wrap: wrap;
+}
+.modal-card:not(.is-wide-panel-card) .modal-actions > button {
+  flex: 0 0 auto !important;
+  min-width: 5.75rem;
+  min-height: 40px !important;
+  height: auto !important;
+  padding: 8px 18px !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+  border-radius: var(--isl-r-sm) !important;
+  box-sizing: border-box;
+}
+/* 입력칸 기본 글자: 브라우저 기본(16px) 대신 14px. 개별 규칙이 있으면 그쪽이 이긴다(:where = 우선순위 0). */
+:where(.modal-card) :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), select, textarea) {
+  font-size: 14px;
+}
+/* 모달 안 선택지 글자(라벨 속 span·strong)도 브라우저 기본 16px 대신 14px. 개별 규칙이 있으면 그쪽이 이긴다. */
+:where(.modal-card) :where(label) :where(span, strong) { font-size: 14px; }
+#glumpErModal :where(strong) { font-size: 14px; }
+/* 집필 기록 창 제목도 다른 모달과 같은 18px/700 (통계 숫자는 그대로 크게 둔다) */
+#writingLogModalTitle { font-size: 18px !important; font-weight: 700 !important; }
+/* 토리 알림 팝오버: 거름 탭·카드 칩·카드 버튼을 지침의 칩 크기(11~12px)로 */
+.tory-notify-filter,
+.tory-notify-chip,
+.tory-notify-card-foot button {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+}
+
 /* ── 회차 「이전 버전」 (docs/design-ai-context-and-style-2026-11.md §7-1) ──
    아이콘줄은 「비교」 바로 뒤. 넓은 패널(.is-wide-panel-card) 안에서 목록 ↔ 상세 두 화면. */
 #formatIconsToolbar [data-icon-key="revisions"] { order: 6; }
