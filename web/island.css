@@ -5103,16 +5103,16 @@ html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn.is-save-fail
 
 /* ── 토리 알림(떡밥 회수·직접 만든 알림) 창 ──
    다른 토리 창과 같은 크기: 안내 문장은 .tory-helper-question(13.5px/700),
-   하단 버튼은 토리 도우미 공통 하단(14px · 높이 40 · 오른쪽 정렬). 버튼을 창 폭에 맞춰 늘리지 않는다. */
+   하단 버튼은 토리 도우미 공통 크기(14px/700 · 높이 40). 버튼이 4개라 오른쪽 정렬하면 두 줄로 쏠려
+   보이므로, 가운데 정렬된 본문에 맞춰 한 줄에 2개씩 같은 폭으로 놓는다(1개만 남으면 한 줄 전체). */
 .bait-notify-lead { font-size: 13.5px !important; font-weight: 700 !important; }
 .bait-notify-list li strong { font-weight: 600; }
-.bait-notify-actions { justify-content: flex-end !important; }
-.bait-notify-actions > .secondary,
-.bait-notify-actions > .primary {
-  flex: 0 0 auto !important;
-  min-width: 5.75rem !important;
+#baitNotifyModal .bait-notify-actions { justify-content: stretch !important; }
+#baitNotifyModal .bait-notify-actions > button {
+  flex: 1 1 calc(50% - 4px) !important;
+  min-width: 0 !important;
   min-height: 40px;
-  padding: 8px 18px !important;
+  padding: 8px 12px !important;
   font-size: 14px !important;
   font-weight: 700 !important;
   line-height: 1.25;
