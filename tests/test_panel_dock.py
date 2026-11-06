@@ -303,7 +303,7 @@ class PanelDockContractTests(unittest.TestCase):
         run_fn = self.js.split("function runToryCheckActiveTab(", 1)[1].split(
             "async function loadToryCheckSettings(", 1
         )[0]
-        self.assertIn("engine.analyze(tab, getEditorPlainText()", run_fn)
+        self.assertIn("engine.analyze(tab, getEditorPlainText(null, { excludeStatusWindows: true })", run_fn)
         self.assertNotIn("TABS.forEach", run_fn)
         self.assertNotIn("for (const tab of", run_fn)
         schedule_fn = self.js.split("function scheduleToryCheckRefresh(", 1)[1].split(

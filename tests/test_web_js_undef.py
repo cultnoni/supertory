@@ -15,6 +15,7 @@ LINT_FILES = [
     "web/typeset_metrics.js",
     "web/pagewrite_model.js",
     "web/find_replace_model.js",
+    "web/status_window_model.js",
     "web/tory-check.js",
     "web/smart-punctuation.js",
     "web/app.js",

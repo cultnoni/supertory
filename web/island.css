@@ -5251,3 +5251,81 @@ html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn.is-save-fail
 .ai-insert-bar-btn:not(.primary) { border: 1px solid var(--line); background: var(--panel); color: var(--text-primary); }
 .ai-insert-bar-btn:not(.primary):hover { background: var(--isl-sunk); }
 .ai-insert-bar-btn.primary { border: 1px solid transparent; }
+
+/* ── 게임물 상태창 (docs/design-ai-context-and-style-2026-11.md §13) ──
+   원고 안 블록은 독자가 보는 글(주석 단락과 반대). 바탕·글꼴은 블록의 data-sw-* 로만 바꾸고 색은 글자색에서 섞는다.
+   서식줄 「상태창」 → 고르기 팝업(.status-window-menu, 특수문자 팔레트와 같은 틀) → 넓은 패널 「프리셋 관리」. */
+.st-status-window { margin: 0.6em 0; padding: 0.35em 0.75em; border-radius: 6px; }
+.st-status-window[data-sw-bg="soft"] { background: color-mix(in srgb, currentColor 6%, transparent); }
+/* 바탕이 없으면 편집 중에만 옅은 점선으로 블록 범위를 보여 준다(뷰어·내보내기에는 없음). */
+[contenteditable="true"] .st-status-window[data-sw-bg="none"] { outline: 1px dashed color-mix(in srgb, currentColor 18%, transparent); outline-offset: -1px; }
+.st-status-window[data-sw-font="mono"] { font-family: ui-monospace, "D2Coding", "Consolas", "Courier New", monospace; }
+.st-status-window[data-sw-align="center"] { text-align: center; }
+.st-status-window > div, .st-status-window > p { margin: 0; }
+.format-status-window-btn .format-status-window-icon { display: block; }
+
+.status-window-menu { min-width: 250px; max-width: min(300px, calc(100vw - 16px)); }
+.status-window-menu-hint { margin: -2px 2px 0; font-size: 11.5px; color: var(--isl-ink3); }
+.status-window-menu-list { display: grid; gap: 2px; max-height: min(320px, 52vh); overflow-y: auto; }
+.status-window-menu-label { padding: 6px 4px 2px; font-size: 11px; font-weight: 600; color: var(--isl-ink3); }
+.status-window-menu-item {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%;
+  min-height: 30px; padding: 5px 8px; border: 0; border-radius: 7px; background: transparent;
+  font-family: var(--font-ui); font-size: 12.5px; color: var(--text-primary); text-align: left; cursor: pointer;
+}
+.status-window-menu-item:hover, .status-window-menu-item:focus-visible { background: var(--isl-sunk); }
+.status-window-menu-item.is-last { background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.status-window-menu-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-window-menu-sub { flex: 0 1 auto; min-width: 0; font-size: 11px; color: var(--isl-ink3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-window-menu-action {
+  display: grid; gap: 1px; width: 100%; padding: 6px 8px; border: 0; border-radius: 7px; background: transparent;
+  font-family: var(--font-ui); text-align: left; cursor: pointer; color: var(--text-primary);
+}
+.status-window-menu-action strong { font-size: 12.5px; font-weight: 500; }
+.status-window-menu-action span { font-size: 11px; color: var(--isl-ink3); }
+.status-window-menu-action:hover:not(:disabled) { background: var(--isl-sunk); }
+.status-window-menu-action:disabled { opacity: 0.45; cursor: default; }
+
+.stat-chip-status-window.hidden, .stat-chip-status-window[hidden] { display: none !important; }
+.stat-chip-status-window { color: var(--isl-ink3); }
+
+.status-window-presets-card { display: flex; flex-direction: column; gap: 10px; }
+.status-window-presets-top { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.status-window-preset-list { display: flex; flex-wrap: wrap; gap: 4px; flex: 1 1 200px; min-width: 0; }
+.status-window-preset-row {
+  height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+  font-family: var(--font-ui); font-size: 12px; color: var(--isl-ink2); cursor: pointer; white-space: nowrap;
+}
+.status-window-preset-row.is-active { background: var(--isl-sunk); color: var(--text-primary); font-weight: 600; }
+.status-window-preset-row em { font-style: normal; font-weight: 400; color: var(--isl-ink3); }
+.status-window-template-select, .status-window-preset-form input[type="text"], .status-window-item-row select {
+  box-sizing: border-box; height: 28px; min-height: 0; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--isl-sunk); box-shadow: none; font-family: var(--font-ui); font-size: 12px; color: var(--text-primary);
+}
+.status-window-template-select { flex: 0 0 auto; max-width: 100%; }
+.status-window-preset-form { display: grid; gap: 6px; min-width: 0; }
+.status-window-field-row, .status-window-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.status-window-field { display: grid; gap: 4px; min-width: 0; }
+.status-window-field input { width: 100%; }
+.status-window-label { margin-top: 4px; font-size: 12px; font-weight: 700; color: var(--isl-ink2); }
+.status-window-hint { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--isl-ink3); }
+.status-window-hint.hidden { display: none; }
+.status-window-items { display: grid; gap: 4px; }
+.status-window-item-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.9fr) minmax(0, 1fr) 88px 24px 24px 24px; gap: 4px; align-items: center; }
+.status-window-item-row input { width: 100%; }
+.status-window-item-btn {
+  width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; border-radius: 6px; background: transparent;
+  font-size: 13px; color: var(--isl-ink2); cursor: pointer;
+}
+.status-window-item-btn:hover:not(:disabled) { background: var(--isl-sunk); color: var(--text-primary); }
+.status-window-item-btn:disabled { opacity: 0.3; cursor: default; }
+.status-window-add-item { justify-self: start; font-size: 12px !important; }
+.status-window-empty { margin: 0; font-size: 12px; color: var(--isl-ink3); }
+.status-window-preview {
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--page-editor-bg, var(--panel)); color: var(--page-ink, var(--text-primary));
+  font-family: var(--font-editor); font-size: 14px; line-height: 1.7;
+}
+.status-window-preview .st-status-window { margin: 0; }
+.status-window-presets-actions { display: flex; align-items: center; gap: 6px; padding-top: 4px; }
+.status-window-actions-spacer { flex: 1 1 auto; }
