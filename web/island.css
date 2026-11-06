@@ -5403,3 +5403,40 @@ html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn.is-save-fail
 .status-window-dock-sub { font-size: 11px; color: var(--isl-ink3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status-window-dock-actions { display: flex; gap: 6px; margin-top: auto; padding-top: 4px; }
 .status-window-dock-actions .compact-btn { flex: 1 1 0; min-width: 0; font-size: 12px !important; white-space: nowrap; }
+
+/* 상태창 스위치(세계관): 꺼지면 모든 진입로를 숨긴다. 원고 안 상태창 글은 그대로. */
+body.sw-off .format-status-window-btn,
+body.sw-off .isl-fp-chip[data-isl-fmt="statusWindow"],
+body.sw-off [data-dock-item="statusWindows"] { display: none !important; }
+.status-window-switch {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 0 0 10px; padding: 9px 12px; border-radius: 9px; background: var(--isl-sunk);
+  font-family: var(--font-ui);
+}
+.worldbuilding-workspace > .status-window-switch { align-self: stretch; width: auto; max-width: none; margin: 0 28px 10px; }
+.status-window-switch-text { display: grid; gap: 2px; min-width: 0; }
+.status-window-switch-text strong { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+.status-window-switch-text span { font-size: 11.5px; color: var(--isl-ink3); }
+.status-window-switch-reset {
+  justify-self: start; padding: 0; border: 0; background: none; font-family: var(--font-ui);
+  font-size: 11.5px; color: var(--isl-ink2); text-decoration: underline; cursor: pointer;
+}
+.status-window-switch-reset[hidden] { display: none; }
+.status-window-switch-toggle { position: relative; flex: 0 0 auto; width: 34px; height: 20px; cursor: pointer; }
+.status-window-switch-toggle input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.status-window-switch-toggle span {
+  position: absolute; inset: 0; border-radius: 999px; background: color-mix(in srgb, var(--isl-ink3) 45%, var(--panel));
+  transition: background 0.15s;
+}
+.status-window-switch-toggle span::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--panel); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); transition: transform 0.15s;
+}
+.status-window-switch-toggle input:checked + span { background: var(--accent); }
+.status-window-switch-toggle input:checked + span::after { transform: translateX(14px); }
+.status-window-switch-toggle input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.status-window-switch-toggle input:disabled + span { opacity: 0.5; }
+.status-window-box-list { display: grid; gap: 4px; margin: 6px 0 8px; padding: 0; list-style: none; }
+.status-window-box-list li { display: grid; gap: 1px; padding: 6px 8px; border-radius: 7px; background: var(--isl-sunk); font-size: 12px; }
+.status-window-box-list li span { font-size: 11px; color: var(--isl-ink3); }
+.status-window-box-list .status-window-box-empty { background: none; padding: 0; color: var(--isl-ink3); }

@@ -1331,6 +1331,17 @@
                       </button>
                     </div>
                   </div>
+                  <div class="status-window-switch" data-sw-switch>
+                    <div class="status-window-switch-text">
+                      <strong data-i18n="statusWindow.스위치_제목">이 작품에 상태창이 나와요</strong>
+                      <span data-sw-switch-note></span>
+                      <button type="button" class="status-window-switch-reset" data-sw-switch-reset hidden data-i18n="statusWindow.자동으로_되돌리기">자동으로 되돌리기</button>
+                    </div>
+                    <label class="status-window-switch-toggle">
+                      <input type="checkbox" role="switch" data-sw-switch-input aria-label="이 작품에 상태창이 나와요" data-i18n-aria-label="statusWindow.스위치_제목">
+                      <span aria-hidden="true"></span>
+                    </label>
+                  </div>
                   <div class="worldbuilding-form" id="worldbuildingForm" aria-label="세계관 구조" data-i18n-aria-label="index.세계관_구조">
                     <article class="world-cat" data-world-section="where_when">
                       <h3 class="world-cat-title" data-i18n="index.1_무대_및_시대">1. 무대 및 시대 <span class="world-cat-en">(Where &amp; When)</span></h3>
@@ -1455,6 +1466,28 @@
                   <textarea id="projectWorldbuilding" class="worldbuilding-serialized hidden" hidden aria-hidden="true" tabindex="-1"></textarea>
                 </div>
               </section>
+
+              <section class="settings-box hidden" data-settings-section="statusWindow" id="statusWindowBank" draggable="true" hidden>
+                <div class="settings-box-header">
+                  <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
+                  <button type="button" class="settings-box-toggle" data-settings-toggle="statusWindow" aria-expanded="false">
+                    <span class="settings-box-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 8.5h18"/><path d="M7 12.5h4M7 16h6"/><path d="M15.5 12.5h1.5M15.5 16h1.5"/></svg>
+                    </span>
+                    <span class="settings-box-title" data-i18n="statusWindow.상태창">상태창</span>
+                  </button>
+                  <button type="button" class="settings-main-open" data-settings-main="statusWindow" aria-label="메인에서 보기" data-i18n-aria-label="index.메인에서_보기" title="메인에서 보기" data-i18n-title="index.메인에서_보기">
+                    <span class="settings-main-arrow" aria-hidden="true">→</span>
+                  </button>
+                </div>
+                <div class="settings-box-preview" id="statusWindowBoxPreview"></div>
+                <div class="settings-box-body" id="statusWindowBoxBody" hidden>
+                  <p class="hint" data-i18n="statusWindow.상자_안내">이 작품에서 쓰는 상태창 모양이에요. 원고에는 서식줄·우클릭·오른쪽 위젯으로 넣어요.</p>
+                  <ul class="status-window-box-list" id="statusWindowBoxList"></ul>
+                  <button type="button" class="secondary compact-btn" data-sw-box-manage data-i18n="statusWindow.프리셋_관리">프리셋 관리</button>
+                </div>
+              </section>
+
 
               <section class="settings-box" data-settings-section="characters" draggable="true">
                 <div class="settings-box-header">
@@ -3766,6 +3799,17 @@
           <div id="worldbuildingMainTipBox" class="guide-tip-box worldbuilding-main-guide" data-guide-tip="worldHint" role="note">
             <p class="hint guide-tip-text" data-i18n="index.세계관_메인_안내">무대·특이점·극단 요소·사회·세력·지리적 특징 여섯 박스로 정리합니다. 예시는 지우고 작품에 맞게 바꿔 주세요. 6가지 외 요소를 더 추가할 수 있습니다.</p>
             <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="worldHint" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
+          </div>
+          <div class="status-window-switch" data-sw-switch>
+            <div class="status-window-switch-text">
+              <strong data-i18n="statusWindow.스위치_제목">이 작품에 상태창이 나와요</strong>
+              <span data-sw-switch-note></span>
+              <button type="button" class="status-window-switch-reset" data-sw-switch-reset hidden data-i18n="statusWindow.자동으로_되돌리기">자동으로 되돌리기</button>
+            </div>
+            <label class="status-window-switch-toggle">
+              <input type="checkbox" role="switch" data-sw-switch-input aria-label="이 작품에 상태창이 나와요" data-i18n-aria-label="statusWindow.스위치_제목">
+              <span aria-hidden="true"></span>
+            </label>
           </div>
           <div class="worldbuilding-main-scroll">
             <nav id="worldbuildingToc" class="worldbuilding-toc" aria-label="세계관 목차" data-i18n-aria-label="index.세계관_목차"></nav>
@@ -7657,6 +7701,9 @@
           <button type="button" class="selection-float-cat" data-sel-cat="edit" aria-expanded="false" data-i18n="index.편집_도구">편집 도구</button>
           <div class="selection-float-cat-items hidden" data-sel-cat-panel="edit" hidden>
             <button type="button" role="menuitem" class="selection-float-menu-item" data-context-action="add-footnote" id="addFootnoteMenuItem" data-i18n="app.각주_달기">각주 달기</button>
+            <button type="button" role="menuitem" class="selection-float-menu-item hidden" data-context-action="sw-insert" id="swInsertMenuItem" hidden data-i18n="statusWindow.우클릭_상태창_넣기">상태창 넣기 ›</button>
+            <button type="button" role="menuitem" class="selection-float-menu-item hidden" data-context-action="sw-convert" id="swConvertMenuItem" hidden data-i18n="statusWindow.우클릭_고른_글을_상태창으로">고른 글을 상태창으로</button>
+            <button type="button" role="menuitem" class="selection-float-menu-item hidden" data-context-action="sw-tidy" id="swTidyMenuItem" hidden data-i18n="statusWindow.상태창으로_정리">상태창으로 정리</button>
             <button type="button" role="menuitem" class="selection-float-menu-item" data-context-action="to-author-note" id="toAuthorNoteMenuItem" data-i18n="index.주석_단락으로_전환">주석 단락으로 전환</button>
           </div>
         </div>

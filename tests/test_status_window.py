@@ -160,6 +160,30 @@ class StatusWindowApiTests(unittest.TestCase):
         status, _ = self.request("GET", "/api/projects/99999/status-window-presets")
         self.assertGreaterEqual(status, 400)
 
+    def test_mode_switch_and_has_blocks(self) -> None:
+        path = f"/api/projects/{self.project_id}/status-window-presets"
+        status, data = self.request("GET", path)
+        self.assertEqual((data["mode"], data["has_blocks"]), ("auto", False))
+        mode_path = f"/api/projects/{self.project_id}/status-window-mode"
+        for mode in ("on", "off", "auto"):
+            status, data = self.request("POST", mode_path, {"mode": mode})
+            self.assertEqual(status, 200, data)
+            self.assertEqual(data["mode"], mode)
+            self.assertEqual(self.request("GET", path)[1]["mode"], mode)
+        status, _ = self.request("POST", mode_path, {"mode": "maybe"})
+        self.assertGreaterEqual(status, 400)
+        # 원고(지금 저장본)에 상태창이 있으면 has_blocks
+        status, chapter = self.request("POST", f"/api/projects/{self.project_id}/chapters", {"title": "1장"})
+        status, scene = self.request("POST", f"/api/chapters/{chapter['id']}/scenes", {"title": "회차1"})
+        status, detail = self.request("GET", f"/api/scenes/{scene['id']}")
+        self.request("PUT", f"/api/scenes/{scene['id']}", {
+            "content_md": f"<div>본문</div>{KEEP_BLOCK}", "title": "회차1", "row_version": detail["row_version"],
+        })
+        self.assertTrue(self.request("GET", path)[1]["has_blocks"])
+        with app.database() as connection:
+            self.assertIsNotNone(connection.execute("SELECT 1 FROM schema_migration WHERE version = 110").fetchone())
+        self.assertEqual(status_window.normalize_mode("이상한 값"), "auto")
+
     def test_txt_export_applies_text_safe(self) -> None:
         status, chapter = self.request("POST", f"/api/projects/{self.project_id}/chapters", {"title": "1장"})
         self.assertEqual(status, 201, chapter)
@@ -218,6 +242,19 @@ class StatusWindowScreenTests(unittest.TestCase):
         # 맞춤법·토리 체크는 상태창 글자를 뺀다.
         self.assertIn("getEditorPlainText(editor, { excludeStatusWindows: true }).trim()", app_js)
         self.assertIn("engine.analyze(tab, getEditorPlainText(null, { excludeStatusWindows: true })", app_js)
+
+        # 스위치: 모든 진입로가 같은 값을 따른다(세계관 두 자리, 설정집 상자, 위젯, 우클릭 3개).
+        self.assertEqual(html.count("data-sw-switch-input"), 2)
+        for element_id in ("statusWindowBank", "statusWindowBoxList", "swInsertMenuItem", "swConvertMenuItem", "swTidyMenuItem"):
+            self.assertIn(f'id="{element_id}"', html, element_id)
+        self.assertIn('data-dock-item="statusWindows"', html)
+        css = (ROOT / "web" / "island.css").read_text(encoding="utf-8")
+        for selector in ("body.sw-off .format-status-window-btn", 'body.sw-off .isl-fp-chip[data-isl-fmt="statusWindow"]',
+                         'body.sw-off [data-dock-item="statusWindows"]'):
+            self.assertIn(selector, css)
+        sync = app_js[app_js.index("function syncStatusWindowContextMenu"):app_js.index("function runStatusWindowContextAction")]
+        self.assertIn("show(tidyItem, manuscriptOk && inside)", sync)  # 꺼져 있어도 상태창 안 「정리」는 남긴다
+        self.assertIn("try { applyStatusWindowUi(); }", app_js)
 
         locales = {
             lang: json.loads((ROOT / "web" / "locales" / f"{lang}.json").read_text(encoding="utf-8"))

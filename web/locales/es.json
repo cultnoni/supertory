@@ -6194,5 +6194,17 @@
   "statusWindow.i_보유_스킬": "Habilidades",
   "statusWindow.i_경험치": "EXP",
   "statusWindow.i_골드": "Oro",
-  "statusWindow.i_남은_포인트": "Puntos libres"
+  "statusWindow.i_남은_포인트": "Puntos libres",
+  "statusWindow.스위치_제목": "Esta obra usa ventanas de estado",
+  "statusWindow.스위치_키워드로_켜짐": "Se activó automáticamente por una palabra clave de juego o cazadores",
+  "statusWindow.스위치_이미_써서_켜짐": "Activado porque esta obra ya tiene ventanas de estado",
+  "statusWindow.스위치_자동_꺼짐": "Se activa automáticamente al elegir una palabra clave de juego o cazadores",
+  "statusWindow.스위치_직접_켬": "Lo activaste tú",
+  "statusWindow.스위치_직접_끔": "Lo desactivaste tú. Las ventanas de estado del manuscrito no cambian",
+  "statusWindow.자동으로_되돌리기": "Volver a automático",
+  "statusWindow.상태창을_켰어요": "Ventanas de estado activadas. Úsalas desde la barra de formato, el menú contextual, el widget o los ajustes.",
+  "statusWindow.상태창을_껐어요": "Las herramientas de ventana de estado están ocultas. Las ventanas del manuscrito no cambian.",
+  "statusWindow.상자_안내": "Formatos de ventana de estado de esta obra. Insértalos desde la barra de formato, el menú contextual o el widget de la derecha.",
+  "statusWindow.우클릭_상태창_넣기": "Insertar ventana de estado ›",
+  "statusWindow.우클릭_고른_글을_상태창으로": "Convertir selección en ventana de estado"
 }
