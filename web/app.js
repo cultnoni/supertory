@@ -8441,6 +8441,7 @@ const statusWindowState = {
   lastCaret: null,
   /** 세계관 스위치: auto(키워드·이미 쓴 상태창으로 정함) · on · off */
   mode: "auto",
+  draftProjectId: 0,
   /** 이 작품의 어느 회차든 원고에 상태창 블록이 있는지(서버가 셈) */
   hasBlocks: false,
 };
@@ -8883,34 +8884,37 @@ function statusWindowDraftFrom(preset) {
   return JSON.parse(JSON.stringify(normalizeStatusWindowPreset(preset) || normalizeStatusWindowPreset({ name: i18n.t("statusWindow.새_프리셋") })));
 }
 
+/** 프리셋 관리는 설정집 메인 보드(가운데)에 연다. 서식줄 팝업·위젯·설정집 → 모두 여기로 온다. */
 async function openStatusWindowPresets() {
-  if (!state.projectId) {
+  const pid = Number(state.projectId) || 0;
+  if (!pid) {
     toast(i18n.t("statusWindow.작품을_먼저_열어_주세요"));
     return;
   }
-  const modal = $("statusWindowPresetsModal");
-  if (!modal) return;
   await loadStatusWindowPresets({ force: true });
-  const first = statusWindowState.presets[0];
-  statusWindowState.editingId = first ? first.id : "";
-  statusWindowState.draft = statusWindowDraftFrom(first || statusWindowTemplates()[0]);
-  if (!first) {
-    statusWindowState.draft.id = statusWindowNewId();
-    statusWindowState.editingId = "";
+  // 저장하지 않은 편집이 있으면(다른 화면에 다녀온 경우) 그대로 이어서 보여 준다.
+  const keepDraft = statusWindowState.dirty && statusWindowState.draft && statusWindowState.draftProjectId === pid;
+  if (!keepDraft) {
+    const first = statusWindowState.presets[0];
+    statusWindowState.editingId = first ? first.id : "";
+    statusWindowState.draft = statusWindowDraftFrom(first || statusWindowTemplates()[0]);
+    if (!first) {
+      statusWindowState.draft.id = statusWindowNewId();
+      statusWindowState.editingId = "";
+    }
+    statusWindowState.dirty = !first;
   }
-  statusWindowState.dirty = !first;
-  presentModalInWidePanel(modal, {
-    id: "statusWindowPresetsModal",
-    title: i18n.t("statusWindow.상태창_프리셋"),
-    sourceEl: document.querySelector("#formatToolbar .format-status-window-btn"),
-  });
-  renderStatusWindowPresets();
+  statusWindowState.draftProjectId = pid;
+  openSettingsCollectionMain("statusWindow");
+  try {
+    if (activeSettingsMainTabKey() === "statusWindow") addSettingsTab("statusWindow");
+    if (isAnySettingsMainViewOpen()) collapseSettingsSectionAfterMainOpen();
+    renderEpisodeChrome();
+  } catch (_) { /* 탭 줄이 없어도 화면은 열린다 */ }
 }
 
 function closeStatusWindowPresets() {
-  const modal = $("statusWindowPresetsModal");
-  releaseWideHostedModal(modal);
-  modal?.classList.add("hidden");
+  if (state.settingsCollectionKind === "statusWindow") closeSettingsCollectionMain().catch(handleError);
 }
 
 function renderStatusWindowPresetList() {
@@ -9187,13 +9191,15 @@ function renderStatusWindowDock(body) {
       <span class="status-window-dock-sub">${escapeHtml(preset.items.slice(0, 4).map((it) => it.name).join(" · "))}</span>
     </button>`;
   const parts = [`<p class="status-window-dock-hint">${escapeHtml(i18n.t("statusWindow.커서_자리에_넣어요"))}</p>`];
+  const list = [];
+  // 이 작품에서 저장한 프리셋이 있으면 위에, 기본 템플릿 5종은 늘 아래에 둔다.
   if (mine.length) {
-    parts.push(`<div class="status-window-dock-list" role="list">${mine.map(row).join("")}</div>`);
-  } else {
-    parts.push(`<p class="status-window-dock-empty">${escapeHtml(i18n.t("statusWindow.아직_저장한_프리셋이_없어요"))}</p>`);
-    parts.push(`<div class="status-window-menu-label">${escapeHtml(i18n.t("statusWindow.기본_템플릿"))}</div>`);
-    parts.push(`<div class="status-window-dock-list" role="list">${statusWindowTemplates().map(row).join("")}</div>`);
+    list.push(`<div class="status-window-menu-label">${escapeHtml(i18n.t("statusWindow.이_작품_프리셋"))}</div>`);
+    list.push(mine.map(row).join(""));
   }
+  list.push(`<div class="status-window-menu-label">${escapeHtml(i18n.t("statusWindow.기본_템플릿"))}</div>`);
+  list.push(statusWindowTemplates().map(row).join(""));
+  parts.push(`<div class="status-window-dock-list" role="list">${list.join("")}</div>`);
   parts.push(`<div class="status-window-dock-actions">
       <button type="button" class="secondary compact-btn" data-sw-dock-action="tidy">${escapeHtml(i18n.t("statusWindow.상태창으로_정리"))}</button>
       <button type="button" class="secondary compact-btn" data-sw-dock-action="manage">${escapeHtml(i18n.t("statusWindow.프리셋_관리"))}</button>
@@ -22916,6 +22922,21 @@ function syncDockRailButtons() {
     const on = isDockRailItemActive(itemId);
     btn.classList.toggle("is-open", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  syncIslWidgetTileOpenState();
+}
+
+/** 위젯 탭 타일: 지금 열려 있는(쓰는 중인) 위젯은 바탕색과 점으로 표시한다. 다시 그리지 않고 표시만 바꾼다. */
+function syncIslWidgetTileOpenState() {
+  const host = $("islWidgetTiles");
+  if (!host || !host.querySelector("[data-isl-widget]")) return;
+  let items = [];
+  try { items = islWidgetItems().flatMap((group) => group.items); } catch (_) { return; }
+  const open = new Map(items.map((item) => [item.key, Boolean(item.open)]));
+  host.querySelectorAll("[data-isl-widget]").forEach((tile) => {
+    const on = Boolean(open.get(tile.dataset.islWidget));
+    tile.classList.toggle("is-open", on);
+    tile.setAttribute("aria-pressed", on ? "true" : "false");
   });
 }
 
@@ -44318,6 +44339,15 @@ const SETTINGS_COLLECTION_MAIN = {
     section: "cliche",
     listId: "clicheFields",
     hideAdd: true,
+  },
+  // 상태창 프리셋 관리: 가운데 메인 화면에 연다(오른쪽 위젯은 넣기 바로가기만).
+  statusWindow: {
+    title: i18n.t('statusWindow.상태창_프리셋'),
+    hint: "",
+    section: "statusWindow",
+    listId: "statusWindowManager",
+    hideAdd: true,
+    render: () => renderStatusWindowPresets(),
   },
   readingInvite: {
     title: i18n.t('app.읽기_권한_초대'),

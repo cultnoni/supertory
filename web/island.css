@@ -5440,3 +5440,7 @@ body.sw-off [data-dock-item="statusWindows"] { display: none !important; }
 .status-window-box-list li { display: grid; gap: 1px; padding: 6px 8px; border-radius: 7px; background: var(--isl-sunk); font-size: 12px; }
 .status-window-box-list li span { font-size: 11px; color: var(--isl-ink3); }
 .status-window-box-list .status-window-box-empty { background: none; padding: 0; color: var(--isl-ink3); }
+
+/* 프리셋 관리: 설정집 메인 보드 안(가운데)에서 쓰는 한 덩어리 */
+.status-window-manager { display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 820px; }
+#settingsCollectionMount .status-window-manager .status-window-presets-actions { padding: 8px 0 4px; }
