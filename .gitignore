@@ -40,3 +40,6 @@ tests/manuscripts/private/
 i18n_extract_output/
 report_clean.txt
 *.tests.log
+
+# 쿠폰 발급 결과(평문 코드가 들어 있다)
+.coupon_out/
