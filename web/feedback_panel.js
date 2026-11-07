@@ -1,4 +1,5 @@
-/* 첨삭 피드백 패널(검토 모드·플로트 도크 공통). i18n 키를 쓰지 않고 한국어 문구를 직접 둔다.
+/* 첨삭 피드백 패널(검토 모드·플로트 도크 공통). 화면 문구는 litText 함수(feedback.* 키, 한국어 예비 문구)로
+ * web/locales/{ko,en,es}.json 키를 거친다(i18n이 없는 node 테스트에서는 예비 문구가 그대로 나온다).
  * 이후 하단 작업 바: 원고 열 높이를 줄이지 말고, 바가 보일 때만
  * 에디터 스크롤 영역 위에 겹친다(하단에서 12px). 스크롤 영역에만
  * padding-bottom(바 높이+여백)을 준다. styles.css 검토 모드 주석과 같음.
@@ -83,6 +84,11 @@
     partial: "일부 완료",
     failed: "실패",
   };
+  /* 위 표들의 값은 한국어 예비 문구, 화면에는 labelOf로 feedback.<표>.<값> 키를 거쳐 낸다. */
+  function labelOf(table, group, key) {
+    if (!Object.prototype.hasOwnProperty.call(table, key)) return "";
+    return litText("feedback." + group + "." + key, table[key]);
+  }
   const STAGE_LABEL_KEYS = {
     queued: ["app.단계_문단_중복_검사", "문단 중복 검사"],
     dup: ["app.단계_문단_중복_검사", "문단 중복 검사"],
@@ -1139,7 +1145,7 @@
       return {
         ok: false,
         reason: "locate",
-        message: "위치를 찾을 수 없어요",
+        message: litText("feedback.위치를_찾을_수_없어요", "위치를 찾을 수 없어요"),
         copyOnly: true,
         steps: [],
       };
@@ -1149,7 +1155,7 @@
       return {
         ok: false,
         reason: "locate",
-        message: "위치를 찾을 수 없어요",
+        message: litText("feedback.위치를_찾을_수_없어요", "위치를 찾을 수 없어요"),
         copyOnly: true,
         steps: [],
       };
@@ -1160,7 +1166,7 @@
       return {
         ok: false,
         reason: "mismatch",
-        message: "원고가 바뀌어서 적용할 수 없어요. 수정안을 복사해서 직접 고쳐 주세요",
+        message: litText("feedback.원고가_바뀌어서_적용할_수_없어요_수정안을_복사해서_직접_고쳐_주세요", "원고가 바뀌어서 적용할 수 없어요. 수정안을 복사해서 직접 고쳐 주세요"),
         copyOnly: true,
         live: live,
         original: orig,
@@ -1256,7 +1262,7 @@
     const hasExpected = expectedLive === expected;
     const hasOriginal = originalLive === original;
     if (inputType === "historyUndo" && !hasExpected && hasOriginal) {
-      return { action: "reopen", toast: "되돌려서 카드를 미결정으로 바꿨어요" };
+      return { action: "reopen", toast: litText("feedback.되돌려서_카드를_미결정으로_바꿨어요", "되돌려서 카드를 미결정으로 바꿨어요") };
     }
     if (inputType === "historyRedo" && hasExpected && isOpenStatus(memory.status)) {
       return { action: "reapply", status: memory.appliedStatus || "applied" };
@@ -1606,7 +1612,7 @@
       ok: false,
       range: null,
       method: "fail",
-      reason: reason || "인용문을 찾지 못했어요",
+      reason: reason || litText("feedback.인용문을_찾지_못했어요", "인용문을 찾지 못했어요"),
     };
   }
 
@@ -1644,7 +1650,7 @@
 
   function locateCard(card, mapping) {
     const list = Array.isArray(mapping) ? mapping : [];
-    if (!card || !list.length) return locateFail("인용문을 찾지 못했어요");
+    if (!card || !list.length) return locateFail(litText("feedback.인용문을_찾지_못했어요", "인용문을 찾지 못했어요"));
     if (card.card_form === "suggest" || card.card_form === "note") {
       const quote = String(card.start_quote || card.original_text || "");
       const quoted = quote ? findParaWithQuote(list, quote, Number(card.start_para) || 0) : null;
@@ -1676,11 +1682,11 @@
       const spanParas = joinParaRange(list, startN, endN);
       if (!spanParas.length) {
         const quoted = locateByQuotes(card, list);
-        return quoted && quoted.ok ? quoted : locateFail(span > 5 ? "범위가 너무 넓어요" : "인용문을 찾지 못했어요");
+        return quoted && quoted.ok ? quoted : locateFail(span > 5 ? litText("feedback.범위가_너무_넓어요", "범위가 너무 넓어요") : litText("feedback.인용문을_찾지_못했어요", "인용문을 찾지 못했어요"));
       }
       const joined = joinedText(spanParas);
       const range = rangeFromHit(spanParas, 0, joined.length);
-      if (!range) return locateFail("인용문을 찾지 못했어요");
+      if (!range) return locateFail(litText("feedback.인용문을_찾지_못했어요", "인용문을 찾지 못했어요"));
       const band = rangeBand(list, spanParas[0].i, spanParas[spanParas.length - 1].i);
       const g = subsetHitToGlobal(list, spanParas, 0, joined.length);
       band.joinStart = g.start;
@@ -1708,7 +1714,7 @@
     const pool = textParas(list);
     const hits = hitsInParas(pool, sourceText, needle);
     if (!hits.length) {
-      return locateFail(span > 5 ? "범위가 너무 넓어요" : "인용문을 찾지 못했어요");
+      return locateFail(span > 5 ? litText("feedback.범위가_너무_넓어요", "범위가 너무 넓어요") : litText("feedback.인용문을_찾지_못했어요", "인용문을 찾지 못했어요"));
     }
     const mappedHits = [];
     for (let i = 0; i < hits.length; i += 1) {
@@ -1722,14 +1728,14 @@
         dist: Math.abs(Number(startPt.para && startPt.para.i) - (startN || Number(startPt.para && startPt.para.i))),
       });
     }
-    if (!mappedHits.length) return locateFail("인용문을 찾지 못했어요");
+    if (!mappedHits.length) return locateFail(litText("feedback.인용문을_찾지_못했어요", "인용문을 찾지 못했어요"));
     mappedHits.sort(function (a, b) {
       if (a.dist !== b.dist) return a.dist - b.dist;
       return Number(a.startPara) - Number(b.startPara);
     });
     const chosen = mappedHits[0];
     const range = rangeFromHit(pool, chosen.hit.start, chosen.hit.end);
-    if (!range) return locateFail("인용문을 찾지 못했어요");
+    if (!range) return locateFail(litText("feedback.인용문을_찾지_못했어요", "인용문을 찾지 못했어요"));
     const band = rangeBand(list, chosen.startPara, chosen.endPara);
     const g = subsetHitToGlobal(list, pool, chosen.hit.start, chosen.hit.end);
     band.joinStart = g.start;
@@ -1880,7 +1886,7 @@
       del = String(original || "").length;
       add = String(suggestion || "").length;
     }
-    return "− " + del + "자 / + " + add + "자";
+    return litText("feedback.del자_add자", "− ${del}자 / + ${add}자", { del: del, add: add });
   }
 
   function compactSide(segments, side, radius) {
@@ -1947,7 +1953,7 @@
     const out = [];
     for (let i = 0; i < parts.length; i += 1) {
       if (parts[i]) out.push(esc(parts[i]));
-      if (i < parts.length - 1) out.push("<span class=\"fb-nl-del\">줄바꿈 삭제</span>");
+      if (i < parts.length - 1) out.push("<span class=\"fb-nl-del\">" + esc(litText("feedback.줄바꿈_삭제", "줄바꿈 삭제")) + "</span>");
     }
     return out.join("");
   }
@@ -2114,7 +2120,7 @@
   function overlapTooltipLabel(indexes) {
     const nums = (indexes || []).map(function (n) { return padCardIndex(n); });
     if (!nums.length) return "";
-    return "카드 " + nums.join(", ");
+    return litText("feedback.카드_nums", "카드 ${nums}", { nums: nums.join(", ") });
   }
 
   function delSpansFromDiff(original, suggestion) {
@@ -2331,7 +2337,7 @@
     return (Array.isArray(comments) ? comments : []).map(function (row) {
       const mine = String((row && row.role) || "") === "user";
       return "<div class=\"fb-talk-msg " + (mine ? "is-user" : "is-ai") + "\">"
-        + "<span class=\"fb-talk-who\">" + (mine ? "나" : "토리") + "</span>"
+        + "<span class=\"fb-talk-who\">" + esc(mine ? litText("feedback.나", "나") : litText("feedback.토리", "토리")) + "</span>"
         + "<p>" + esc((row && row.body) || "") + "</p></div>";
     }).join("");
   }
@@ -2354,13 +2360,13 @@
     if (Array.isArray(comments) && comments.length) {
       html += "<div class=\"fb-talk-log\">" + renderTalkThread(comments) + "</div>";
     }
-    if (sending) html += "<p class=\"hint fb-talk-loading\">답을 기다리는 중…</p>";
+    if (sending) html += "<p class=\"hint fb-talk-loading\">" + esc(litText("feedback.답을_기다리는_중", "답을 기다리는 중…")) + "</p>";
     if (error) {
-      html += "<p class=\"fb-talk-error\">답을 받지 못했어요 "
-        + "<button type=\"button\" class=\"fb-text-btn\" data-role=\"fb-comment-retry\">다시 시도</button></p>";
+      html += "<p class=\"fb-talk-error\">" + esc(litText("feedback.답을_받지_못했어요", "답을 받지 못했어요")) + " "
+        + "<button type=\"button\" class=\"fb-text-btn\" data-role=\"fb-comment-retry\">" + esc(litText("feedback.다시_시도", "다시 시도")) + "</button></p>";
     }
     if (limited) {
-      html += "<p class=\"fb-talk-limit\">이 카드는 대화를 너무 많이 나눴어요. 새로 분석해서 다시 확인해 보세요</p>";
+      html += "<p class=\"fb-talk-limit\">" + esc(litText("feedback.이_카드는_대화를_너무_많이_나눴어요_새로_분석해서_다시_확인해_보세요", "이 카드는 대화를 너무 많이 나눴어요. 새로 분석해서 다시 확인해 보세요")) + "</p>";
     } else {
       html += "<div class=\"fb-talk-compose\">"
         + "<textarea data-role=\"fb-comment-input\" rows=\"3\" placeholder=\""
@@ -2369,7 +2375,7 @@
         + (sending ? " disabled" : "") + ">" + esc(draft) + "</textarea>"
         + "<button type=\"button\" class=\"fb-primary compact-btn\" data-role=\"fb-comment-send\""
         + (sending ? " disabled" : "") + ">"
-        + (sending ? "보내는 중…" : "보내기") + "</button></div>";
+        + esc(sending ? litText("feedback.보내는_중", "보내는 중…") : litText("feedback.보내기", "보내기")) + "</button></div>";
     }
     html += "</div>";
     return html;
@@ -2410,9 +2416,9 @@
     const c = Math.max(0, Number(counts && counts.low) || 0);
     const ref = Math.max(0, Number(counts && counts.ref) || 0);
     const plan = Math.max(0, Number(planned) || 0);
-    let line = "첨삭 제안 총 " + n + "개 · 중요 " + a + " · 보통 " + b + " · 낮음 " + c;
-    if (ref) line += " · 참고 " + ref;
-    if (running && plan > 0) line = "총 " + plan + "개 중 " + n + "개 생성됨";
+    let line = litText("feedback.첨삭_제안_총_n개_중요_high_보통_medium_낮음_low", "첨삭 제안 총 ${n}개 · 중요 ${high} · 보통 ${medium} · 낮음 ${low}", { n: n, high: a, medium: b, low: c });
+    if (ref) line += " · " + litText("feedback.참고_n", "참고 ${n}", { n: ref });
+    if (running && plan > 0) line = litText("feedback.총_planned개_중_n개_생성됨", "총 ${planned}개 중 ${n}개 생성됨", { planned: plan, n: n });
     return line;
   }
 
@@ -2496,9 +2502,9 @@
     const fromType = literatureTagLabel(card && card.style_type);
     if (fromType && card && (card.card_form === "suggest" || card.card_form === "note")) return fromType;
     const kind = String((card && card.kind) || "");
-    if (KIND_LABELS[kind]) return KIND_LABELS[kind];
+    if (KIND_LABELS[kind]) return labelOf(KIND_LABELS, "kind", kind);
     const style = String((card && card.style_type) || "other");
-    return STYLE_LABELS[style] || STYLE_LABELS.other;
+    return labelOf(STYLE_LABELS, "style", style) || labelOf(STYLE_LABELS, "style", "other");
   }
 
   function lookupReportTitle(report, ref) {
@@ -2572,21 +2578,21 @@
       if (code) codes[code] = true;
     }
     if (codes.note_only && !codes.suggestion_removed && !codes.generation_failed) {
-      return "수정안 없이 위치와 이유만 보여드리는 참고 지적이에요";
+      return litText("feedback.수정안_없이_위치와_이유만_보여드리는_참고_지적이에요", "수정안 없이 위치와 이유만 보여드리는 참고 지적이에요");
     }
     if (codes.suggestion_removed || codes.generation_failed) {
-      return "수정안을 안전하게 만들지 못했어요. 이유를 참고해서 직접 고쳐 주세요.";
+      return litText("feedback.수정안을_안전하게_만들지_못했어요_이유를_참고해서_직접_고쳐_주세요", "수정안을 안전하게 만들지 못했어요. 이유를 참고해서 직접 고쳐 주세요.");
     }
     if (kind === "structure") {
-      return "구조를 바꾸는 제안이라 문장 수정안은 만들지 않았어요. 위치를 확인해서 직접 고쳐 주세요.";
+      return litText("feedback.구조를_바꾸는_제안이라_문장_수정안은_만들지_않았어요_위치를_확인해서_직", "구조를 바꾸는 제안이라 문장 수정안은 만들지 않았어요. 위치를 확인해서 직접 고쳐 주세요.");
     }
     if (kind === "consistency") {
-      return "작가님이 직접 확인해야 하는 항목이에요. 원고나 설정을 확인해 주세요.";
+      return litText("feedback.작가님이_직접_확인해야_하는_항목이에요_원고나_설정을_확인해_주세요", "작가님이 직접 확인해야 하는 항목이에요. 원고나 설정을 확인해 주세요.");
     }
     if (kind === "style" && (style === "info_placement" || style === "other")) {
-      return "이 유형은 수정안 없이 이유만 보여드려요.";
+      return litText("feedback.이_유형은_수정안_없이_이유만_보여드려요", "이 유형은 수정안 없이 이유만 보여드려요.");
     }
-    return "이 항목은 수정안 없이 이유만 제공됩니다";
+    return litText("feedback.이_항목은_수정안_없이_이유만_제공됩니다", "이 항목은 수정안 없이 이유만 제공됩니다");
   }
 
   function formatKindCounts(cards) {
@@ -2671,7 +2677,7 @@
     const n = Math.max(0, Number(counts && counts.total) || 0);
     const plan = Math.max(0, Number(planned) || 0);
     return {
-      title: running && plan > 0 ? (plan + "개 중 " + n + "개 생성됨") : (n + "개"),
+      title: running && plan > 0 ? litText("feedback.planned개_중_n개_생성됨", "${planned}개 중 ${n}개 생성됨", { planned: plan, n: n }) : litText("feedback.n개", "${n}개", { n: n }),
       high: Math.max(0, Number(counts && counts.high) || 0),
       medium: Math.max(0, Number(counts && counts.medium) || 0),
       low: Math.max(0, Number(counts && counts.low) || 0) + Math.max(0, Number(counts && counts.ref) || 0),
@@ -2683,7 +2689,7 @@
     const keys = normalizeKindFilter(kindFilter);
     return {
       title: sum.title,
-      filterNote: keys.length ? ("(필터: " + keys.join(", ") + ")") : "",
+      filterNote: keys.length ? litText("feedback.필터_kinds", "(필터: ${kinds})", { kinds: keys.join(", ") }) : "",
       high: sum.high,
       medium: sum.medium,
       low: Math.max(0, Number(counts && counts.low) || 0),
@@ -2708,10 +2714,10 @@
     const displayChanged = !underlineOn || level !== "high-medium" || !hideDict;
     return {
       sortMode: sortMode,
-      sortLabel: sortMode === "manuscript" ? "원고순" : "중요도순",
+      sortLabel: sortMode === "manuscript" ? litText("feedback.원고순", "원고순") : litText("feedback.중요도순", "중요도순"),
       filterCount: kinds.length,
       filterOn: kinds.length > 0,
-      filterLabel: kinds.length ? ("필터 " + kinds.length) : "필터",
+      filterLabel: kinds.length ? litText("feedback.필터_n", "필터 ${n}", { n: kinds.length }) : litText("feedback.필터", "필터"),
       underlineOn: underlineOn,
       underlineLevel: level,
       hideDict: hideDict,
@@ -2740,23 +2746,21 @@
     const n = normalizeKindFilter(kindFilter).length;
     return {
       enabled: n > 0,
-      label: n > 0 ? "초기화 ✕" : "초기화",
-      hint: n > 0 ? (n + "개 유형 선택됨") : "필터 없음",
+      label: n > 0 ? litText("feedback.초기화", "초기화") + " ✕" : litText("feedback.초기화", "초기화"),
+      hint: n > 0 ? litText("feedback.n개_유형_선택됨", "${n}개 유형 선택됨", { n: n }) : litText("feedback.필터_없음", "필터 없음"),
     };
   }
 
   function formatFilterBanner(kindFilter, shownCount) {
     const keys = normalizeKindFilter(kindFilter);
     if (!keys.length) return "";
-    const who = keys.length === 1
-      ? (keys[0] + "만 보는 중")
-      : (keys.join(", ") + "만 보는 중");
-    return who + " · " + Math.max(0, Number(shownCount) || 0) + "개 표시";
+    const who = litText("feedback.kinds만_보는_중", "${kinds}만 보는 중", { kinds: keys.join(", ") });
+    return who + " · " + litText("feedback.n개_표시", "${n}개 표시", { n: Math.max(0, Number(shownCount) || 0) });
   }
 
   function formatFilterSummaryNote(kindFilter, shownCount) {
     if (!normalizeKindFilter(kindFilter).length) return "";
-    return "(필터로 " + Math.max(0, Number(shownCount) || 0) + "개 표시 중)";
+    return litText("feedback.필터로_n개_표시_중", "(필터로 ${n}개 표시 중)", { n: Math.max(0, Number(shownCount) || 0) });
   }
 
   function controlDisplayState(opts) {
@@ -2812,7 +2816,7 @@
     if (!list.length) return "";
     const first = list[0];
     const msg = typeof first === "string" ? first : String((first && first.message) || "");
-    const extra = list.length > 1 ? " 외 " + (list.length - 1) + "건" : "";
+    const extra = list.length > 1 ? " " + litText("feedback.외_n건", "외 ${n}건", { n: list.length - 1 }) : "";
     return msg + extra;
   }
 
@@ -2820,9 +2824,9 @@
     const start = Number((found && found.startPara) || (card && card.start_para)) || 0;
     const end = Number((found && found.endPara) || (card && card.end_para)) || start;
     if (!start) return "";
-    if (!end || end === start) return "문단 " + start;
+    if (!end || end === start) return litText("feedback.문단_n", "문단 ${n}", { n: start });
     const span = Math.abs(end - start) + 1;
-    return "문단 " + start + "~" + end + " · " + span + "문단";
+    return litText("feedback.문단_start_end_span문단", "문단 ${start}~${end} · ${span}문단", { start: start, end: end, span: span });
   }
 
   function cardHasWarning(card) {
@@ -2833,13 +2837,12 @@
   function dropReasonMessage(reason) {
     const code = String(reason || "");
     if (code === "quote_invalid" || code === "range_invalid" || code === "no_original_range") {
-      return "위치를 찾지 못했어요";
+      return litText("feedback.위치를_찾지_못했어요", "위치를 찾지 못했어요");
     }
-    if (code === "cap_reached") return "카드 개수 한도에 걸려 빠졌어요";
-    if (code === "generation_failed") return "카드를 만들지 못했어요";
-    if (code === "p2_filtered") return "문제가 아니라 제외했어요";
-    if (code === "not_cardable") return "카드로 만들지 못했어요";
-    return "카드로 만들지 못했어요";
+    if (code === "cap_reached") return litText("feedback.카드_개수_한도에_걸려_빠졌어요", "카드 개수 한도에 걸려 빠졌어요");
+    if (code === "generation_failed") return litText("feedback.카드를_만들지_못했어요", "카드를 만들지 못했어요");
+    if (code === "p2_filtered") return litText("feedback.문제가_아니라_제외했어요", "문제가 아니라 제외했어요");
+    return litText("feedback.카드로_만들지_못했어요", "카드로 만들지 못했어요");
   }
 
   function defaultExplanationLens(main, sub, detail) {
@@ -2865,9 +2868,9 @@
   }
 
   function lensLabel(lens) {
-    if (lens === "strong") return "자세히";
-    if (lens === "normal") return "보통";
-    if (lens === "off") return "끔";
+    if (lens === "strong") return litText("feedback.lens.strong", "자세히");
+    if (lens === "normal") return litText("feedback.lens.normal", "보통");
+    if (lens === "off") return litText("feedback.lens.off", "끔");
     return "";
   }
 
@@ -3013,7 +3016,7 @@
     const panel = panelEl();
     if (!panel) return;
     const title = panel.querySelector(".fb-app-title");
-    if (title) title.textContent = "첨삭 피드백";
+    if (title) title.textContent = litText("feedback.첨삭_피드백", "첨삭 피드백");
     const cardsTab = panel.querySelector("[data-role='fb-tab'][data-tab='cards']");
     if (cardsTab) cardsTab.hidden = false;
     const range = panel.querySelector("[data-role='fb-midcheck-range']");
@@ -3127,15 +3130,15 @@
     const total = runCardTotal(row) || Number(row && row.planned_cards) || 0;
     const status = String((row && row.status) || "");
     let extra = "";
-    if (status === "running") extra = " · 분석 중";
-    else if (status === "failed") extra = " · 실패";
-    else if (status === "partial" || status === "interrupted") extra = " · 일부 실패";
-    const primary = Number(row && row.is_primary) === 1 ? " · 기준" : "";
+    if (status === "running") extra = " · " + litText("feedback.분석_중", "분석 중");
+    else if (status === "failed") extra = " · " + litText("feedback.실패", "실패");
+    else if (status === "partial" || status === "interrupted") extra = " · " + litText("feedback.일부_실패", "일부 실패");
+    const primary = Number(row && row.is_primary) === 1 ? " · " + litText("feedback.기준", "기준") : "";
     const kindLabel = String(row && row.pipeline) === "literature_short"
       ? " · " + litText("app.문학_리포트", "문학 리포트")
       : (String(row && row.pipeline) === "literature_long"
         ? " · " + litText("app.문학_장편_리포트", "문학 장편 리포트")
-        : " · 카드 " + total);
+        : " · " + litText("feedback.카드_n", "카드 ${n}", { n: total }));
     return formatRunWhenShort(row && row.created_at)
       + primary
       + kindLabel
@@ -3153,11 +3156,11 @@
 
   function historyRunStatusLabel(status) {
     const s = String(status || "");
-    if (s === "ok") return "완료";
-    if (s === "running") return "진행 중";
-    if (s === "failed") return "실패";
-    if (s === "partial" || s === "interrupted") return "일부 실패";
-    return STATUS_LABELS[s] || s;
+    if (s === "ok") return litText("feedback.완료", "완료");
+    if (s === "running") return litText("feedback.진행_중", "진행 중");
+    if (s === "failed") return litText("feedback.실패", "실패");
+    if (s === "partial" || s === "interrupted") return litText("feedback.일부_실패", "일부 실패");
+    return labelOf(STATUS_LABELS, "status", s) || s;
   }
 
   function formatCardCountSummary(counts) {
@@ -3165,15 +3168,15 @@
     const open = Number(c.open) || 0;
     const applied = (Number(c.applied) || 0) + (Number(c.applied_edited) || 0);
     const ignored = Number(c.ignored) || 0;
-    return "미결정 " + open + " · 적용 " + applied + " · 무시 " + ignored;
+    return litText("feedback.미결정_open_적용_applied_무시_ignored", "미결정 ${open} · 적용 ${applied} · 무시 ${ignored}", { open: open, applied: applied, ignored: ignored });
   }
 
   function historyKindTags(row) {
     const tags = [];
-    if (String(row && row.run_kind) === "legacy") tags.push({ key: "legacy", label: "예전 기록" });
+    if (String(row && row.run_kind) === "legacy") tags.push({ key: "legacy", label: litText("feedback.예전_기록", "예전 기록") });
     const fake = runFakeFlag(row);
-    if (fake === true) tags.push({ key: "fake", label: "시험" });
-    else if (fake === false) tags.push({ key: "real", label: "실제 분석" });
+    if (fake === true) tags.push({ key: "fake", label: litText("feedback.시험", "시험") });
+    else if (fake === false) tags.push({ key: "real", label: litText("feedback.실제_분석", "실제 분석") });
     return tags;
   }
 
@@ -3191,7 +3194,7 @@
       tags: historyKindTags(row),
       primary: primary,
       canDelete: !running,
-      deleteTitle: running ? "실행 중인 첨삭은 삭제할 수 없습니다." : "",
+      deleteTitle: running ? litText("feedback.실행_중인_첨삭은_삭제할_수_없습니다", "실행 중인 첨삭은 삭제할 수 없습니다.") : "",
       showPrimaryBtn: !primary,
     };
   }
@@ -3215,7 +3218,7 @@
 
   function deleteRunConfirmMessage(cardCount) {
     const n = Math.max(0, Number(cardCount) || 0);
-    return "이 분석 기록을 삭제할까요? 카드 " + n + "개가 함께 지워지고 되돌릴 수 없어요";
+    return litText("feedback.이_분석_기록을_삭제할까요_카드_n개가_함께_지워지고_되돌릴_수_없어요", "이 분석 기록을 삭제할까요? 카드 ${n}개가 함께 지워지고 되돌릴 수 없어요", { n: n });
   }
 
   function isLegacyHistoryMode(mode) {
@@ -3231,10 +3234,10 @@
   function formatLegacyImportMessage(imported, skipped) {
     const got = Number(imported) || 0;
     const skip = Number(skipped) || 0;
-    if (got && skip) return got + "개 가져왔어요(" + skip + "개는 이미 있어서 건너뜀)";
-    if (got) return got + "개 가져왔어요";
-    if (skip) return "가져올 새 기록이 없어요(" + skip + "개는 이미 있어서 건너뜀)";
-    return "가져올 예전 기록이 없어요";
+    if (got && skip) return litText("feedback.n개_가져왔어요_skipped개는_이미_있어서_건너뜀", "${n}개 가져왔어요(${skipped}개는 이미 있어서 건너뜀)", { n: got, skipped: skip });
+    if (got) return litText("feedback.n개_가져왔어요", "${n}개 가져왔어요", { n: got });
+    if (skip) return litText("feedback.가져올_새_기록이_없어요_skipped개는_이미_있어서_건너뜀", "가져올 새 기록이 없어요(${skipped}개는 이미 있어서 건너뜀)", { skipped: skip });
+    return i18nText("index.가져올_예전_기록이_없어요", "가져올 예전 기록이 없어요");
   }
 
   function i18nText(key, fallback) {
@@ -3294,13 +3297,13 @@
     const title = cardTitle(card, report);
     if (title) parts.push(String(title));
     if (card.reason) parts.push(String(card.reason));
-    if (cardHasSuggestion(card)) parts.push("수정안\n" + String(card.suggestion || ""));
+    if (cardHasSuggestion(card)) parts.push(litText("feedback.수정안", "수정안") + "\n" + String(card.suggestion || ""));
     return parts.join("\n\n").trim();
   }
 
   function runSelectTags(row) {
     const tags = [];
-    if (runFakeFlag(row) === true) tags.push({ key: "fake", label: "시험" });
+    if (runFakeFlag(row) === true) tags.push({ key: "fake", label: litText("feedback.시험", "시험") });
     const lens = runLensLabel(row);
     if (lens) tags.push({ key: "lens", label: lens });
     return tags;
@@ -3314,14 +3317,14 @@
     const lens = runLensLabel(row);
     if (lens) parts.push(lens);
     const status = String(row.status || "");
-    let st = STATUS_LABELS[status] || status;
-    if (status === "ok") st = "완료";
-    else if (status === "running") st = "진행 중";
-    else if (status === "failed") st = "실패";
-    else if (status === "partial" || status === "interrupted") st = "일부 실패";
+    let st = labelOf(STATUS_LABELS, "status", status) || status;
+    if (status === "ok") st = litText("feedback.완료", "완료");
+    else if (status === "running") st = litText("feedback.진행_중", "진행 중");
+    else if (status === "failed") st = litText("feedback.실패", "실패");
+    else if (status === "partial" || status === "interrupted") st = litText("feedback.일부_실패", "일부 실패");
     if (st) parts.push(st);
     const total = runCardTotal(row) || Number(row.planned_cards) || 0;
-    parts.push("카드 " + total + "개");
+    parts.push(litText("feedback.카드_n개", "카드 ${n}개", { n: total }));
     return parts.join(" · ");
   }
 
@@ -3481,7 +3484,7 @@
 
   function formatLocateDiag(cards, locateById, mapping) {
     const numbered = numberCards(cards || []);
-    const lines = ["순번\t제목\t범위\t성공\t방식\t이유\t원문30\t비슷한30"];
+    const lines = [litText("feedback.순번_제목_범위_성공_방식_이유_원문30_비슷한30", "순번\t제목\t범위\t성공\t방식\t이유\t원문30\t비슷한30")];
     for (let i = 0; i < numbered.length; i += 1) {
       const card = numbered[i].card;
       const found = locateById && locateById[String(card.id)];
@@ -3500,8 +3503,8 @@
         padCardIndex(numbered[i].index),
         title,
         (card.start_para || "") + "~" + (card.end_para || ""),
-        found && found.ok ? "성공" : "실패",
-        found && found.ok ? (found.method === "quotes" ? "인용" : found.method === "window" ? "창 탐색" : "문단번호") : "실패",
+        found && found.ok ? litText("feedback.성공", "성공") : litText("feedback.실패", "실패"),
+        found && found.ok ? (found.method === "quotes" ? litText("feedback.인용", "인용") : found.method === "window" ? litText("feedback.창_탐색", "창 탐색") : litText("feedback.문단번호", "문단번호")) : litText("feedback.실패", "실패"),
         found && found.ok ? "" : locateFailMessage(card, found),
         orig,
         similar,
@@ -3518,7 +3521,7 @@
       run && run.status === "running" ? "low" : stateBox.reveal,
       stateBox.sortMode
     );
-    copyText(formatLocateDiag(layout.items, stateBox.locateById, mapping), "위치 진단을 복사했어요.");
+    copyText(formatLocateDiag(layout.items, stateBox.locateById, mapping), litText("feedback.위치_진단을_복사했어요", "위치 진단을 복사했어요."));
   }
 
   function otherEditorActive() {
@@ -3885,40 +3888,40 @@
     const missing = !found || !found.ok;
     const other = otherEditorActive();
     const warn = cardHasWarning(card);
-    let html = "<button type=\"button\" class=\"fb-inline-close\" data-fb-act=\"close\" aria-label=\"닫기\">×</button>";
-    if (warn) html += "<p class=\"fb-inline-warn\">AI 검사, 확인 필요</p>";
+    let html = "<button type=\"button\" class=\"fb-inline-close\" data-fb-act=\"close\" aria-label=\"" + esc(litText("feedback.닫기", "닫기")) + "\">×</button>";
+    if (warn) html += "<p class=\"fb-inline-warn\">" + esc(litText("feedback.AI_검사_확인_필요", "AI 검사, 확인 필요")) + "</p>";
     if (stateBox.inlineEdit) {
       const seed = hasSug ? String(card.suggestion || "") : String(card.original_text || "");
-      html += "<p class=\"fb-inline-label\">수정해서 적용</p>";
+      html += "<p class=\"fb-inline-label\">" + esc(litText("feedback.수정해서_적용", "수정해서 적용")) + "</p>";
       html += "<textarea data-role=\"fb-inline-edit\">" + esc(seed) + "</textarea>";
       html += "<div class=\"fb-inline-edit-actions\">";
-      html += "<button type=\"button\" class=\"fb-primary\" data-fb-act=\"apply-edited\"" + (missing || other ? " disabled" : "") + ">적용</button>";
-      html += "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"edit-cancel\">취소</button>";
+      html += "<button type=\"button\" class=\"fb-primary\" data-fb-act=\"apply-edited\"" + (missing || other ? " disabled" : "") + ">" + esc(litText("feedback.적용", "적용")) + "</button>";
+      html += "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"edit-cancel\">" + esc(litText("feedback.취소", "취소")) + "</button>";
       html += "</div>";
-      if (other) html += "<p class=\"fb-inline-hint\">이 화면에서는 적용할 수 없어요. 수정안 복사를 이용해 주세요</p>";
+      if (other) html += "<p class=\"fb-inline-hint\">" + esc(litText("feedback.이_화면에서는_적용할_수_없어요_수정안_복사를_이용해_주세요", "이 화면에서는 적용할 수 없어요. 수정안 복사를 이용해 주세요")) + "</p>";
       return html;
     }
     if (hasSug) {
-      html += "<p class=\"fb-inline-label\">수정안(초안)</p>";
+      html += "<p class=\"fb-inline-label\">" + esc(litText("feedback.수정안_초안", "수정안(초안)")) + "</p>";
       html += "<div class=\"fb-inline-body\">" + addedWordHtml(card.original_text, card.suggestion) + "</div>";
       html += "<div class=\"fb-inline-actions\">";
-      html += "<button type=\"button\" class=\"fb-primary\" data-fb-act=\"apply\"" + (missing || other ? " disabled" : "") + ">고치기</button>";
-      html += "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"edit\">수정해서 적용</button>";
-      html += "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"ignore\">무시하기</button>";
-      html += "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"copy\">복사</button>";
+      html += "<button type=\"button\" class=\"fb-primary\" data-fb-act=\"apply\"" + (missing || other ? " disabled" : "") + ">" + esc(litText("feedback.고치기", "고치기")) + "</button>";
+      html += "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"edit\">" + esc(litText("feedback.수정해서_적용", "수정해서 적용")) + "</button>";
+      html += "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"ignore\">" + esc(litText("feedback.무시하기", "무시하기")) + "</button>";
+      html += "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"copy\">" + esc(litText("feedback.복사", "복사")) + "</button>";
       html += "</div>";
-      if (missing) html += "<p class=\"fb-inline-hint\">위치를 찾을 수 없어요</p>";
-      if (other) html += "<p class=\"fb-inline-hint\">이 화면에서는 적용할 수 없어요. 수정안 복사를 이용해 주세요</p>";
-      if (stateBox.pendingConfirm) html += "<p class=\"fb-inline-warn\">줄 구조가 바뀔 수 있어요. 적용할까요? <button type=\"button\" class=\"fb-primary\" data-fb-act=\"apply-confirm\">적용</button></p>";
+      if (missing) html += "<p class=\"fb-inline-hint\">" + esc(litText("feedback.위치를_찾을_수_없어요", "위치를 찾을 수 없어요")) + "</p>";
+      if (other) html += "<p class=\"fb-inline-hint\">" + esc(litText("feedback.이_화면에서는_적용할_수_없어요_수정안_복사를_이용해_주세요", "이 화면에서는 적용할 수 없어요. 수정안 복사를 이용해 주세요")) + "</p>";
+      if (stateBox.pendingConfirm) html += "<p class=\"fb-inline-warn\">" + esc(litText("feedback.줄_구조가_바뀔_수_있어요_적용할까요", "줄 구조가 바뀔 수 있어요. 적용할까요?")) + " <button type=\"button\" class=\"fb-primary\" data-fb-act=\"apply-confirm\">" + esc(litText("feedback.적용", "적용")) + "</button></p>";
       return html;
     }
     html += "<p class=\"fb-inline-label\">" + esc(cardTitle(card, stateBox.run && stateBox.run.report)) + "</p>";
     html += "<p class=\"fb-inline-note\">" + esc(firstTwoSentences(card.reason || "")) + "</p>";
-    html += "<p class=\"fb-inline-hint\">원고에서 직접 고쳐 주세요</p>";
+    html += "<p class=\"fb-inline-hint\">" + esc(litText("feedback.원고에서_직접_고쳐_주세요", "원고에서 직접 고쳐 주세요")) + "</p>";
     html += "<div class=\"fb-inline-actions\">";
-    html += "<button type=\"button\" class=\"fb-primary\" data-fb-act=\"mark-applied\">해결함으로 표시</button>";
-    html += "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"ignore\">무시하기</button>";
-    html += "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"close\">닫기</button>";
+    html += "<button type=\"button\" class=\"fb-primary\" data-fb-act=\"mark-applied\">" + esc(litText("feedback.해결함으로_표시", "해결함으로 표시")) + "</button>";
+    html += "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"ignore\">" + esc(litText("feedback.무시하기", "무시하기")) + "</button>";
+    html += "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"close\">" + esc(litText("feedback.닫기", "닫기")) + "</button>";
     html += "</div>";
     return html;
   }
@@ -4000,14 +4003,14 @@
     el.hidden = false;
     if (el.getAttribute("data-paint") !== paintKey) {
       el.innerHTML = "<div class=\"fb-action-nav\">"
-        + "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"prev\" aria-label=\"이전\"" + (walk.prevId ? "" : " disabled") + ">◀</button>"
+        + "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"prev\" aria-label=\"" + esc(litText("feedback.이전", "이전")) + "\"" + (walk.prevId ? "" : " disabled") + ">◀</button>"
         + "<span class=\"fb-action-count\">" + esc(walk.label) + "</span>"
-        + "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"next\" aria-label=\"다음\"" + (walk.nextId ? "" : " disabled") + ">▶</button>"
+        + "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"next\" aria-label=\"" + esc(litText("feedback.다음", "다음")) + "\"" + (walk.nextId ? "" : " disabled") + ">▶</button>"
         + "</div>"
-        + (hasSug && !isAppliedStatus(card.status) ? "<button type=\"button\" class=\"fb-primary\" data-fb-act=\"apply\"" + (missing || other ? " disabled" : "") + ">고치기</button>" : "")
-        + "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"ignore\">무시하기</button>"
-        + "<span class=\"fb-action-remain\">검토하지 않은 항목 " + walk.remaining + "개</span>"
-        + "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"finish\">검토 끝내기</button>";
+        + (hasSug && !isAppliedStatus(card.status) ? "<button type=\"button\" class=\"fb-primary\" data-fb-act=\"apply\"" + (missing || other ? " disabled" : "") + ">" + esc(litText("feedback.고치기", "고치기")) + "</button>" : "")
+        + "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"ignore\">" + esc(litText("feedback.무시하기", "무시하기")) + "</button>"
+        + "<span class=\"fb-action-remain\">" + esc(litText("feedback.검토하지_않은_항목_n개", "검토하지 않은 항목 ${n}개", { n: walk.remaining })) + "</span>"
+        + "<button type=\"button\" class=\"secondary compact-btn\" data-fb-act=\"finish\">" + esc(litText("feedback.검토_끝내기", "검토 끝내기")) + "</button>";
       el.setAttribute("data-paint", paintKey);
     }
     const host = scroller.getBoundingClientRect();
@@ -4063,7 +4066,7 @@
       return;
     }
     if (stateBox.autoAdvance && !nextId) {
-      toastMsg("검토를 마쳤어요");
+      toastMsg(litText("feedback.검토를_마쳤어요", "검토를 마쳤어요"));
       finishReview();
       return;
     }
@@ -4202,16 +4205,16 @@
   function locateFailMessage(card, found) {
     if (found && found.ok) return "";
     if (isAppliedStatus(card && card.status)) {
-      return "적용된 위치를 찾을 수 없어요. 원고가 그 뒤에 바뀐 것 같아요";
+      return litText("feedback.적용된_위치를_찾을_수_없어요_원고가_그_뒤에_바뀐_것_같아요", "적용된 위치를 찾을 수 없어요. 원고가 그 뒤에 바뀐 것 같아요");
     }
     if (found && found.reason) return found.reason;
     const start = Number(card && card.start_para) || 0;
     const end = Number(card && card.end_para) || start;
-    if (start && end - start + 1 > 5) return "범위가 너무 넓어요";
+    if (start && end - start + 1 > 5) return litText("feedback.범위가_너무_넓어요", "범위가 너무 넓어요");
     const saved = runParagraphsForEditor(stateBox.run);
     const live = paragraphsFromEditor(editorRoot());
-    if (paragraphsDiffer(saved, live)) return "분석 때와 원고가 달라요";
-    return "인용문을 찾지 못했어요";
+    if (paragraphsDiffer(saved, live)) return litText("feedback.분석_때와_원고가_달라요", "분석 때와 원고가 달라요");
+    return litText("feedback.인용문을_찾지_못했어요", "인용문을 찾지 못했어요");
   }
 
   function underlineRangesFor(card, found, isActive, mapping) {
@@ -4421,7 +4424,7 @@
     for (let i = 0; i < cards.length; i += 1) {
       const card = cards[i];
       if (isLiteratureRun(run) && Number(card.scene_id) && Number(card.scene_id) !== openId) {
-        stateBox.locateById[String(card.id)] = locateFail("다른 회차의 카드예요");
+        stateBox.locateById[String(card.id)] = locateFail(litText("feedback.다른_회차의_카드예요", "다른 회차의 카드예요"));
         continue;
       }
       stateBox.locateById[String(card.id)] = locateCard(card, mapping);
@@ -4464,7 +4467,7 @@
     renderCards();
     if (silent) return;
     if (otherEditorActive()) {
-      toastMsg("이 화면에서는 위치 표시를 지원하지 않아요");
+      toastMsg(litText("feedback.이_화면에서는_위치_표시를_지원하지_않아요", "이 화면에서는 위치 표시를 지원하지 않아요"));
       layoutReviewChrome();
       return;
     }
@@ -4487,17 +4490,17 @@
   async function persistThenContinue() {
     if (typeof sceneDirty !== "undefined" && sceneDirty) {
       if (typeof persistScene !== "function") {
-        toastMsg("저장할 수 없어 분석을 시작하지 않았어요.");
+        toastMsg(litText("feedback.저장할_수_없어_분석을_시작하지_않았어요", "저장할 수 없어 분석을 시작하지 않았어요."));
         return false;
       }
       try {
-        const saved = await persistScene({ quiet: false, saveNote: "첨삭 전 저장" });
+        const saved = await persistScene({ quiet: false, saveNote: litText("feedback.첨삭_전_저장", "첨삭 전 저장") });
         if (saved && saved.localOnly) {
-          toastMsg("저장에 실패해서 분석을 시작하지 않았어요.");
+          toastMsg(litText("feedback.저장에_실패해서_분석을_시작하지_않았어요", "저장에 실패해서 분석을 시작하지 않았어요."));
           return false;
         }
       } catch (error) {
-        toastMsg((error && error.message) || "저장에 실패해서 분석을 시작하지 않았어요.");
+        toastMsg((error && error.message) || litText("feedback.저장에_실패해서_분석을_시작하지_않았어요", "저장에 실패해서 분석을 시작하지 않았어요."));
         return false;
       }
     }
@@ -4525,7 +4528,7 @@
   }
 
   async function apiCall(path, options) {
-    if (typeof api !== "function") throw new Error("서버에 연결할 수 없습니다.");
+    if (typeof api !== "function") throw new Error(litText("feedback.서버에_연결할_수_없습니다", "서버에 연결할 수 없습니다."));
     return api(path, options || {});
   }
 
@@ -4620,7 +4623,7 @@
       }
     } catch (error) {
       if (typeof handleError === "function") handleError(error);
-      else toastMsg((error && error.message) || "기록을 불러오지 못했어요.");
+      else toastMsg((error && error.message) || litText("feedback.기록을_불러오지_못했어요", "기록을 불러오지 못했어요."));
     }
   }
 
@@ -4632,15 +4635,15 @@
   async function startAnalysis() {
     const ctx = currentScene();
     if (!ctx.projectId) {
-      toastMsg("작품을 먼저 열어 주세요.");
+      toastMsg(litText("feedback.작품을_먼저_열어_주세요", "작품을 먼저 열어 주세요."));
       return;
     }
     if (!stateBox.midcheckMode && !ctx.sceneId) {
-      toastMsg("먼저 목차에서 회차 하나를 열어 주세요.");
+      toastMsg(litText("feedback.먼저_목차에서_회차_하나를_열어_주세요", "먼저 목차에서 회차 하나를 열어 주세요."));
       return;
     }
     if (!stateBox.configured) {
-      toastMsg("ANTHROPIC_API_KEY가 설정되지 않았습니다. 설정 방법은 .env에 키를 넣는 것입니다.");
+      toastMsg(litText("feedback.ANTHROPIC_API_KEY가_설정되지_않았습니다_설정_방법은_env", "ANTHROPIC_API_KEY가 설정되지 않았습니다. 설정 방법은 .env에 키를 넣는 것입니다."));
       return;
     }
     if (stateBox.busy) return;
@@ -4661,7 +4664,7 @@
       await loadRuns();
       await loadRun(created.run_id, { quiet: true });
     } catch (error) {
-      toastMsg((error && error.message) || "분석을 시작하지 못했어요.");
+      toastMsg((error && error.message) || litText("feedback.분석을_시작하지_못했어요", "분석을 시작하지 못했어요."));
     } finally {
       stateBox.busy = false;
       renderAll();
@@ -4678,7 +4681,7 @@
       });
       await loadRun(run.id, { quiet: true });
     } catch (error) {
-      toastMsg((error && error.message) || "취소하지 못했어요.");
+      toastMsg((error && error.message) || litText("feedback.취소하지_못했어요", "취소하지 못했어요."));
     }
   }
 
@@ -4704,7 +4707,7 @@
       if (card && saved && saved.suggestion) card.suggestion = saved.suggestion;
       toastMsg(litText("app.수정안을_받아_두었어요", "수정안을 받아 두었어요"));
     } catch (error) {
-      toastMsg((error && error.message) || "수정안을 받지 못했어요.");
+      toastMsg((error && error.message) || litText("feedback.수정안을_받지_못했어요", "수정안을 받지 못했어요."));
     } finally {
       stateBox.rewriteBusyId = "";
       refreshListAndChrome();
@@ -4715,7 +4718,7 @@
     try {
       await putCardStatus(cardId, status);
     } catch (error) {
-      toastMsg((error && error.message) || "카드 상태를 바꾸지 못했어요.");
+      toastMsg((error && error.message) || litText("feedback.카드_상태를_바꾸지_못했어요", "카드 상태를 바꾸지 못했어요."));
     }
   }
 
@@ -4904,19 +4907,19 @@
     const key = String(ctx.sceneId || "") + ":" + String((stateBox.run && stateBox.run.id) || "");
     if (stateBox.preApplySavedKey === key) return true;
     if (typeof persistScene !== "function") {
-      toastMsg("저장할 수 없어 적용하지 않았어요.");
+      toastMsg(litText("feedback.저장할_수_없어_적용하지_않았어요", "저장할 수 없어 적용하지 않았어요."));
       return false;
     }
     try {
-      const saved = await persistScene({ quiet: false, saveNote: "첨삭 적용 전 저장" });
+      const saved = await persistScene({ quiet: false, saveNote: litText("feedback.첨삭_적용_전_저장", "첨삭 적용 전 저장") });
       if (saved && saved.localOnly) {
-        toastMsg("저장에 실패해서 적용하지 않았어요.");
+        toastMsg(litText("feedback.저장에_실패해서_적용하지_않았어요", "저장에 실패해서 적용하지 않았어요."));
         return false;
       }
       stateBox.preApplySavedKey = key;
       return true;
     } catch (error) {
-      toastMsg((error && error.message) || "저장에 실패해서 적용하지 않았어요.");
+      toastMsg((error && error.message) || litText("feedback.저장에_실패해서_적용하지_않았어요", "저장에 실패해서 적용하지 않았어요."));
       return false;
     }
   }
@@ -4937,7 +4940,7 @@
     await openCardScene(card);
     if (String(stateBox.activeCardId) !== String(cardId)) selectCard(cardId, { force: true });
     if (otherEditorActive()) {
-      toastMsg("이 화면에서는 적용할 수 없어요. 수정안 복사를 이용해 주세요");
+      toastMsg(litText("feedback.이_화면에서는_적용할_수_없어요_수정안_복사를_이용해_주세요", "이 화면에서는 적용할 수 없어요. 수정안 복사를 이용해 주세요"));
       layoutReviewChrome();
       return;
     }
@@ -4964,7 +4967,7 @@
     restoreScroller(scrollerSnap);
     const liveBefore = readPlanLiveText(mapEditorParagraphs(editorRoot()), plan);
     if (normalizeApplyText(liveBefore) !== normalizeApplyText(plan.originalText || "")) {
-      toastMsg("원고가 바뀌어 적용하지 않았어요. 수정안을 복사해 주세요");
+      toastMsg(litText("feedback.원고가_바뀌어_적용하지_않았어요_수정안을_복사해_주세요", "원고가 바뀌어 적용하지 않았어요. 수정안을 복사해 주세요"));
       restoreScroller(scrollerSnap);
       return;
     }
@@ -4972,7 +4975,7 @@
     const ran = runApplyPlan(plan, { confirm: true });
     if (!ran.ok) {
       stateBox.applyBusy = false;
-      toastMsg("적용하지 못했어요. 수정안을 복사해 주세요");
+      toastMsg(litText("feedback.적용하지_못했어요_수정안을_복사해_주세요", "적용하지 못했어요. 수정안을 복사해 주세요"));
       restoreScroller(scrollerSnap);
       return;
     }
@@ -4984,12 +4987,12 @@
     try {
       await putCardStatus(cardId, status, opts.edited ? { final_text: plan.expectedText } : null);
     } catch (error) {
-      toastMsg("기록에 저장하지 못했어요", 8000, {
+      toastMsg(litText("feedback.기록에_저장하지_못했어요", "기록에 저장하지 못했어요"), 8000, {
         action: {
-          label: "다시 시도",
+          label: litText("feedback.다시_시도", "다시 시도"),
           onClick: function () {
             putCardStatus(cardId, status, opts.edited ? { final_text: plan.expectedText } : null).catch(function (err) {
-              toastMsg((err && err.message) || "기록에 저장하지 못했어요");
+              toastMsg((err && err.message) || litText("feedback.기록에_저장하지_못했어요", "기록에 저장하지 못했어요"));
             });
           },
         },
@@ -4999,9 +5002,9 @@
     stateBox.applyBusy = false;
     stateBox.inlineEdit = false;
     const shouldAdvance = Boolean(stateBox.autoAdvance && nextId);
-    toastMsg("적용했어요", 10000, {
+    toastMsg(litText("feedback.적용했어요", "적용했어요"), 10000, {
       action: {
-        label: "되돌리기",
+        label: litText("feedback.되돌리기", "되돌리기"),
         onClick: function () { undoLastApply(cardId); },
       },
     });
@@ -5028,7 +5031,7 @@
     }
     dispatchEditorInput();
     putCardStatus(cardId, "open").catch(function (error) {
-      toastMsg((error && error.message) || "카드 상태를 바꾸지 못했어요.");
+      toastMsg((error && error.message) || litText("feedback.카드_상태를_바꾸지_못했어요", "카드 상태를 바꾸지 못했어요."));
     });
     refreshLocations();
   }
@@ -5036,9 +5039,9 @@
   async function ignoreCardAndAdvance(cardId) {
     const nextId = peekNextOpen(cardId);
     await setCardStatus(cardId, "ignored");
-    toastMsg("무시했어요", 5000, {
+    toastMsg(litText("feedback.무시했어요", "무시했어요"), 5000, {
       action: {
-        label: "되돌리기",
+        label: litText("feedback.되돌리기", "되돌리기"),
         onClick: function () {
           setCardStatus(cardId, "open");
         },
@@ -5050,9 +5053,9 @@
   async function markCardAppliedWithoutEdit(cardId) {
     const nextId = peekNextOpen(cardId);
     await setCardStatus(cardId, "applied");
-    toastMsg("해결함으로 표시했어요", 5000, {
+    toastMsg(litText("feedback.해결함으로_표시했어요", "해결함으로 표시했어요"), 5000, {
       action: {
-        label: "되돌리기",
+        label: litText("feedback.되돌리기", "되돌리기"),
         onClick: function () { setCardStatus(cardId, "open"); },
       },
     });
@@ -5099,7 +5102,7 @@
   function copyText(text, doneMsg) {
     const value = String(text || "");
     if (!value) return;
-    const okMsg = doneMsg || "수정안을 복사했어요.";
+    const okMsg = doneMsg || litText("feedback.수정안을_복사했어요", "수정안을 복사했어요.");
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(value).then(function () {
         toastMsg(okMsg);
@@ -5117,8 +5120,8 @@
     area.value = value;
     document.body.appendChild(area);
     area.select();
-    try { document.execCommand("copy"); toastMsg(doneMsg || "수정안을 복사했어요."); }
-    catch (_) { toastMsg("복사하지 못했어요."); }
+    try { document.execCommand("copy"); toastMsg(doneMsg || litText("feedback.수정안을_복사했어요", "수정안을 복사했어요.")); }
+    catch (_) { toastMsg(litText("feedback.복사하지_못했어요", "복사하지 못했어요.")); }
     area.remove();
   }
 
@@ -5227,7 +5230,7 @@
           + "\" aria-pressed=\"" + item.ariaPressed
           + "\" aria-label=\"" + esc(item.label) + " " + item.count + "\">"
           + esc(item.label) + " " + item.count + "</button>";
-      }).join("") || "<p class=\"hint\">아직 카드가 없어요</p>";
+      }).join("") || "<p class=\"hint\">" + esc(litText("feedback.아직_카드가_없어요", "아직 카드가 없어요")) + "</p>";
     }
     const tabCards = panel.querySelector("[data-role='fb-tab-cards']");
     if (tabCards) tabCards.classList.toggle("has-kind-filter", display.filterOn);
@@ -5236,7 +5239,7 @@
       banner.hidden = !display.filterOn;
       banner.innerHTML = display.filterOn
         ? ("<span>" + esc(display.banner) + "</span>"
-          + "<button type=\"button\" class=\"fb-text-btn fb-banner-clear\" data-role=\"fb-kind-clear\" aria-label=\"필터 해제\">해제</button>")
+          + "<button type=\"button\" class=\"fb-text-btn fb-banner-clear\" data-role=\"fb-kind-clear\" aria-label=\"" + esc(litText("feedback.필터_해제", "필터 해제")) + "\">" + esc(litText("feedback.해제", "해제")) + "</button>")
         : "";
     }
     return display;
@@ -5257,8 +5260,8 @@
 
   function runFakeLabel(row) {
     const flag = runFakeFlag(row);
-    if (flag === true) return "시험 기록";
-    if (flag === false) return "실제 분석";
+    if (flag === true) return litText("feedback.시험_기록", "시험 기록");
+    if (flag === false) return litText("feedback.실제_분석", "실제 분석");
     return "";
   }
 
@@ -5280,8 +5283,8 @@
     if (!panel) return;
     const titleEl = panel.querySelector("[data-role='fb-scene']");
     if (titleEl) {
-      titleEl.textContent = stateBox.sceneTitle || "회차를 열어 주세요";
-      titleEl.setAttribute("title", stateBox.sceneTitle || "회차를 열어 주세요");
+      titleEl.textContent = stateBox.sceneTitle || litText("feedback.회차를_열어_주세요", "회차를 열어 주세요");
+      titleEl.setAttribute("title", stateBox.sceneTitle || litText("feedback.회차를_열어_주세요", "회차를 열어 주세요"));
     }
     const nextFake = panel.querySelector("[data-role='fb-next-fake']");
     if (nextFake) {
@@ -5292,14 +5295,14 @@
     const keyBanner = panel.querySelector("[data-role='fb-key']");
     if (keyBanner) {
       keyBanner.hidden = stateBox.configured;
-      keyBanner.textContent = "ANTHROPIC_API_KEY가 설정되지 않았습니다. 설정 방법은 .env에 키를 넣는 것입니다.";
+      keyBanner.textContent = litText("feedback.ANTHROPIC_API_KEY가_설정되지_않았습니다_설정_방법은_env", "ANTHROPIC_API_KEY가 설정되지 않았습니다. 설정 방법은 .env에 키를 넣는 것입니다.");
     }
     const running = Boolean(stateBox.run && stateBox.run.status === "running");
     const startBtn = panel.querySelector("[data-role='fb-start']");
     if (startBtn) {
       const blocked = !stateBox.configured || stateBox.busy || running;
       startBtn.disabled = blocked;
-      startBtn.textContent = running || stateBox.busy ? "분석 중" : "새로 분석";
+      startBtn.textContent = running || stateBox.busy ? litText("feedback.분석_중", "분석 중") : litText("feedback.새로_분석", "새로 분석");
     }
     const lensBtns = panel.querySelectorAll("[data-role='fb-lens']");
     for (let i = 0; i < lensBtns.length; i += 1) {
@@ -5323,7 +5326,7 @@
     if (locateMsg) {
       locateMsg.hidden = !otherEditorActive();
       locateMsg.textContent = otherEditorActive()
-        ? "이 화면에서는 위치 표시를 지원하지 않아요"
+        ? litText("feedback.이_화면에서는_위치_표시를_지원하지_않아요", "이 화면에서는 위치 표시를 지원하지 않아요")
         : "";
     }
     const select = panel.querySelector("[data-role='fb-runs']");
@@ -5332,8 +5335,8 @@
       select.innerHTML = stateBox.runs.map(function (row) {
         return "<option value=\"" + esc(row.id) + "\""
           + (Number(row.id) === Number(currentId) ? " selected" : "")
-          + ">" + esc(formatRunOption(row) || "실행 기록") + "</option>";
-      }).join("") || "<option value=\"\">실행 기록 없음</option>";
+          + ">" + esc(formatRunOption(row) || litText("feedback.실행_기록", "실행 기록")) + "</option>";
+      }).join("") || "<option value=\"\">" + esc(litText("feedback.실행_기록_없음", "실행 기록 없음")) + "</option>";
     }
     const tagsEl = panel.querySelector("[data-role='fb-run-tags']");
     if (tagsEl) {
@@ -5369,7 +5372,7 @@
     const paras = Array.isArray(run.paragraphs) ? run.paragraphs : [];
     const n = Number(run.paragraph_count) || paras.length;
     info.hidden = !n;
-    info.textContent = n ? ("서버가 원고를 문단 " + n + "개로 나눴어요") : "";
+    info.textContent = n ? litText("feedback.서버가_원고를_문단_n개로_나눴어요", "서버가 원고를 문단 ${n}개로 나눴어요", { n: n }) : "";
     const warnings = Array.isArray(run.warnings) ? run.warnings : [];
     let single = warnings.find(function (item) {
       return item && item.code === "single_paragraph";
@@ -5379,7 +5382,7 @@
     }, 0);
     if (!single && n === 1 && textLen > 800) {
       single = {
-        message: "이 회차가 한 문단으로 인식됐어요. 위치 표시가 정확하지 않을 수 있어요",
+        message: litText("feedback.이_회차가_한_문단으로_인식됐어요_위치_표시가_정확하지_않을_수_있어요", "이 회차가 한 문단으로 인식됐어요. 위치 표시가 정확하지 않을 수 있어요"),
       };
     }
     warn.hidden = !single;
@@ -5395,7 +5398,7 @@
     const mismatch = paragraphsDiffer(saved, live);
     banner.hidden = !mismatch;
     banner.textContent = mismatch
-      ? "분석한 뒤 원고가 바뀌었어요. 일부 위치가 어긋날 수 있어요"
+      ? litText("feedback.분석한_뒤_원고가_바뀌었어요_일부_위치가_어긋날_수_있어요", "분석한 뒤 원고가 바뀌었어요. 일부 위치가 어긋날 수 있어요")
       : "";
   }
 
@@ -5417,7 +5420,7 @@
     wrap.innerHTML =
       "<div class=\"fb-progress-head\">"
       + "<span>" + esc(label) + "</span>"
-      + "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-cancel\">취소</button>"
+      + "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-cancel\">" + esc(litText("feedback.취소", "취소")) + "</button>"
       + "</div>"
       + "<div class=\"fb-progress-bar\" aria-hidden=\"true\"><span style=\"width:" + pct + "%\"></span></div>";
   }
@@ -5428,7 +5431,7 @@
     const run = stateBox.run;
     if (!run) {
       el.hidden = false;
-      el.innerHTML = "<p class=\"hint\">이 회차의 첨삭 기록이 없어요. [새로 분석]을 눌러 시작하세요.</p>";
+      el.innerHTML = "<p class=\"hint\">" + esc(litText("feedback.이_회차의_첨삭_기록이_없어요_새로_분석_을_눌러_시작하세요", "이 회차의 첨삭 기록이 없어요. [새로 분석]을 눌러 시작하세요.")) + "</p>";
       return;
     }
     if (run.status === "running") {
@@ -5442,14 +5445,14 @@
     const cardsFailed = Boolean(run.params && run.params.cards_failed);
     if (run.status === "failed") {
       el.innerHTML = "<p class=\"fb-status-msg\">" + esc(publicError) + "</p>"
-        + "<button type=\"button\" class=\"primary compact-btn\" data-role=\"fb-retry\">다시 시도</button>";
+        + "<button type=\"button\" class=\"primary compact-btn\" data-role=\"fb-retry\">" + esc(litText("feedback.다시_시도", "다시 시도")) + "</button>";
     } else if (run.status === "partial" && !cardsFailed) {
-      el.innerHTML = "<p class=\"fb-status-msg\">일부 단계가 실패했어요</p>";
+      el.innerHTML = "<p class=\"fb-status-msg\">" + esc(litText("feedback.일부_단계가_실패했어요", "일부 단계가 실패했어요")) + "</p>";
     } else if (run.status === "partial" && cardsFailed) {
       el.innerHTML = "";
       el.hidden = true;
     } else {
-      el.innerHTML = "<p class=\"hint\">분석이 끝났어요.</p>";
+      el.innerHTML = "<p class=\"hint\">" + esc(litText("feedback.분석이_끝났어요", "분석이 끝났어요.")) + "</p>";
     }
   }
 
@@ -5542,10 +5545,10 @@
     const reading = report.reading || {};
     const roleRows = (report.role_map || []).map(function (row) {
       const flags = [];
-      if (row.similar_streak) flags.push("유사 연속");
-      if (row.blurry) flags.push("흐릿");
+      if (row.similar_streak) flags.push(litText("feedback.유사_연속", "유사 연속"));
+      if (row.blurry) flags.push(litText("feedback.흐릿", "흐릿"));
       return "<tr><td><button type=\"button\" class=\"fb-mid-unit\" data-role=\"fb-mid-unit\" data-unit-no=\""
-        + esc(row.unit_no) + "\">" + esc(row.unit_no) + "장</button></td><td>"
+        + esc(row.unit_no) + "\">" + esc(litText("feedback.n장", "${n}장", { n: row.unit_no })) + "</button></td><td>"
         + esc(row.role || "") + (flags.length ? " <em>" + esc(flags.join(", ")) + "</em>" : "")
         + "</td></tr>";
     }).join("");
@@ -5561,13 +5564,13 @@
         ? " <span class=\"hint\">" + esc(litText("app.설정집에_없음", "설정집에 없음")) + "</span>"
         : "";
       return "<tr><td>" + esc(row.name || row.id || "") + missingMark + addBtn + "</td><td>"
-        + esc(row.first_unit) + "~" + esc(row.last_unit) + "장</td><td>"
+        + esc(litText("feedback.from_to장", "${from}~${to}장", { from: row.first_unit, to: row.last_unit })) + "</td><td>"
         + esc(row.status || "") + "</td></tr>";
     }).join("");
     const arcs = (report.character_arcs || []).map(function (row) {
       return "<li><strong>" + esc(row.name || "") + "</strong> "
         + esc(row.change || "")
-        + (row.stalled ? " <span class=\"hint\">멈춤: " + esc(row.stalled) + "</span>" : "")
+        + (row.stalled ? " <span class=\"hint\">" + esc(litText("feedback.멈춤_what", "멈춤: ${what}", { what: row.stalled })) + "</span>" : "")
         + "</li>";
     }).join("");
     const revisions = (report.revisions || []).map(function (item) {
@@ -5592,7 +5595,7 @@
       + "<h4>" + esc(litText("app.인물_궤적", "인물 궤적")) + "</h4>"
       + (arcs ? "<ul class=\"fb-list\">" + arcs + "</ul>" : "<p class=\"hint\">-</p>")
       + "<h4>" + esc(litText("app.모티프_복선_현황", "모티프·복선 현황")) + "</h4>"
-      + (motifRows ? "<table class=\"fb-scores\"><thead><tr><th>항목</th><th>구간</th><th>상태</th></tr></thead><tbody>"
+      + (motifRows ? "<table class=\"fb-scores\"><thead><tr><th>" + esc(litText("feedback.항목", "항목")) + "</th><th>" + esc(litText("feedback.구간", "구간")) + "</th><th>" + esc(litText("feedback.상태", "상태")) + "</th></tr></thead><tbody>"
         + motifRows + "</tbody></table>" : "<p class=\"hint\">-</p>")
       + "<h4>" + esc(litText("app.큰_퇴고_방향", "큰 퇴고 방향")) + "</h4>"
       + (revisions ? "<ul class=\"fb-list\">" + revisions + "</ul>" : "<p class=\"hint\">-</p>")
@@ -5657,7 +5660,7 @@
       if (!raw) return "";
       return esc(raw).replace(/(\d+)\s*장/g, function (_m, num) {
         return "<button type=\"button\" class=\"fb-lit-unit\" data-role=\"fb-lit-unit\" data-unit-ord=\""
-          + esc(num) + "\">" + esc(num) + "장</button>";
+          + esc(num) + "\">" + esc(litText("feedback.n장", "${n}장", { n: num })) + "</button>";
       });
     }
     const voiceHtml = voices.map(function (pair) {
@@ -5979,7 +5982,7 @@
     if (!hasStructured && md) {
       el.innerHTML =
         "<button type=\"button\" class=\"fb-fold\" data-role=\"fb-report-toggle\" aria-expanded=\""
-        + (stateBox.reportOpen ? "true" : "false") + "\">리포트</button>"
+        + (stateBox.reportOpen ? "true" : "false") + "\">" + esc(litText("feedback.리포트", "리포트")) + "</button>"
         + "<div class=\"fb-report-body fb-report-md\"" + (stateBox.reportOpen ? "" : " hidden") + ">"
         + esc(md).replace(/\n/g, "<br>")
         + "</div>";
@@ -6004,16 +6007,16 @@
     }).join("");
     el.innerHTML =
       "<button type=\"button\" class=\"fb-fold\" data-role=\"fb-report-toggle\" aria-expanded=\""
-      + (stateBox.reportOpen ? "true" : "false") + "\">리포트</button>"
+      + (stateBox.reportOpen ? "true" : "false") + "\">" + esc(litText("feedback.리포트", "리포트")) + "</button>"
       + "<div class=\"fb-report-body\"" + (stateBox.reportOpen ? "" : " hidden") + ">"
       + "<p class=\"fb-summary\">" + esc(report.summary || "") + "</p>"
       + renderGenreReport(report.genre, run)
       + (scoreRows
-        ? "<table class=\"fb-scores\"><thead><tr><th>항목</th><th>점수</th><th>코멘트</th></tr></thead><tbody>"
+        ? "<table class=\"fb-scores\"><thead><tr><th>" + esc(litText("feedback.항목", "항목")) + "</th><th>" + esc(litText("feedback.점수", "점수")) + "</th><th>" + esc(litText("feedback.코멘트", "코멘트")) + "</th></tr></thead><tbody>"
           + scoreRows + "</tbody></table>"
         : "")
-      + (strengthHtml ? "<h4>강점</h4><ul class=\"fb-list\">" + strengthHtml + "</ul>" : "")
-      + (notesHtml ? "<h4>참고 지적</h4><ul class=\"fb-list\">" + notesHtml + "</ul>" : "")
+      + (strengthHtml ? "<h4>" + esc(litText("feedback.강점", "강점")) + "</h4><ul class=\"fb-list\">" + strengthHtml + "</ul>" : "")
+      + (notesHtml ? "<h4>" + esc(litText("feedback.참고_지적", "참고 지적")) + "</h4><ul class=\"fb-list\">" + notesHtml + "</ul>" : "")
       + "</div>";
   }
 
@@ -6039,10 +6042,10 @@
         + "<div class=\"fb-card-settled-row\">"
         + numChip
         + "<span>" + esc(title) + "</span>"
-        + "<span class=\"fb-badge\">" + esc(STATUS_LABELS[card.status] || "적용됨") + "</span>"
-        + "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-restore\">상태만 되돌리기</button>"
+        + "<span class=\"fb-badge\">" + esc(labelOf(STATUS_LABELS, "status", card.status) || labelOf(STATUS_LABELS, "status", "applied")) + "</span>"
+        + "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-restore\">" + esc(litText("feedback.상태만_되돌리기", "상태만 되돌리기")) + "</button>"
         + "</div>"
-        + "<p class=\"fb-card-settled-hint\">원고 텍스트는 그대로예요. 원고에서 되돌리려면 Ctrl+Z를 쓰세요</p>"
+        + "<p class=\"fb-card-settled-hint\">" + esc(litText("feedback.원고_텍스트는_그대로예요_원고에서_되돌리려면_Ctrl_Z를_쓰세요", "원고 텍스트는 그대로예요. 원고에서 되돌리려면 Ctrl+Z를 쓰세요")) + "</p>"
         + "<div class=\"fb-card-actions fb-card-talk-actions\">" + talk + "</div>"
         + "</article>";
     }
@@ -6052,8 +6055,8 @@
         + "<div class=\"fb-card-ignored-row\">"
         + numChip
         + "<span>" + esc(styleTypeLabel(card)) + " · " + esc(locationLabel(card, located)) + "</span>"
-        + "<span class=\"fb-badge\">무시됨</span>"
-        + "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-restore\">되돌리기</button>"
+        + "<span class=\"fb-badge\">" + esc(labelOf(STATUS_LABELS, "status", "ignored")) + "</span>"
+        + "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-restore\">" + esc(litText("feedback.되돌리기", "되돌리기")) + "</button>"
         + "</div>"
         + "<div class=\"fb-card-actions fb-card-talk-actions\">" + talk + "</div>"
         + "</article>";
@@ -6077,7 +6080,7 @@
     html += numChip;
     html += "<button type=\"button\" class=\"fb-fold-card\" data-role=\"fb-card-toggle\" aria-expanded=\""
       + (collapsed ? "false" : "true") + "\">"
-      + (collapsed ? "펼치기" : "접기") + "</button>";
+      + esc(collapsed ? litText("feedback.펼치기", "펼치기") : litText("feedback.접기", "접기")) + "</button>";
     html += "<span class=\"fb-kind\">" + esc(styleTypeLabel(card)) + "</span>";
     if (card.card_form === "suggest" || card.card_form === "note") {
       html += "<span class=\"fb-badge\">" + esc(litText(
@@ -6086,10 +6089,10 @@
       )) + "</span>";
     }
     html += "<span class=\"fb-badge pri-" + esc(analyzing ? "analyzing" : pri) + "\">"
-      + esc(analyzing ? "분석 중" : (PRIORITY_LABELS[pri] || pri || "")) + "</span>";
+      + esc(analyzing ? litText("feedback.분석_중", "분석 중") : (labelOf(PRIORITY_LABELS, "priority", pri) || pri || "")) + "</span>";
     html += "<button type=\"button\" class=\"fb-loc\" data-role=\"fb-goto\">"
       + esc(locationLabel(card, located)) + "</button>";
-    html += "<span class=\"fb-badge\">" + esc(STATUS_LABELS[card.status] || "미결정") + "</span>";
+    html += "<span class=\"fb-badge\">" + esc(labelOf(STATUS_LABELS, "status", card.status) || labelOf(STATUS_LABELS, "status", "open")) + "</span>";
     const talkCount = commentCountOf(card);
     if (collapsed && talkCount) {
       html += "<button type=\"button\" class=\"fb-talk-chip\" data-role=\"fb-comment-toggle\" title=\""
@@ -6097,11 +6100,11 @@
         + esc(commentButtonLabel(talkCount)) + "\">💬 " + esc(commentChipLabel(talkCount)) + "</button>";
     }
     if (missing) {
-      html += "<span class=\"fb-badge fb-missing\">위치를 찾을 수 없어요</span>";
+      html += "<span class=\"fb-badge fb-missing\">" + esc(litText("feedback.위치를_찾을_수_없어요", "위치를 찾을 수 없어요")) + "</span>";
       html += "<span class=\"fb-missing-why\">" + esc(locateFailMessage(card, located)) + "</span>";
     }
     if (peers.length) {
-      html += "<span class=\"fb-peer\">같은 장면의 다른 지적: "
+      html += "<span class=\"fb-peer\">" + esc(litText("feedback.같은_장면의_다른_지적", "같은 장면의 다른 지적:")) + " "
         + peers.map(function (peer) {
           return "<button type=\"button\" class=\"fb-peer-link\" data-role=\"fb-peer\" data-peer-id=\""
             + esc(peer.id) + "\">" + esc(padCardIndex(peer.index)) + "</button>";
@@ -6116,28 +6119,28 @@
       if (hasSuggestion) {
         const origSegs = segs ? (fullDiff ? segs.filter(function (s) { return s.type !== "add"; }) : compactSide(segs, "orig", DIFF_CONTEXT)) : [{ type: "same", text: original }];
         const sugSegs = segs ? (fullDiff ? segs.filter(function (s) { return s.type !== "del"; }) : compactSide(segs, "sug", DIFF_CONTEXT)) : [{ type: "same", text: suggestion }];
-        html += "<p class=\"fb-draft-label\">수정안 있음(초안)</p>";
+        html += "<p class=\"fb-draft-label\">" + esc(litText("feedback.수정안_있음_초안", "수정안 있음(초안)")) + "</p>";
         html += "<div class=\"fb-compare" + (fullDiff ? " is-full" : "") + "\">";
-        html += "<div class=\"fb-compare-row\"><span class=\"fb-compare-label\">원문</span>"
+        html += "<div class=\"fb-compare-row\"><span class=\"fb-compare-label\">" + esc(litText("feedback.원문", "원문")) + "</span>"
           + "<div class=\"fb-compare-text\">" + renderSegHtml(origSegs) + "</div></div>";
-        html += "<div class=\"fb-compare-row\"><span class=\"fb-compare-label\">수정안</span>"
+        html += "<div class=\"fb-compare-row\"><span class=\"fb-compare-label\">" + esc(litText("feedback.수정안", "수정안")) + "</span>"
           + "<div class=\"fb-compare-text\">" + renderSegHtml(sugSegs) + "</div></div>";
         html += "</div>";
         const long = original.length + suggestion.length > DIFF_CONTEXT * 4 || (segs && original.length > DIFF_CONTEXT * 2);
         if (long || fullDiff) {
           html += "<button type=\"button\" class=\"fb-diff-toggle\" data-role=\"fb-diff-toggle\">"
-            + (fullDiff ? "줄여 보기" : "전체 보기") + "</button>";
+            + esc(fullDiff ? litText("feedback.줄여_보기", "줄여 보기") : litText("feedback.전체_보기", "전체 보기")) + "</button>";
         }
       } else if (original) {
         const shown = !fullDiff && original.length > ORIGINAL_PREVIEW
           ? original.slice(0, ORIGINAL_PREVIEW) + "…"
           : original;
         html += "<div class=\"fb-compare\"><div class=\"fb-compare-row\">"
-          + "<span class=\"fb-compare-label\">원문</span>"
+          + "<span class=\"fb-compare-label\">" + esc(litText("feedback.원문", "원문")) + "</span>"
           + "<div class=\"fb-compare-text\">" + esc(shown) + "</div></div></div>";
         if (original.length > ORIGINAL_PREVIEW) {
           html += "<button type=\"button\" class=\"fb-diff-toggle\" data-role=\"fb-diff-toggle\">"
-            + (fullDiff ? "줄여 보기" : "전체 보기") + "</button>";
+            + esc(fullDiff ? litText("feedback.줄여_보기", "줄여 보기") : litText("feedback.전체_보기", "전체 보기")) + "</button>";
         }
         html += "<p class=\"hint\">" + esc(noSuggestionHint(card)) + "</p>";
       } else {
@@ -6146,7 +6149,7 @@
       const actionWarn = actionableWarnings(warnings);
       const infoWarn = infoWarnings(warnings);
       if (isNoteOnlyCard(card)) {
-        html += "<span class=\"fb-note-label\">참고 지적</span>";
+        html += "<span class=\"fb-note-label\">" + esc(litText("feedback.참고_지적", "참고 지적")) + "</span>";
       }
       if (infoWarn.length) {
         html += infoWarn.map(function (item) {
@@ -6155,7 +6158,7 @@
         }).join("");
       }
       if (actionWarn.length) {
-        html += "<button type=\"button\" class=\"fb-warn-toggle\" data-role=\"fb-warn\">AI 검사, 확인 필요"
+        html += "<button type=\"button\" class=\"fb-warn-toggle\" data-role=\"fb-warn\">" + esc(litText("feedback.AI_검사_확인_필요", "AI 검사, 확인 필요"))
           + (warnOpen ? "" : " · " + esc(warningPreview(actionWarn))) + "</button>";
         if (warnOpen) {
           html += "<ul class=\"fb-warn-list\">" + actionWarn.map(function (item) {
@@ -6164,7 +6167,7 @@
           }).join("") + "</ul>";
         }
       }
-      if (maybe) html += "<p class=\"fb-maybe\">확인이 필요한 항목</p>";
+      if (maybe) html += "<p class=\"fb-maybe\">" + esc(litText("feedback.확인이_필요한_항목", "확인이 필요한 항목")) + "</p>";
       html += "<div class=\"fb-card-actions\">";
       if (card.card_form === "note" && !hasSuggestion) {
         html += "<p class=\"fb-lit-label\">" + esc(litText("app.AI_검사_확인_필요", "AI 검사, 확인 필요")) + "</p>";
@@ -6185,15 +6188,15 @@
         html += "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-apply-edit\"" + (missing || otherEditorActive() ? " disabled" : "") + ">" + esc(litText("app.수정_후_적용", "수정 후 적용")) + "</button>";
         html += "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-ignore\">" + esc(litText("app.적용_안_함", "적용 안 함")) + "</button>";
       } else if (hasSuggestion) {
-        html += "<button type=\"button\" class=\"fb-primary compact-btn\" data-role=\"fb-apply\"" + (missing || otherEditorActive() ? " disabled" : "") + ">고치기</button>";
-        html += "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-copy\">수정안 복사</button>";
+        html += "<button type=\"button\" class=\"fb-primary compact-btn\" data-role=\"fb-apply\"" + (missing || otherEditorActive() ? " disabled" : "") + ">" + esc(litText("feedback.고치기", "고치기")) + "</button>";
+        html += "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-copy\">" + esc(litText("feedback.수정안_복사", "수정안 복사")) + "</button>";
       }
       if (card.card_form !== "note" && card.card_form !== "suggest") {
-        html += "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-ignore\">무시하기</button>";
+        html += "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-ignore\">" + esc(litText("feedback.무시하기", "무시하기")) + "</button>";
       }
       html += renderCommentThread(card, commentUiState(card));
       html += "<button type=\"button\" class=\"fb-collect-btn" + (hasCollectedMark("card", id) ? " is-on" : "")
-        + "\" data-role=\"fb-collect-card\" title=\"수집에 저장\" aria-label=\"수집\" aria-pressed=\""
+        + "\" data-role=\"fb-collect-card\" title=\"" + esc(litText("feedback.수집에_저장", "수집에 저장")) + "\" aria-label=\"" + esc(litText("feedback.수집", "수집")) + "\" aria-pressed=\""
         + (hasCollectedMark("card", id) ? "true" : "false") + "\">"
         + (hasCollectedMark("card", id) ? "★" : "☆") + "</button>";
       html += "</div>";
@@ -6216,9 +6219,9 @@
     if (summary) {
       summary.innerHTML = "<strong>" + esc(sum.title) + "</strong>"
         + (display.summaryNote ? ("<span class=\"fb-filter-shown\">" + esc(display.summaryNote) + "</span>") : "")
-        + "<span class=\"fb-dot is-high\">중요 " + sum.high + "</span>"
-        + "<span class=\"fb-dot is-medium\">보통 " + sum.medium + "</span>"
-        + "<span class=\"fb-dot is-low\">낮음 " + sum.low + "</span>";
+        + "<span class=\"fb-dot is-high\">" + esc(labelOf(PRIORITY_LABELS, "priority", "high") + " " + sum.high) + "</span>"
+        + "<span class=\"fb-dot is-medium\">" + esc(labelOf(PRIORITY_LABELS, "priority", "medium") + " " + sum.medium) + "</span>"
+        + "<span class=\"fb-dot is-low\">" + esc(labelOf(PRIORITY_LABELS, "priority", "low") + " " + sum.low) + "</span>";
     }
   }
 
@@ -6244,7 +6247,11 @@
     const more = moreSeeCounts(cards, reveal, stateBox.kindFilter);
     const moreMedium = !running && more.moreMedium;
     const moreLow = !running && more.moreLow;
-    const groupLabels = { high: "중요", medium: "보통", low: "낮음" };
+    const groupLabels = {
+      high: labelOf(PRIORITY_LABELS, "priority", "high"),
+      medium: labelOf(PRIORITY_LABELS, "priority", "medium"),
+      low: labelOf(PRIORITY_LABELS, "priority", "low"),
+    };
     const display = controlDisplayState({
       sortMode: stateBox.sortMode,
       kindFilter: stateBox.kindFilter,
@@ -6259,8 +6266,8 @@
       body += "<p class=\"fb-status-msg\">" + esc(publicError) + "</p>";
     }
     if (display.emptyFilter) {
-      body = "<p class=\"fb-filter-empty\">선택한 유형의 제안이 없어요 "
-        + "<button type=\"button\" class=\"fb-text-btn\" data-role=\"fb-kind-clear\" aria-label=\"필터 해제\">해제</button></p>";
+      body = "<p class=\"fb-filter-empty\">" + esc(litText("feedback.선택한_유형의_제안이_없어요", "선택한 유형의 제안이 없어요")) + " "
+        + "<button type=\"button\" class=\"fb-text-btn\" data-role=\"fb-kind-clear\" aria-label=\"" + esc(litText("feedback.필터_해제", "필터 해제")) + "\">" + esc(litText("feedback.해제", "해제")) + "</button></p>";
     } else if (layout.mode === "manuscript") {
       body = numbered.map(function (row) {
         return renderCard(row.card, { index: row.index, peers: peers[row.id] || [] });
@@ -6281,12 +6288,12 @@
     }
     el.innerHTML = body
       + (moreMedium
-        ? "<button type=\"button\" class=\"fb-ctrl fb-more\" data-role=\"fb-more-medium\">보통 "
-          + more.medium + "개 더 보기</button>"
+        ? "<button type=\"button\" class=\"fb-ctrl fb-more\" data-role=\"fb-more-medium\">"
+          + esc(litText("feedback.보통_n개_더_보기", "보통 ${n}개 더 보기", { n: more.medium })) + "</button>"
         : "")
       + (moreLow
-        ? "<button type=\"button\" class=\"fb-ctrl fb-more\" data-role=\"fb-more-low\">낮음 "
-          + more.low + "개 더 보기</button>"
+        ? "<button type=\"button\" class=\"fb-ctrl fb-more\" data-role=\"fb-more-low\">"
+          + esc(litText("feedback.낮음_n개_더_보기", "낮음 ${n}개 더 보기", { n: more.low })) + "</button>"
         : "");
     if (stateBox.pendingScrollGroup) {
       const header = el.querySelector('[data-fb-group="' + stateBox.pendingScrollGroup + '"]');
@@ -6322,17 +6329,17 @@
             + "<span class=\"fb-hist-status\">" + esc(view.statusLabel) + "</span>"
             + "<span class=\"fb-hist-counts\">" + esc(view.countsLabel) + "</span>"
             + tags
-            + (view.primary ? "<span class=\"fb-badge fb-hist-primary\">기준</span>" : "")
+            + (view.primary ? "<span class=\"fb-badge fb-hist-primary\">" + esc(litText("feedback.기준", "기준")) + "</span>" : "")
             + "</div>"
             + "<div class=\"fb-hist-actions\">"
-            + "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-hist-view\">보기</button>"
+            + "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-hist-view\">" + esc(litText("feedback.보기", "보기")) + "</button>"
             + (view.showPrimaryBtn
-              ? "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-hist-primary\">기준으로 설정</button>"
+              ? "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-hist-primary\">" + esc(litText("feedback.기준으로_설정", "기준으로 설정")) + "</button>"
               : "")
             + "<button type=\"button\" class=\"secondary compact-btn\" data-role=\"fb-hist-delete\""
             + (view.canDelete ? "" : " disabled")
             + (view.deleteTitle ? " title=\"" + esc(view.deleteTitle) + "\"" : "")
-            + ">삭제</button>"
+            + ">" + esc(litText("feedback.삭제", "삭제")) + "</button>"
             + "</div></article>";
         }).join("");
       }
@@ -6715,7 +6722,7 @@
       const edited = window.prompt(litText("app.수정_후_적용", "수정 후 적용"), (found && found.suggestion) || "");
       if (edited != null && String(edited).trim()) {
         putCardStatus(cardId, "applied_edited", { final_text: edited }).catch(function (error) {
-          toastMsg((error && error.message) || "적용하지 못했어요.");
+          toastMsg((error && error.message) || litText("feedback.적용하지_못했어요", "적용하지 못했어요."));
         });
       }
       return;
@@ -6782,7 +6789,7 @@
     const id = Number(select.value);
     if (!id) return;
     loadRun(id, { quiet: true }).catch(function (error) {
-      toastMsg((error && error.message) || "실행을 불러오지 못했어요.");
+      toastMsg((error && error.message) || litText("feedback.실행을_불러오지_못했어요", "실행을 불러오지 못했어요."));
     });
   }
 
@@ -6799,7 +6806,7 @@
     stateBox.tab = historyTabForRun(row);
     stateBox.tabLocked = true;
     loadRun(runId, { quiet: true }).catch(function (error) {
-      toastMsg((error && error.message) || "실행을 불러오지 못했어요.");
+      toastMsg((error && error.message) || litText("feedback.실행을_불러오지_못했어요", "실행을 불러오지 못했어요."));
     });
   }
 
@@ -6827,7 +6834,7 @@
       id: "fb-run-" + String(run.id),
       kind: "markupfeedback",
       mode: "markupfeedback",
-      modeLabel: fake ? "첨삭 피드백 · 시험 기록" : "첨삭 피드백",
+      modeLabel: fake ? litText("feedback.첨삭_피드백", "첨삭 피드백") + " · " + litText("feedback.시험_기록", "시험 기록") : litText("feedback.첨삭_피드백", "첨삭 피드백"),
       runId: Number(run.id),
       sceneId: run.scene_id != null ? Number(run.scene_id) : null,
       sceneTitle: String(run.scene_title || ""),
@@ -6841,20 +6848,20 @@
 
   function markupHistoryStatusLabel(item) {
     const status = String((item && item.status) || "");
-    if (status === "running") return "분석 중";
-    if (status === "failed") return "실패";
+    if (status === "running") return litText("feedback.분석_중", "분석 중");
+    if (status === "failed") return litText("feedback.실패", "실패");
     const n = Math.max(0, Number(item && item.cardTotal) || 0);
-    return "카드 " + n + "개";
+    return litText("feedback.카드_n개", "카드 ${n}개", { n: n });
   }
 
   function formatMarkupHistoryPreview(item) {
-    const scene = String((item && item.sceneTitle) || "").trim() || "회차";
+    const scene = String((item && item.sceneTitle) || "").trim() || litText("feedback.회차", "회차");
     return scene + " · " + markupHistoryStatusLabel(item);
   }
 
   function formatMarkupHistoryLine(item, whenText) {
-    const parts = ["첨삭 피드백"];
-    if (item && item.fake) parts.push("시험 기록");
+    const parts = [litText("feedback.첨삭_피드백", "첨삭 피드백")];
+    if (item && item.fake) parts.push(litText("feedback.시험_기록", "시험 기록"));
     const scene = String((item && item.sceneTitle) || "").trim();
     if (scene) parts.push(scene);
     if (whenText) parts.push(whenText);
@@ -6898,7 +6905,7 @@
       renderHistory();
       renderToolbar();
     } catch (error) {
-      toastMsg((error && error.message) || "기준으로 바꾸지 못했어요.");
+      toastMsg((error && error.message) || litText("feedback.기준으로_바꾸지_못했어요", "기준으로 바꾸지 못했어요."));
     }
   }
 
@@ -6919,7 +6926,7 @@
         renderAll();
       }
     } catch (error) {
-      toastMsg((error && error.message) || "삭제하지 못했어요.");
+      toastMsg((error && error.message) || litText("feedback.삭제하지_못했어요", "삭제하지 못했어요."));
     }
   }
 
@@ -6927,7 +6934,7 @@
     const ctx = currentScene();
     const entries = readLegacyHistoryEntries(ctx.projectId);
     if (!entries.length) {
-      toastMsg("가져올 예전 기록이 없어요");
+      toastMsg(i18nText("index.가져올_예전_기록이_없어요", "가져올 예전 기록이 없어요"));
       return;
     }
     try {
@@ -6946,13 +6953,13 @@
         renderToolbar();
       }
     } catch (error) {
-      toastMsg((error && error.message) || "가져오지 못했어요.");
+      toastMsg((error && error.message) || litText("feedback.가져오지_못했어요", "가져오지 못했어요."));
     }
   }
 
   function saveToToryVault(payload) {
     if (typeof collectToToryVault !== "function") {
-      toastMsg("수집창고를 쓸 수 없어요");
+      toastMsg(litText("feedback.수집창고를_쓸_수_없어요", "수집창고를 쓸 수 없어요"));
       return null;
     }
     const item = collectToToryVault({
@@ -6969,18 +6976,18 @@
     const run = stateBox.run;
     const text = formatReportCollectText(run);
     if (!text) {
-      toastMsg("수집할 리포트가 없어요");
+      toastMsg(litText("feedback.수집할_리포트가_없어요", "수집할 리포트가 없어요"));
       return;
     }
     const already = hasCollectedMark("run", run.id);
     const item = saveToToryVault({
-      title: "첨삭 리포트" + (stateBox.sceneTitle ? " · " + stateBox.sceneTitle : ""),
+      title: litText("feedback.첨삭_리포트", "첨삭 리포트") + (stateBox.sceneTitle ? " · " + stateBox.sceneTitle : ""),
       text: text,
       mode: "analyze",
     });
     if (!item) return;
     rememberCollectedMark("run", run.id);
-    toastMsg(already ? "이미 수집함에 있어요. 하나 더 저장했어요" : "수집함에 저장했어요");
+    toastMsg(already ? litText("feedback.이미_수집함에_있어요_하나_더_저장했어요", "이미 수집함에 있어요. 하나 더 저장했어요") : litText("feedback.수집함에_저장했어요", "수집함에 저장했어요"));
     renderReport();
   }
 
@@ -6990,18 +6997,18 @@
     });
     const text = formatCardCollectText(card, stateBox.run && stateBox.run.report);
     if (!text) {
-      toastMsg("수집할 카드 내용이 없어요");
+      toastMsg(litText("feedback.수집할_카드_내용이_없어요", "수집할 카드 내용이 없어요"));
       return;
     }
     const already = hasCollectedMark("card", cardId);
     const item = saveToToryVault({
-      title: cardTitle(card, stateBox.run && stateBox.run.report) || "첨삭 카드",
+      title: cardTitle(card, stateBox.run && stateBox.run.report) || litText("feedback.첨삭_카드", "첨삭 카드"),
       text: text,
       mode: "analyze",
     });
     if (!item) return;
     rememberCollectedMark("card", cardId);
-    toastMsg(already ? "이미 수집함에 있어요. 하나 더 저장했어요" : "수집함에 저장했어요");
+    toastMsg(already ? litText("feedback.이미_수집함에_있어요_하나_더_저장했어요", "이미 수집함에 있어요. 하나 더 저장했어요") : litText("feedback.수집함에_저장했어요", "수집함에 저장했어요"));
     renderCards();
   }
 

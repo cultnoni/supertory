@@ -25676,7 +25676,7 @@ function syncWidePanelSizeToggle() {
     else if (!slot.close && button.parentNode !== slot.parent) slot.parent.appendChild(button);
     button.hidden = !canReview;
     const showBig = isWidePanelFloatOpen();
-    const label = showBig ? "넓게 보기" : "작은 창으로 보기";
+    const label = showBig ? i18n.t("feedback.넓게_보기") : i18n.t("feedback.작은_창으로_보기");
     button.innerHTML = showBig ? WIDE_PANEL_ICON_BIG : WIDE_PANEL_ICON_SMALL;
     button.title = label;
     button.setAttribute("aria-label", label);

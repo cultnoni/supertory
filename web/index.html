@@ -5245,28 +5245,28 @@
 
     <div id="ideaFloatHost" class="idea-float-host" aria-live="off"></div>
     <div id="feedbackPanelHome" class="dock-adopt-home" hidden>
-      <section id="feedbackPanel" class="feedback-panel" aria-label="첨삭 피드백">
+      <section id="feedbackPanel" class="feedback-panel" aria-label="첨삭 피드백" data-i18n-aria-label="feedback.첨삭_피드백">
         <header class="fb-chrome">
           <div class="fb-chrome-row fb-chrome-title">
             <div class="fb-chrome-heading">
-              <h2 class="fb-app-title">첨삭 피드백</h2>
+              <h2 class="fb-app-title" data-i18n="feedback.첨삭_피드백">첨삭 피드백</h2>
               <strong class="fb-title-scene" data-role="fb-scene">회차를 열어 주세요</strong>
             </div>
             <div class="fb-chrome-icons">
-              <button type="button" class="fb-icon-btn" data-role="fb-debug-locate" hidden title="위치 진단 복사" aria-label="위치 진단 복사">진단</button>
-              <button type="button" class="fb-icon-btn fb-chrome-close" data-role="fb-close-chrome" title="닫기" aria-label="닫기">×</button>
+              <button type="button" class="fb-icon-btn" data-role="fb-debug-locate" hidden title="위치 진단 복사" data-i18n-title="feedback.위치_진단_복사" aria-label="위치 진단 복사" data-i18n-aria-label="feedback.위치_진단_복사" data-i18n="feedback.진단">진단</button>
+              <button type="button" class="fb-icon-btn fb-chrome-close" data-role="fb-close-chrome" title="닫기" data-i18n-title="feedback.닫기" aria-label="닫기" data-i18n-aria-label="feedback.닫기">×</button>
             </div>
           </div>
           <div class="fb-chrome-row fb-chrome-run">
             <div class="fb-run-select">
-              <select data-role="fb-runs" aria-label="첨삭 실행 선택" title="이전 분석 기록을 골라요"></select>
+              <select data-role="fb-runs" aria-label="첨삭 실행 선택" data-i18n-aria-label="feedback.첨삭_실행_선택" title="이전 분석 기록을 골라요" data-i18n-title="feedback.이전_분석_기록을_골라요"></select>
               <span class="fb-run-caret" aria-hidden="true">▾</span>
               <span class="fb-run-tags" data-role="fb-run-tags"></span>
             </div>
             <div class="fb-start-wrap">
-              <button type="button" class="primary compact-btn fb-ctrl-primary" data-role="fb-start" title="새 분석을 시작하기 전에 강도를 고를 수 있어요" aria-label="새로 분석" aria-haspopup="dialog" aria-expanded="false">새로 분석</button>
-              <div class="fb-pop fb-start-pop" data-role="fb-start-pop" hidden role="dialog" aria-label="새 분석">
-                <p class="fb-pop-title">새 분석</p>
+              <button type="button" class="primary compact-btn fb-ctrl-primary" data-role="fb-start" title="새 분석을 시작하기 전에 강도를 고를 수 있어요" data-i18n-title="feedback.새_분석을_시작하기_전에_강도를_고를_수_있어요" aria-label="새로 분석" data-i18n-aria-label="feedback.새로_분석" aria-haspopup="dialog" aria-expanded="false">새로 분석</button>
+              <div class="fb-pop fb-start-pop" data-role="fb-start-pop" hidden role="dialog" aria-label="새 분석" data-i18n-aria-label="feedback.새_분석">
+                <p class="fb-pop-title" data-i18n="feedback.새_분석">새 분석</p>
                 <div class="fb-engine-wrap" data-role="fb-engine-wrap" hidden>
                   <div class="fb-lens-cards" role="radiogroup" aria-label="읽는 방식" data-i18n-aria-label="index.읽는_방식">
                     <button type="button" class="fb-lens-card" data-role="fb-engine" data-engine="literary" role="radio" aria-checked="false">
@@ -5280,17 +5280,17 @@
                   </div>
                   <p class="hint" data-role="fb-engine-need-form" hidden data-i18n="index.문학으로_읽으려면_분량을_골라_주세요">설정에서 단편 또는 장편을 고르면 문학으로 읽을 수 있어요.</p>
                 </div>
-                <div class="fb-lens-cards" role="radiogroup" aria-label="분석 강도">
+                <div class="fb-lens-cards" role="radiogroup" aria-label="분석 강도" data-i18n-aria-label="feedback.분석_강도">
                   <button type="button" class="fb-lens-card" data-role="fb-lens" data-lens="normal" role="radio" aria-checked="false">
-                    <strong>보통 <span class="fb-lens-rec" data-rec="normal" hidden>이 작품 장르 기준 추천</span></strong>
-                    <span>확실한 문제 위주로 지적해요. 웹소설의 관습적인 서술은 문제로 세지 않아요.</span>
+                    <strong><span data-i18n="feedback.lens.normal">보통</span> <span class="fb-lens-rec" data-rec="normal" hidden data-i18n="feedback.이_작품_장르_기준_추천">이 작품 장르 기준 추천</span></strong>
+                    <span data-i18n="feedback.확실한_문제_위주로_지적해요_웹소설의_관습적인_서술은_문제로_세지_않아요">확실한 문제 위주로 지적해요. 웹소설의 관습적인 서술은 문제로 세지 않아요.</span>
                   </button>
                   <button type="button" class="fb-lens-card" data-role="fb-lens" data-lens="strong" role="radio" aria-checked="false">
-                    <strong>자세히 <span class="fb-lens-rec" data-rec="strong" hidden>이 작품 장르 기준 추천</span></strong>
-                    <span>감정을 직접 설명하는 문장, 비유 풀이, 해설 과잉까지 적극 지적해요. 카드가 많아지고 비용이 조금 더 들 수 있어요.</span>
+                    <strong><span data-i18n="feedback.lens.strong">자세히</span> <span class="fb-lens-rec" data-rec="strong" hidden data-i18n="feedback.이_작품_장르_기준_추천">이 작품 장르 기준 추천</span></strong>
+                    <span data-i18n="feedback.감정을_직접_설명하는_문장_비유_풀이_해설_과잉까지_적극_지적해요_카드가">감정을 직접 설명하는 문장, 비유 풀이, 해설 과잉까지 적극 지적해요. 카드가 많아지고 비용이 조금 더 들 수 있어요.</span>
                   </button>
                 </div>
-                <p class="fb-next-mode" data-role="fb-next-fake" hidden>시험 모드로 실행돼요</p>
+                <p class="fb-next-mode" data-role="fb-next-fake" hidden data-i18n="feedback.시험_모드로_실행돼요">시험 모드로 실행돼요</p>
                 <label class="fb-fresh-cards">
                   <input type="checkbox" data-role="fb-fresh-cards">
                   <span data-i18n="index.처음부터_다시_보기">처음부터 다시 보기</span>
@@ -5304,9 +5304,9 @@
             </div>
           </div>
         </header>
-        <div class="fb-tabs" role="tablist" aria-label="첨삭 피드백 탭">
-          <button type="button" class="fb-tab is-active" role="tab" data-role="fb-tab" data-tab="report" aria-selected="true">리포트</button>
-          <button type="button" class="fb-tab" role="tab" data-role="fb-tab" data-tab="cards" aria-selected="false">첨삭 제안 <span data-role="fb-card-count">0</span></button>
+        <div class="fb-tabs" role="tablist" aria-label="첨삭 피드백 탭" data-i18n-aria-label="feedback.첨삭_피드백_탭">
+          <button type="button" class="fb-tab is-active" role="tab" data-role="fb-tab" data-tab="report" aria-selected="true" data-i18n="feedback.리포트">리포트</button>
+          <button type="button" class="fb-tab" role="tab" data-role="fb-tab" data-tab="cards" aria-selected="false"><span data-i18n="feedback.첨삭_제안">첨삭 제안</span> <span data-role="fb-card-count">0</span></button>
           <button type="button" class="fb-tab" role="tab" data-role="fb-tab" data-tab="history" aria-selected="false" data-i18n="index.히스토리">히스토리</button>
         </div>
         <div class="fb-tab-panels">
@@ -5326,65 +5326,65 @@
             <div class="fb-cards-toolbar">
               <p class="fb-cards-summary" data-role="fb-cards-summary"></p>
               <div class="fb-toolbar-ctrls">
-                <div class="fb-seg" role="radiogroup" aria-label="정렬" title="중요도순: 중요 → 보통 → 낮음 그룹으로 묶어서 / 원고순: 원고 위쪽부터 차례로">
-                  <button type="button" class="fb-seg-btn" data-role="fb-sort" data-sort="priority" role="radio" aria-checked="true" aria-label="중요도순">중요도순</button>
-                  <button type="button" class="fb-seg-btn" data-role="fb-sort" data-sort="manuscript" role="radio" aria-checked="false" aria-label="원고순">원고순</button>
+                <div class="fb-seg" role="radiogroup" aria-label="정렬" data-i18n-aria-label="feedback.정렬" title="중요도순: 중요 → 보통 → 낮음 그룹으로 묶어서 / 원고순: 원고 위쪽부터 차례로" data-i18n-title="feedback.중요도순_중요_보통_낮음_그룹으로_묶어서_원고순_원고_위쪽부터_차례로">
+                  <button type="button" class="fb-seg-btn" data-role="fb-sort" data-sort="priority" role="radio" aria-checked="true" aria-label="중요도순" data-i18n-aria-label="feedback.중요도순" data-i18n="feedback.중요도순">중요도순</button>
+                  <button type="button" class="fb-seg-btn" data-role="fb-sort" data-sort="manuscript" role="radio" aria-checked="false" aria-label="원고순" data-i18n-aria-label="feedback.원고순" data-i18n="feedback.원고순">원고순</button>
                 </div>
                 <div class="fb-pop-anchor">
-                  <button type="button" class="fb-ctrl fb-filter-btn" data-role="fb-filter-menu" title="유형으로 걸러 보기" aria-label="필터" aria-haspopup="dialog" aria-expanded="false">
+                  <button type="button" class="fb-ctrl fb-filter-btn" data-role="fb-filter-menu" title="유형으로 걸러 보기" data-i18n-title="feedback.유형으로_걸러_보기" aria-label="필터" aria-haspopup="dialog" aria-expanded="false">
                     <span data-role="fb-filter-label">필터</span>
                     <span class="fb-opt-dot" data-role="fb-filter-dot" hidden></span>
                   </button>
-                  <div class="fb-pop fb-filter-pop" data-role="fb-filter-pop" hidden role="dialog" aria-label="유형 필터">
-                    <div class="fb-kind-chips" data-role="fb-kind-list" role="group" aria-label="유형 필터"></div>
+                  <div class="fb-pop fb-filter-pop" data-role="fb-filter-pop" hidden role="dialog" aria-label="유형 필터" data-i18n-aria-label="feedback.유형_필터">
+                    <div class="fb-kind-chips" data-role="fb-kind-list" role="group" aria-label="유형 필터" data-i18n-aria-label="feedback.유형_필터"></div>
                     <div class="fb-filter-foot">
-                      <button type="button" class="fb-text-btn" data-role="fb-kind-reset" title="유형 필터 해제" aria-label="초기화" disabled>초기화</button>
+                      <button type="button" class="fb-text-btn" data-role="fb-kind-reset" title="유형 필터 해제" data-i18n-title="feedback.유형_필터_해제" aria-label="초기화" disabled>초기화</button>
                       <span class="fb-filter-hint" data-role="fb-filter-hint">필터 없음</span>
                     </div>
                   </div>
                 </div>
                 <div class="fb-pop-anchor">
-                  <button type="button" class="fb-icon-btn fb-display-btn" data-role="fb-display-menu" title="원고 표시 설정" aria-label="원고 표시 설정" aria-haspopup="dialog" aria-expanded="false">
+                  <button type="button" class="fb-icon-btn fb-display-btn" data-role="fb-display-menu" title="원고 표시 설정" data-i18n-title="feedback.원고_표시_설정" aria-label="원고 표시 설정" data-i18n-aria-label="feedback.원고_표시_설정" aria-haspopup="dialog" aria-expanded="false">
                     <span aria-hidden="true">⚙</span>
                     <span class="fb-opt-dot" data-role="fb-display-dot" hidden></span>
                   </button>
-                  <div class="fb-pop fb-display-pop" data-role="fb-display-pop" hidden role="dialog" aria-label="원고 표시 설정">
+                  <div class="fb-pop fb-display-pop" data-role="fb-display-pop" hidden role="dialog" aria-label="원고 표시 설정" data-i18n-aria-label="feedback.원고_표시_설정">
                     <div class="fb-set-row">
-                      <span class="fb-set-label">원고에 밑줄 표시</span>
-                      <button type="button" class="fb-toggle" data-role="fb-underline" role="switch" aria-checked="true" aria-label="원고에 밑줄 표시"></button>
+                      <span class="fb-set-label" data-i18n="feedback.원고에_밑줄_표시">원고에 밑줄 표시</span>
+                      <button type="button" class="fb-toggle" data-role="fb-underline" role="switch" aria-checked="true" aria-label="원고에 밑줄 표시" data-i18n-aria-label="feedback.원고에_밑줄_표시"></button>
                     </div>
                     <div class="fb-set-row">
-                      <span class="fb-set-label">표시 수준</span>
-                      <div class="fb-seg fb-seg-sm" role="radiogroup" aria-label="표시 수준">
-                        <button type="button" class="fb-seg-btn" data-role="fb-ul-level" data-level="high" role="radio" aria-checked="false" aria-label="중요만">중요만</button>
-                        <button type="button" class="fb-seg-btn" data-role="fb-ul-level" data-level="high-medium" role="radio" aria-checked="true" aria-label="중요+보통">중요+보통</button>
-                        <button type="button" class="fb-seg-btn" data-role="fb-ul-level" data-level="all" role="radio" aria-checked="false" aria-label="전체">전체</button>
+                      <span class="fb-set-label" data-i18n="feedback.표시_수준">표시 수준</span>
+                      <div class="fb-seg fb-seg-sm" role="radiogroup" aria-label="표시 수준" data-i18n-aria-label="feedback.표시_수준">
+                        <button type="button" class="fb-seg-btn" data-role="fb-ul-level" data-level="high" role="radio" aria-checked="false" aria-label="중요만" data-i18n-aria-label="feedback.중요만" data-i18n="feedback.중요만">중요만</button>
+                        <button type="button" class="fb-seg-btn" data-role="fb-ul-level" data-level="high-medium" role="radio" aria-checked="true" aria-label="중요+보통" data-i18n-aria-label="feedback.중요_보통" data-i18n="feedback.중요_보통">중요+보통</button>
+                        <button type="button" class="fb-seg-btn" data-role="fb-ul-level" data-level="all" role="radio" aria-checked="false" aria-label="전체" data-i18n-aria-label="feedback.전체" data-i18n="feedback.전체">전체</button>
                       </div>
                     </div>
                     <div class="fb-set-row is-stack">
                       <div class="fb-set-copy">
-                        <span class="fb-set-label">사전 표시 숨김</span>
-                        <p class="fb-set-hint">검토하는 동안 이름·용어 표시를 잠시 숨겨요.</p>
+                        <span class="fb-set-label" data-i18n="feedback.사전_표시_숨김">사전 표시 숨김</span>
+                        <p class="fb-set-hint" data-i18n="feedback.검토하는_동안_이름_용어_표시를_잠시_숨겨요">검토하는 동안 이름·용어 표시를 잠시 숨겨요.</p>
                       </div>
-                      <button type="button" class="fb-toggle" data-role="fb-hide-dict" role="switch" aria-checked="true" aria-label="사전 표시 숨김"></button>
+                      <button type="button" class="fb-toggle" data-role="fb-hide-dict" role="switch" aria-checked="true" aria-label="사전 표시 숨김" data-i18n-aria-label="feedback.사전_표시_숨김"></button>
                     </div>
                     <div class="fb-set-row">
-                      <span class="fb-set-label">적용 후 다음 카드로 자동 이동</span>
-                      <button type="button" class="fb-toggle" data-role="fb-auto-advance" role="switch" aria-checked="true" aria-label="적용 후 다음 카드로 자동 이동"></button>
+                      <span class="fb-set-label" data-i18n="feedback.적용_후_다음_카드로_자동_이동">적용 후 다음 카드로 자동 이동</span>
+                      <button type="button" class="fb-toggle" data-role="fb-auto-advance" role="switch" aria-checked="true" aria-label="적용 후 다음 카드로 자동 이동" data-i18n-aria-label="feedback.적용_후_다음_카드로_자동_이동"></button>
                     </div>
                     <hr class="fb-set-hr">
-                    <div class="fb-legend" aria-label="표시 범례">
+                    <div class="fb-legend" aria-label="표시 범례" data-i18n-aria-label="feedback.표시_범례">
                       <div class="fb-legend-row is-ul">
-                        <span class="fb-legend-k">밑줄</span>
-                        <span class="fb-legend-item"><span class="fb-legend-sample is-high">가나다</span>중요</span>
-                        <span class="fb-legend-item"><span class="fb-legend-sample is-medium">가나다</span>보통</span>
-                        <span class="fb-legend-item"><span class="fb-legend-sample is-low">가나다</span>낮음</span>
+                        <span class="fb-legend-k" data-i18n="feedback.밑줄">밑줄</span>
+                        <span class="fb-legend-item"><span class="fb-legend-sample is-high" data-i18n="feedback.legend_sample">가나다</span><span data-i18n="feedback.priority.high">중요</span></span>
+                        <span class="fb-legend-item"><span class="fb-legend-sample is-medium" data-i18n="feedback.legend_sample">가나다</span><span data-i18n="feedback.priority.medium">보통</span></span>
+                        <span class="fb-legend-item"><span class="fb-legend-sample is-low" data-i18n="feedback.legend_sample">가나다</span><span data-i18n="feedback.priority.low">낮음</span></span>
                       </div>
                       <div class="fb-legend-row is-card">
-                        <span class="fb-legend-k">선택한 카드</span>
+                        <span class="fb-legend-k" data-i18n="feedback.선택한_카드">선택한 카드</span>
                         <span class="fb-legend-grid">
-                          <span class="fb-legend-item"><span class="fb-legend-sample is-del"><del>가나다</del></span>이 글이 바뀌어요(수정안 있음)</span>
-                          <span class="fb-legend-item"><span class="fb-legend-sample is-note">가나다</span>확인할 위치예요</span>
+                          <span class="fb-legend-item"><span class="fb-legend-sample is-del"><del data-i18n="feedback.legend_sample">가나다</del></span><span data-i18n="feedback.이_글이_바뀌어요_수정안_있음">이 글이 바뀌어요(수정안 있음)</span></span>
+                          <span class="fb-legend-item"><span class="fb-legend-sample is-note" data-i18n="feedback.legend_sample">가나다</span><span data-i18n="feedback.확인할_위치예요">확인할 위치예요</span></span>
                         </span>
                       </div>
                     </div>
@@ -10454,9 +10454,9 @@
     <script src="/status_window_model.js?v=1"></script>
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
-    <script src="/app.js?v=1.4.255-c26"></script>
+    <script src="/app.js?v=1.4.255-c27"></script>
     <script src="/js/gitsi.js?v=1"></script>
-    <script src="/feedback_panel.js?v=31"></script>
+    <script src="/feedback_panel.js?v=32"></script>
     <script src="/app-boot.js?v=1"></script>
   </body>
 </html>

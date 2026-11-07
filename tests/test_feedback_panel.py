@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -51,8 +52,8 @@ class FeedbackPanelLogicTests(unittest.TestCase):
         self.assertIn("원고에 밑줄 표시", html)
         self.assertIn('id="feedbackReviewHost"', html)
         self.assertNotIn('data-role="fb-switch-chrome"', html)
-        self.assertIn("작은 창으로 보기", js)
-        self.assertIn("넓게 보기", js)
+        self.assertIn('i18n.t("feedback.작은_창으로_보기")', js)
+        self.assertIn('i18n.t("feedback.넓게_보기")', js)
         self.assertIn('data-role="fb-tab"', html)
         self.assertIn("첨삭 제안", html)
         self.assertIn("openFeedbackChrome", js)
@@ -120,7 +121,7 @@ class FeedbackPanelLogicTests(unittest.TestCase):
         self.assertIn("pickDefaultRun", js_panel)
         self.assertIn("nextRunAfterDelete", js_panel)
         self.assertIn("formatLegacyImportMessage", js_panel)
-        self.assertIn("<del>가나다</del>", html)
+        self.assertIn('<del data-i18n="feedback.legend_sample">가나다</del>', html)
         self.assertIn("이 글이 바뀌어요(수정안 있음)", html)
         self.assertIn('data-role="fb-hide-dict"', html)
         self.assertIn("고치기", PANEL_JS.read_text(encoding="utf-8"))
@@ -269,6 +270,27 @@ class FeedbackPanelLogicTests(unittest.TestCase):
                 self.assertTrue(str(data[key]).strip(), f"{name}.json empty {key}")
         self.assertEqual(rows[0], rows[1])
         self.assertEqual(rows[1], rows[2])
+
+    def test_panel_strings_go_through_locale_keys(self) -> None:
+        """패널 문구는 litText/i18nText 키로만 나간다. 키는 ko/en/es에 있고 en/es 값에 한글이 없다."""
+        js = PANEL_JS.read_text(encoding="utf-8")
+        used = set(re.findall(r"""(?:litText|i18nText)\(\s*"([a-z]+\.[^"]+)"\s*[,)]""", js))
+        # labelOf(TABLE, "group", key) → feedback.<group>.<key>; 표 값이 곧 예비 문구다.
+        tables = {"STYLE_LABELS": "style", "KIND_LABELS": "kind", "PRIORITY_LABELS": "priority", "STATUS_LABELS": "status"}
+        for const, group in tables.items():
+            body = re.search(r"const " + const + r" = \{(.*?)\};", js, re.S)
+            self.assertIsNotNone(body, const)
+            for key in re.findall(r"^\s*(\w+):", body.group(1), re.M):
+                used.add(f"feedback.{group}.{key}")
+        self.assertGreater(len([k for k in used if k.startswith("feedback.")]), 200)
+        hangul = re.compile("[가-힣]")
+        for name in ("ko", "en", "es"):
+            data = json.loads((ROOT / "web" / "locales" / f"{name}.json").read_text(encoding="utf-8"))
+            missing = sorted(k for k in used if k not in data)
+            self.assertEqual(missing, [], f"{name}.json missing")
+            if name != "ko":
+                left = sorted(k for k in used if hangul.search(str(data[k])))
+                self.assertEqual(left, [], f"{name}.json values still Korean")
 
 
 if __name__ == "__main__":
