@@ -1526,6 +1526,7 @@ def generate_scene_reader_comments(
                 system=system,
                 temperature=0.9,
                 max_output_tokens=512,
+                feature="reader.comments",
             )
         except gemini_client.GeminiError as error:
             _log_reader_comment_error(scene_id, persona_id, error)
@@ -1837,7 +1838,8 @@ def reader_chat(handler, body: dict) -> dict:
     )
     try:
         reply = gemini_client.generate_text(
-            full_prompt, system=system, temperature=0.9
+            full_prompt, system=system, temperature=0.9,
+            feature="reader.chat",
         )
     except gemini_client.GeminiError as error:
         raise ValueError(str(error)) from error
@@ -2140,7 +2142,8 @@ def reader_debate(handler, body: dict) -> dict:
         try:
             gemini_calls += 1
             reply = gemini_client.generate_text(
-                full_prompt, system=system, temperature=0.9
+                full_prompt, system=system, temperature=0.9,
+                feature="reader.debate",
             )
         except gemini_client.GeminiError as error:
             if not _is_quota_error(error):

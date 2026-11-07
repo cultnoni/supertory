@@ -107,7 +107,7 @@ def _run_stage(options: dict[str, Any], stage: str) -> bool:
     return STAGE_ORDER.index(stage) >= STAGE_ORDER.index(start)
 
 
-def _invoke(claude, prompt: str, schema: dict[str, Any], model: str, *, max_tokens: int, cached_system) -> dict[str, Any]:
+def _invoke(claude, prompt: str, schema: dict[str, Any], model: str, *, max_tokens: int, cached_system, feature: str = "feedback.literature_long") -> dict[str, Any]:
     return claude.generate(
         with_schema_instruction(prompt, schema),
         model=model,
@@ -115,6 +115,7 @@ def _invoke(claude, prompt: str, schema: dict[str, Any], model: str, *, max_toke
         thinking="off",
         max_tokens=max_tokens,
         timeout=180.0,
+        feature=feature,
     )
 
 
@@ -669,6 +670,7 @@ def run_literature_long(
             scene_model,
             max_tokens=2800,
             cached_system=cached_system,
+            feature="feedback.literature_long.scene_map",
         )
         _timed_usage(params, "scene_map", scene_result, scene_model, started)
         _check_cost(params, max_cost)
@@ -727,6 +729,7 @@ def run_literature_long(
             rubric_model,
             max_tokens=3200,
             cached_system=cached_system,
+            feature="feedback.literature_long.rubric",
         )
         _timed_usage(params, "rubric", rubric_result, rubric_model, started)
         _check_cost(params, max_cost)
@@ -758,6 +761,7 @@ def run_literature_long(
                 rubric_model,
                 max_tokens=3200,
                 cached_system=cached_system,
+                feature="feedback.literature_long.rubric",
             )
             _timed_usage(params, "rubric_retry", retry, rubric_model, retry_started)
             _check_cost(params, max_cost)
@@ -824,6 +828,7 @@ def run_literature_long(
             report_model,
             max_tokens=3600,
             cached_system=cached_system,
+            feature="feedback.literature_long.report",
         )
         if MANUSCRIPT_MARK in str(report_result.get("text") or ""):
             raise RuntimeError("리포트 단계에 원고 전문 표식이 남았습니다.")

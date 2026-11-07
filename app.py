@@ -2418,6 +2418,7 @@ def suggest_character_relations(project_id: int) -> dict:
             system=system,
             temperature=0.1,
             max_output_tokens=4096,
+            feature="tory.character_relations",
         )
     except gemini_client.GeminiError as error:
         raise ValueError(str(error)[:400]) from error
@@ -5636,6 +5637,7 @@ def generate_scene_trait_analysis(scene_id: int) -> dict:
             system=system,
             temperature=0.1,
             max_output_tokens=2048,
+            feature="tory.scene_traits",
         )
     except gemini_client.GeminiError as error:
         return _set_trait_analysis_job(
@@ -5782,6 +5784,7 @@ def generate_scene_item_analysis(scene_id: int) -> dict:
             system=system,
             temperature=0.1,
             max_output_tokens=1024,
+            feature="tory.scene_items",
         )
     except gemini_client.GeminiError as error:
         return _set_item_analysis_job(
@@ -5959,6 +5962,7 @@ def _run_character_analysis_job(
                 system=system,
                 temperature=0.2 if not infer else 0.4,
                 max_output_tokens=4096,
+                feature="tory.character_analysis",
             )
             parsed = character_import_analysis.parse_analysis_json(text)
             if parsed:
@@ -5988,6 +5992,7 @@ def _run_character_analysis_job(
                 system=system,
                 temperature=0.2 if not infer else 0.4,
                 max_output_tokens=4096,
+                feature="tory.character_analysis",
             )
             parsed_world = world_import_analysis.parse_analysis_json(text)
             if parsed_world:
@@ -8673,7 +8678,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "JSON 배열로 알려 주세요. 오류가 정말 없으면 [] 만 출력하세요.\n\n"
                 f"{text[:8000]}"
             )
-            reply = gemini_client.generate_text(prompt, system=system)
+            reply = gemini_client.generate_text(prompt, system=system, feature="tory.spellcheck")
             payload = (reply or "").strip()
             if payload.startswith("```"):
                 payload = re.sub(r"^```(?:json)?\s*", "", payload)
@@ -9145,7 +9150,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     f"[작가의 새 메시지]\n{user_prompt}"
                 )
             try:
-                text = gemini_client.generate_text(full_prompt, system=system, temperature=0.9)
+                text = gemini_client.generate_text(full_prompt, system=system, temperature=0.9, feature="tory.chat")
             except gemini_client.GeminiError as error:
                 raise ValueError(str(error)) from error
             return {
@@ -10382,7 +10387,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "index_merge": index_merge_info,
             }
         try:
-            text = gemini_client.generate_text(full_prompt, system=system)
+            text = gemini_client.generate_text(full_prompt, system=system, feature=f"tory.{mode}")
         except gemini_client.GeminiError as error:
             raise ValueError(str(error)) from error
 
@@ -13126,7 +13131,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
         fixed_map: dict[str, str] = {}
         try:
-            fix_text = gemini_client.generate_text(fix_prompt)
+            fix_text = gemini_client.generate_text(fix_prompt, feature="tory.subtitle_fix")
             fixed = json.loads(cls._strip_json_fence(fix_text)).get("fixed")
             if isinstance(fixed, list):
                 fixed_map = {
@@ -21284,7 +21289,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 prompt = self.build_scene_summary_prompt(content, previous)
 
         try:
-            raw = gemini_client.generate_text(prompt, temperature=0.2, max_output_tokens=3072)
+            raw = gemini_client.generate_text(prompt, temperature=0.2, max_output_tokens=3072, feature="auto.scene_index")
         except gemini_client.GeminiError as error:
             raise ValueError(str(error)) from error
 
@@ -21371,7 +21376,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             existing_index, new_summaries
         )
         try:
-            raw = gemini_client.generate_text(prompt, temperature=0.2, max_output_tokens=4096)
+            raw = gemini_client.generate_text(prompt, temperature=0.2, max_output_tokens=4096, feature="auto.project_index")
         except gemini_client.GeminiError as error:
             if quiet:
                 return {"ok": False, "merged": False, "error": str(error), "project_id": project_id}
@@ -21866,6 +21871,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 system=system,
                 temperature=0.1,
                 max_output_tokens=512,
+                feature="tory.cast_candidates",
             )
             with _cast_candidate_lock:
                 _cast_candidate_last_at = time.monotonic()

@@ -524,6 +524,7 @@ def analyze_with_gemini(original_text: str, revised_text: str, *, local: ProofRe
             system=_SYSTEM_PROMPT,
             temperature=0.2,
             max_output_tokens=4096,
+            feature="proof.diff",
         )
     except gemini_client.GeminiError:
         return base

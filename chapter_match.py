@@ -367,6 +367,7 @@ def match_with_gemini(
             system=_SYSTEM_PROMPT,
             temperature=0.15,
             max_output_tokens=512,
+            feature="proof.match_episode",
         )
     except gemini_client.GeminiError:
         return local

@@ -1117,6 +1117,7 @@ def generate_literature_cards(
             "thinking": "off",
             "max_tokens": max_tokens,
             "timeout": timeout,
+            "feature": "feedback.literature.cards",
         }
         if temperature is not None and not is_sampling_locked_model(chosen):
             kwargs["temperature"] = float(temperature)

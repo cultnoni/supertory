@@ -385,6 +385,7 @@ def _invoke(
     model: str,
     *,
     cached_prefix: str = "",
+    feature: str = "feedback.webnovel",
 ) -> dict[str, Any]:
     """공통 시스템 → 원고+설정집(캐시) → 단계 지시+스키마. structured outputs는 쓰지 않는다."""
     common = prompt_loader.system_core()
@@ -397,6 +398,7 @@ def _invoke(
         thinking="off",
         max_tokens=4096,
         timeout=60.0,
+        feature=feature,
     )
 
 
@@ -414,6 +416,9 @@ def _merge_call_usage(parts: list[dict[str, Any]]) -> dict[str, int]:
     return totals
 
 
+_FEATURE_BY_LABEL = {"카드": "cards", "정합성": "consistency", "리포트": "report"}
+
+
 def _invoke_parsed(
     claude,
     prompt: str,
@@ -429,7 +434,8 @@ def _invoke_parsed(
     last: dict[str, Any] | None = None
     for _attempt in range(2):
         result = _invoke(
-            claude, prompt, schema, model, cached_prefix=cached_prefix
+            claude, prompt, schema, model, cached_prefix=cached_prefix,
+            feature="feedback.webnovel." + _FEATURE_BY_LABEL.get(label, "stage"),
         )
         attempts.append(result)
         last = result

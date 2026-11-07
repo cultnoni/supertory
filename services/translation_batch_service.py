@@ -118,6 +118,7 @@ def generate_translation_text(
                 temperature=temperature,
                 max_output_tokens=max_output_tokens,
                 timeout=TRANSLATION_GEMINI_TIMEOUT_SECONDS,
+                feature="translate.text",
             )
         except gemini_client.GeminiError as error:
             visible = gemini_client.user_visible_message(error)

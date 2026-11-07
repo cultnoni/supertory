@@ -183,6 +183,7 @@ def compress_group(
         thinking="off",
         max_tokens=1200,
         timeout=120.0,
+        feature="feedback.literature.compress",
     )
 
 

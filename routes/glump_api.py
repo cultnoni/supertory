@@ -1563,7 +1563,8 @@ def _extract_glump_highlights_unlocked(scene_id: int, content: str) -> None:
     system, user_prompt = _highlight_extraction_prompt(chunk)
     try:
         raw = gemini_client.generate_text(
-            user_prompt, system=system, temperature=0.4
+            user_prompt, system=system, temperature=0.4,
+            feature="auto.glump_highlights",
         )
         moments = _parse_highlight_moments(raw)
     except Exception:
@@ -1720,7 +1721,8 @@ def glump_wildcard_spark(handler, body: dict) -> dict:
     for _attempt in range(2):
         try:
             raw = gemini_client.generate_text(
-                user_prompt, system=system, temperature=0.95
+                user_prompt, system=system, temperature=0.95,
+                feature="glump.wildcard_spark",
             )
             events = _parse_wildcard_spark_events(raw)
             break
@@ -1755,7 +1757,8 @@ def glump_fill_blank_start(handler, body: dict) -> dict:
     for _attempt in range(2):
         try:
             raw = gemini_client.generate_text(
-                user_prompt, system=system, temperature=0.7
+                user_prompt, system=system, temperature=0.7,
+                feature="glump.fill_blank",
             )
             segments = _parse_fill_blank_skeleton(raw)
             break
@@ -1904,7 +1907,8 @@ def glump_pingpong_turn(handler, body: dict) -> dict:
     for _attempt in range(2):
         try:
             raw = gemini_client.generate_text(
-                user_prompt, system=system, temperature=0.8
+                user_prompt, system=system, temperature=0.8,
+                feature="glump.pingpong",
             )
             tori_text = _clip_pingpong_reply(raw)
             if tori_text:
@@ -2013,7 +2017,8 @@ def glump_lucky_sentence(handler, body: dict) -> dict:
     for _attempt in range(2):
         try:
             raw = gemini_client.generate_text(
-                user_prompt, system=system, temperature=0.9
+                user_prompt, system=system, temperature=0.9,
+                feature="glump.lucky_sentence",
             )
             sentence = _clip_lucky_sentence(raw)
             if sentence:
@@ -2092,7 +2097,8 @@ def glump_interrogation_start(handler, body: dict) -> dict:
     for _attempt in range(2):
         try:
             raw = gemini_client.generate_text(
-                user_prompt, system=system, temperature=0.85
+                user_prompt, system=system, temperature=0.85,
+                feature="glump.interrogation",
             )
             questions = _parse_interrogation_questions(raw)
             break
@@ -2217,7 +2223,8 @@ def glump_interrogation_summarize(handler, body: dict) -> dict:
     for _attempt in range(2):
         try:
             raw = gemini_client.generate_text(
-                user_prompt, system=system, temperature=0.8
+                user_prompt, system=system, temperature=0.8,
+                feature="glump.interrogation_summary",
             )
             cards = _parse_interrogation_hint_cards(raw)
             break
@@ -2257,7 +2264,8 @@ def glump_mood_color(handler, body: dict) -> dict:
     for _attempt in range(2):
         try:
             raw = gemini_client.generate_text(
-                user_prompt, system=system, temperature=0.8
+                user_prompt, system=system, temperature=0.8,
+                feature="glump.mood_color",
             )
             colors = _parse_mood_colors(raw)
             break
@@ -2291,7 +2299,8 @@ def glump_mood_playlist(handler, body: dict) -> dict:
     for _attempt in range(2):
         try:
             raw = gemini_client.generate_text(
-                user_prompt, system=system, temperature=0.9
+                user_prompt, system=system, temperature=0.9,
+                feature="glump.mood_playlist",
             )
             playlist = _parse_mood_playlist(raw)
             break
@@ -2322,7 +2331,8 @@ def glump_mood_board(handler, body: dict) -> dict:
         for _attempt in range(2):
             try:
                 raw = gemini_client.generate_text(
-                    user_prompt, system=system, temperature=0.8
+                    user_prompt, system=system, temperature=0.8,
+                    feature="glump.mood_board",
                 )
                 generated = _parse_mood_board_keywords(raw)
                 break
@@ -2350,7 +2360,8 @@ def glump_word_list(handler, work_id: object) -> dict:
     for _attempt in range(2):
         try:
             raw = gemini_client.generate_text(
-                user_prompt, system=system, temperature=0.8
+                user_prompt, system=system, temperature=0.8,
+                feature="glump.word_list",
             )
             words = _parse_word_list(raw)
             break
@@ -2376,7 +2387,8 @@ def glump_sentence_list(handler, work_id: object) -> dict:
     for _attempt in range(2):
         try:
             raw = gemini_client.generate_text(
-                user_prompt, system=system, temperature=0.9
+                user_prompt, system=system, temperature=0.9,
+                feature="glump.sentence_list",
             )
             sentences = _parse_sentence_list(raw)
             break
@@ -2414,7 +2426,8 @@ def glump_character_tarot(handler, body: dict) -> dict:
     for _attempt in range(2):
         try:
             raw = gemini_client.generate_text(
-                user_prompt, system=system, temperature=0.9, max_output_tokens=4096
+                user_prompt, system=system, temperature=0.9, max_output_tokens=4096,
+                feature="glump.character_tarot",
             )
             reading = tarot_deck.parse_character_tarot_v2(raw, picked_cards, style)
             break
@@ -2444,7 +2457,8 @@ def glump_naming_shop(handler, body: dict) -> dict:
     for _attempt in range(2):
         try:
             raw = gemini_client.generate_text(
-                user_prompt, system=system, temperature=0.9, max_output_tokens=4096
+                user_prompt, system=system, temperature=0.9, max_output_tokens=4096,
+                feature="glump.naming_shop",
             )
             groups = _parse_naming_shop(raw)
             break

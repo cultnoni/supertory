@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from unittest import mock
 
 import ai_relay
@@ -15,7 +17,7 @@ from feedback_pipeline import claude_client
 from feedback_pipeline.config import FEEDBACK_MODEL, HAIKU_MODEL
 
 SEEN: list[dict] = []
-BEHAVIOR = {"mode": "ok"}
+BEHAVIOR = {"mode": "ok", "quota": {"remaining_usd": 1.5}}
 
 
 class FakeRelay(BaseHTTPRequestHandler):
@@ -30,7 +32,10 @@ class FakeRelay(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         SEEN.append({"path": self.path, "auth": self.headers.get("authorization")})
-        self._send(200, json.dumps({"remaining_usd": 1.5}).encode())
+        if BEHAVIOR["mode"] == "login_required":
+            self._send(401, json.dumps({"error": "login_required"}).encode())
+            return
+        self._send(200, json.dumps(BEHAVIOR["quota"]).encode())
 
     def do_POST(self) -> None:  # noqa: N802
         length = int(self.headers.get("content-length") or 0)
@@ -81,6 +86,7 @@ class RelayClientTests(unittest.TestCase):
     def setUp(self) -> None:
         SEEN.clear()
         BEHAVIOR["mode"] = "ok"
+        BEHAVIOR["quota"] = {"has_access": True, "enabled": True, "remaining_usd": 1.5}
 
     def test_mode_default_is_relay_only_when_frozen(self) -> None:
         with mock.patch.dict(os.environ, {"SUPERTORY_AI_MODE": ""}):
@@ -141,6 +147,81 @@ class RelayClientTests(unittest.TestCase):
             with self.assertRaises(ai_relay.RelayError) as caught:
                 ai_relay.get_quota()
         self.assertEqual(caught.exception.code, "login_required")
+
+    def test_feedback_start_checks_quota_reserve(self) -> None:
+        import feedback_api
+
+        # 웹소설 여유분($0.5) ≤ 남은 $1.5 → 시작한다.
+        feedback_api._ensure_ai_quota("webnovel", 2.0)
+        self.assertTrue(SEEN[-1]["path"].endswith("/functions/v1/ai/quota"))
+        # 중간 점검 여유분($2) > 남은 $1.5 → 시작하지 않는다.
+        with self.assertRaises(ValueError) as caught:
+            feedback_api._ensure_ai_quota("literature_midcheck", 6.0)
+        self.assertEqual(str(caught.exception), feedback_api.QUOTA_SHORT_MESSAGE)
+        # 여유분은 실행 상한을 넘지 않는다.
+        feedback_api._ensure_ai_quota("literature_midcheck", 1.0)
+
+    def test_feedback_start_reports_access_and_login(self) -> None:
+        import feedback_api
+
+        BEHAVIOR["quota"] = {"has_access": False, "enabled": True, "remaining_usd": 0}
+        with self.assertRaises(ValueError) as caught:
+            feedback_api._ensure_ai_quota("webnovel", 2.0)
+        self.assertEqual(str(caught.exception), ai_relay.RELAY_ERROR_MESSAGES["no_access"])
+        BEHAVIOR["mode"] = "login_required"
+        with self.assertRaises(ValueError) as caught:
+            feedback_api._ensure_ai_quota("webnovel", 2.0)
+        self.assertEqual(str(caught.exception), ai_relay.RELAY_ERROR_MESSAGES["login_required"])
+
+    def test_feedback_quota_skipped_in_direct_mode(self) -> None:
+        import feedback_api
+
+        with mock.patch.dict(os.environ, {"SUPERTORY_AI_MODE": "direct"}):
+            feedback_api._ensure_ai_quota("literature_midcheck", 6.0)
+        self.assertEqual(SEEN, [])
+
+
+class FeatureLabelTests(unittest.TestCase):
+    """모든 AI 호출에 사용 기록용 이름표(feature)가 붙어 있어야 한다(설계안 D8)."""
+
+    ROOT = Path(__file__).resolve().parents[1]
+    SKIP_DIRS = {"tests", "node_modules", "dist", "backend-dist", "build", ".git", "scripts"}
+
+    def _sources(self):
+        for path in self.ROOT.rglob("*.py"):
+            rel = path.relative_to(self.ROOT)
+            if rel.parts[0] in self.SKIP_DIRS or rel.parts[0].startswith("."):
+                continue
+            yield rel, ast.parse(path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _labelled(call: ast.Call) -> bool:
+        return any(k.arg == "feature" or k.arg is None for k in call.keywords)
+
+    def test_every_gemini_call_has_feature(self) -> None:
+        missing = []
+        for rel, tree in self._sources():
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "generate_text" and not self._labelled(node)):
+                    missing.append(f"{rel}:{node.lineno}")
+        self.assertEqual(missing, [])
+
+    def test_every_claude_call_has_feature(self) -> None:
+        missing = []
+        for rel, tree in self._sources():
+            if not (rel.parts[0] == "feedback_pipeline" or rel.name == "feedback_api.py"):
+                continue
+            if rel.name == "claude_client.py":
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                if name == "generate" and not self._labelled(node):
+                    missing.append(f"{rel}:{node.lineno}")
+        self.assertEqual(missing, [])
 
 
 if __name__ == "__main__":

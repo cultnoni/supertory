@@ -949,6 +949,7 @@ def _maybe_ai_toc(manuscript: str, heuristic_toc: str) -> str | None:
             system="당신은 한국어 장편 원고의 목차 편집자입니다.",
             temperature=0.2,
             max_output_tokens=2048,
+            feature="proof.import_toc",
         )
         text = (result or "").strip()
         if not text or len(text) < 5:

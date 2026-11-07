@@ -127,6 +127,7 @@ def run_success_pattern_analysis(handler, body: dict) -> dict:
                         system=None,
                         temperature=0.35,
                         max_output_tokens=1024,
+                        feature="success.pattern",
                     )
                     note = success_pattern.extract_json_object(raw)
                     used_mock = False
@@ -157,6 +158,7 @@ def run_success_pattern_analysis(handler, body: dict) -> dict:
                 system=None,
                 temperature=0.4,
                 max_output_tokens=2048,
+                feature="success.profile",
             )
             profile = success_pattern.extract_json_object(raw_profile)
             profile_mock = False
