@@ -60,6 +60,26 @@ class SampleWorksDataTests(unittest.TestCase):
             for key in ("characters", "relations", "items", "dictionary", "ideas", "baits", "scene_members"):
                 self.assertTrue(work.get(key), f"{label} {key}")
 
+    def test_webnovel_episodes_have_real_webnovel_length(self) -> None:
+        # 웹소설 한 화는 3~4천 자(한국어). 영어·스페인어는 같은 분량이 되도록 단어 수로 확인한다.
+        import html
+        import re
+
+        for lang, work in self.each_work():
+            if work["purpose"] != "web_novel":
+                continue
+            for scene in (s for c in work["chapters"] for s in c["scenes"]):
+                text = html.unescape(re.sub(r"<[^>]+>", "", scene["content_html"]))
+                label = f"{lang}/{scene['title']}"
+                if lang == "ko":
+                    size = len(text)
+                    self.assertGreaterEqual(size, 3000, label)
+                    self.assertLessEqual(size, 4500, label)
+                else:
+                    size = len(re.sub(r"<[^>]+>", " ", html.unescape(scene["content_html"])).split())
+                    self.assertGreaterEqual(size, 1000, label)
+                    self.assertLessEqual(size, 1800, label)
+
     def test_statuses_vary_so_every_color_shows(self) -> None:
         for lang, pack in self.packs.items():
             statuses = [s["status"] for w in pack["works"] for c in w["chapters"] for s in c["scenes"]]
