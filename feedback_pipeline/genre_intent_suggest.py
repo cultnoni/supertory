@@ -164,6 +164,7 @@ def draft_promise_sentence(
         thinking="off",
         max_tokens=300,
         timeout=60.0,
+        feature="feedback.webnovel.promise_draft",
     )
     parsed = result.get("parsed") if isinstance(result.get("parsed"), dict) else {}
     draft = str(parsed.get("draft") or "").strip()

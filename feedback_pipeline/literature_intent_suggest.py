@@ -179,6 +179,7 @@ def draft_intent_sentence(
         thinking="off",
         max_tokens=300,
         timeout=60.0,
+        feature="feedback.literature.intent_draft",
     )
     parsed = result.get("parsed") if isinstance(result.get("parsed"), dict) else {}
     draft = str(parsed.get("draft") or "").strip()

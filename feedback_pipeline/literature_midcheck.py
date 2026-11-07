@@ -305,6 +305,7 @@ def rewrite_body_with_revisions(
         model,
         max_tokens=1600,
         cached_system="편집자. JSON만. revise만 반영하고 나머지는 유지.",
+        feature="feedback.midcheck.rewrite",
     )
     parsed = result.get("parsed") if isinstance(result.get("parsed"), dict) else {}
     return {
@@ -343,6 +344,7 @@ def check_revise_leftovers(
         model,
         max_tokens=800,
         cached_system="검증만. JSON만.",
+        feature="feedback.midcheck.leftover_check",
     )
     parsed = result.get("parsed") if isinstance(result.get("parsed"), dict) else {}
     items = parsed.get("items") if isinstance(parsed.get("items"), list) else []
@@ -415,6 +417,7 @@ def rewrite_leftover_sentences(
         model,
         max_tokens=1600,
         cached_system="편집자. JSON만. 지목 문장만 고치고 나머지는 유지.",
+        feature="feedback.midcheck.leftover_rewrite",
     )
     parsed = result.get("parsed") if isinstance(result.get("parsed"), dict) else {}
     return {
@@ -881,7 +884,7 @@ def _compare_motif_status(prev: dict[str, Any] | None, current: list[dict[str, A
     return changes
 
 
-def _invoke(claude, prompt: str, schema: dict[str, Any], model: str, *, max_tokens: int, cached_system) -> dict[str, Any]:
+def _invoke(claude, prompt: str, schema: dict[str, Any], model: str, *, max_tokens: int, cached_system, feature: str = "feedback.midcheck") -> dict[str, Any]:
     return claude.generate(
         with_schema_instruction(prompt, schema),
         model=model,
@@ -889,6 +892,7 @@ def _invoke(claude, prompt: str, schema: dict[str, Any], model: str, *, max_toke
         thinking="off",
         max_tokens=max_tokens,
         timeout=180.0,
+        feature=feature,
     )
 
 
@@ -1188,6 +1192,7 @@ def run_literature_midcheck(
         model,
         max_tokens=4500,
         cached_system=cached_system,
+        feature="feedback.midcheck.detect",
     )
     _add_usage(params, "pass1", pass1, model)
     params["usage"]["stages"][-1]["elapsed_ms"] = int((time.perf_counter() - started) * 1000)
@@ -1251,6 +1256,7 @@ def run_literature_midcheck(
                 "원문 확인만 한다. JSON만. 시스템 내부 사정은 쓰지 않는다.",
                 "편집자. 짧게.",
             ),
+            feature="feedback.midcheck.verify",
         )
         _add_usage(params, f"verify:{index}", verify, model)
         params["usage"]["stages"][-1]["elapsed_ms"] = int((time.perf_counter() - started) * 1000)

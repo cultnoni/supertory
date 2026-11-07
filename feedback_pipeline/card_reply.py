@@ -202,6 +202,7 @@ def reply_to_card_comment(
             thinking="off",
             max_tokens=REPLY_MAX_TOKENS,
             timeout=60.0,
+            feature="feedback.card_reply",
         )
     except ClaudeError:
         raise

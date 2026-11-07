@@ -607,9 +607,45 @@ function restoreAiResultAfterFailure() {
 }
 
 /** Server copy (gemini_client *_USER_MESSAGE) that tells the writer something a generic retry hint would hide. */
+/**
+ * AI 중계 창구 오류(ai_relay.RELAY_ERROR_MESSAGES)를 서버의 한국어 문구로 알아본다.
+ * 서버는 문구만 보내므로 문구로 코드를 찾고, 화면 언어의 문구로 바꾼다.
+ */
+const AI_RELAY_ERRORS = [
+  { code: "login_required", pattern: /로그인하면 AI를 쓸 수 있어요/, key: "app.로그인하면_AI를_쓸_수_있어요" },
+  { code: "feature_disabled", pattern: /이 기능은 잠시 쉬고 있어요/, key: "app.이_AI_기능은_잠시_쉬고_있어요" },
+  { code: "no_access", pattern: /베타 이용권이 있어야/, key: "app.AI_기능은_베타_이용권이_있어야" },
+  { code: "daily_limit", pattern: /사용량을 다 썼/, key: "app.오늘_쓸_수_있는_AI_사용량을_다_썼어요" },
+  { code: "service_limit", pattern: /AI 사용이 몰렸어요/, key: "app.지금은_AI_사용이_몰렸어요" },
+  { code: "quota_short", pattern: /남은 AI 사용량으로는 첨삭을/, key: "app.오늘_남은_AI_사용량으로는_첨삭을" },
+];
+
+function aiRelayErrorInfo(error) {
+  const msg = String(error?.message || error || "");
+  for (const item of AI_RELAY_ERRORS) {
+    if (item.pattern.test(msg)) return { code: item.code, message: i18n.t(item.key) };
+  }
+  return null;
+}
+
+/** 「로그인 필요」면 사용자 관리 탭(로그인 입구)으로 가는 단추가 달린 알림을 띄운다. */
+function showAiRelayErrorToast(error) {
+  const info = aiRelayErrorInfo(error?.cause || error);
+  if (!info) return false;
+  if (info.code === "login_required") {
+    toast(info.message, 8000, {
+      action: { label: i18n.t("app.로그인"), onClick: () => openAdminModal("account") },
+    });
+  } else {
+    toast(info.message, 5200);
+  }
+  return true;
+}
+
 function aiAssistSpecificMessage(error) {
   const msg = String(error?.message || "");
-  if (/사용량을 다 썼/.test(msg)) return i18n.t('app.오늘_쓸_수_있는_AI_사용량을_다_썼어요');
+  const relay = aiRelayErrorInfo(msg);
+  if (relay) return relay.message;
   if (/요청이 잠시 몰렸/.test(msg)) return i18n.t('app.AI_요청이_잠시_몰렸어요');
   if (/AI에 연결할 수 없어요/.test(msg)) return i18n.t('app.AI에_연결할_수_없어요_앱을_업데이트');
   return "";
@@ -639,6 +675,7 @@ function handleAiAssistError(error) {
     showWidePanelError(friendly.message || AI_ASSIST_ERR_GENERIC);
     return;
   }
+  if (showAiRelayErrorToast(friendly)) return;
   toast(friendly.message || AI_ASSIST_ERR_GENERIC, 4200);
 }
 
@@ -85824,6 +85861,7 @@ function handleError(error) {
     handleAiAssistError(error);
     return;
   }
+  if (!widePanelRunStillHere() && showAiRelayErrorToast(error)) return;
   if (isExternalServiceOfflineMessage(error) && !error?.isNetwork) {
     toast(error.message || i18n.t("app.인터넷_연결이_필요해요"), 4200);
     return;
@@ -85839,7 +85877,9 @@ function handleError(error) {
     return;
   }
   if (widePanelRunStillHere()) {
-    showWidePanelError(error?.message || i18n.t("app.문제가_생겼습니다_다시_시도해_주세요"));
+    showWidePanelError(
+      aiRelayErrorInfo(error)?.message || error?.message || i18n.t("app.문제가_생겼습니다_다시_시도해_주세요"),
+    );
     return;
   }
   toast(error.message || i18n.t('app.문제가_생겼습니다_다시_시도해_주세요'));

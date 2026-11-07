@@ -159,6 +159,7 @@ def generate_light_unit_work(
         thinking="off",
         max_tokens=900,
         timeout=120.0,
+        feature="feedback.literature.unit_work",
     )
     parsed = result.get("parsed") if isinstance(result.get("parsed"), dict) else {}
     return {"result": result, "work": normalize_unit_work(parsed), "model": use_model}

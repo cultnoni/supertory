@@ -24,6 +24,7 @@ from feedback_pipeline.card_reply import (
 )
 from feedback_pipeline.claude_client import ClaudeError, get_client, is_configured, is_fake_mode
 from gemini_client import AUTH_USER_MESSAGE, RATE_LIMIT_USER_MESSAGE
+import ai_relay
 from feedback_pipeline.config import (
     FEEDBACK_MODEL,
     LITERATURE_LONG_PROMPT_VERSION,
@@ -32,6 +33,7 @@ from feedback_pipeline.config import (
     MAX_COST_USD_MIDCHECK,
     MAX_COST_USD_PER_RUN,
     PROMPT_VERSION,
+    QUOTA_RESERVE_USD,
 )
 from feedback_pipeline.context import explanation_lens_for_project
 from feedback_pipeline.paragraphs import paragraphs_from_html, source_hash
@@ -319,6 +321,39 @@ def _worker(
         _release(run_id)
 
 
+QUOTA_SHORT_MESSAGE = "오늘 남은 AI 사용량으로는 첨삭을 끝까지 못 해요. 내일 다시 시도해 주세요."
+
+
+def _ensure_ai_quota(pipeline_key: str, cost_limit: float) -> None:
+    """relay 모드면 첨삭을 시작하기 전에 오늘 남은 사용량을 창구에 묻는다(설계안 D4).
+
+    남은 원가가 이 첨삭의 여유분보다 적으면 시작하지 않는다. 중간에 한도에 걸려
+    앞 단계 비용만 날리는 일을 막기 위해서다. 창구에 닿지 못하면 막지 않는다
+    (실제 호출이 같은 오류를 알려 준다).
+    """
+    if is_fake_mode() or not ai_relay.is_relay():
+        return
+    reserve = min(float(cost_limit), float(QUOTA_RESERVE_USD.get(pipeline_key, cost_limit)))
+    try:
+        quota = ai_relay.get_quota()
+    except ai_relay.RelayError as error:
+        if error.code in ai_relay.RELAY_CODES:
+            raise ValueError(str(error)) from None
+        return
+    except (OSError, ValueError):
+        return
+    if not quota.get("has_access", True):
+        raise ValueError(ai_relay.RELAY_ERROR_MESSAGES["no_access"])
+    if not quota.get("enabled", True):
+        raise ValueError(ai_relay.RELAY_ERROR_MESSAGES["feature_disabled"])
+    try:
+        remaining = float(quota.get("remaining_usd"))
+    except (TypeError, ValueError):
+        return
+    if remaining < reserve:
+        raise ValueError(QUOTA_SHORT_MESSAGE)
+
+
 def _start_run(
     handler,
     project_id: int,
@@ -380,6 +415,7 @@ def _start_run(
                 raise ValueError("작품 중간 점검은 일반문학 장편에서만 사용할 수 있습니다.")
             if _literature_running(conn, project_id):
                 raise FeedbackConflict("이미 이 작품의 첨삭이 실행 중입니다.")
+            _ensure_ai_quota("literature_midcheck", float(body.get("max_cost") or MAX_COST_USD_MIDCHECK))
             from feedback_pipeline.literature_midcheck import prepare_midcheck_run
 
             start_ord = body.get("start_ord")
@@ -415,6 +451,7 @@ def _start_run(
         elif track == "short":
             if _literature_running(conn, project_id):
                 raise FeedbackConflict("이미 이 작품의 첨삭이 실행 중입니다.")
+            _ensure_ai_quota("literature_short", cost_limit)
             from feedback_pipeline.literature_runner import prepare_literature_run
 
             params = {
@@ -439,6 +476,7 @@ def _start_run(
         elif track == "long":
             if _literature_running(conn, project_id):
                 raise FeedbackConflict("이미 이 작품의 첨삭이 실행 중입니다.")
+            _ensure_ai_quota("literature_long", cost_limit)
             from feedback_pipeline.literature_long_runner import prepare_literature_long_run
 
             params = {
@@ -464,6 +502,7 @@ def _start_run(
         else:
             if _scene_has_running(conn, scene_id):
                 raise FeedbackConflict("이미 이 회차의 첨삭이 실행 중입니다.")
+            _ensure_ai_quota("webnovel", cost_limit)
             html = str(scene.get("content_md") or "")
             paragraphs = paragraphs_from_html(html)
             digest = source_hash(paragraphs)
@@ -622,6 +661,7 @@ def _rewrite_literature_card(handler, card_id: int) -> None:
             system="요청된 수정 문장만 출력한다.",
             max_tokens=400,
             timeout=180.0,
+            feature="feedback.literature.rewrite",
         )
         suggestion = str(result.get("text") or "").strip()
         if not suggestion:

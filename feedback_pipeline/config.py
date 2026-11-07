@@ -42,6 +42,17 @@ MAX_CARDS_PER_RUN = 100
 MAX_COST_USD_PER_RUN = 2.0
 MAX_COST_USD_MIDCHECK = 6.0
 
+# AI 중계(relay) 모드에서 첨삭을 시작하려면 오늘 남은 사용량이 이만큼은 있어야 한다(USD).
+# 실행 상한(MAX_COST_*)이 아니라 「보통 한 번 드는 원가」의 여유분이다. 상한을 쓰면
+# 하루 한도($2)와 같아 토리를 조금만 써도 첨삭을 못 하고, 중간 점검($6)은 아예 못 한다.
+# 웹소설은 2026-11-05 실측 $0.25의 2배. 문학 단편·장편·중간 점검은 아직 측정 전이라 임시값.
+QUOTA_RESERVE_USD = {
+    "webnovel": 0.5,
+    "literature_short": 1.0,
+    "literature_long": 1.0,
+    "literature_midcheck": 2.0,
+}
+
 # correction·consistency 카드는 항상 수정안을 켠다.
 SUGGESTION_ENABLED_TYPES = frozenset(
     {

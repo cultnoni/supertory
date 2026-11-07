@@ -198,6 +198,7 @@ def _invoke(
     *,
     max_tokens: int,
     cached_prefix: str = "",
+    feature: str = "feedback.literature",
 ) -> dict[str, Any]:
     from feedback_pipeline.literature_cache import build_cached_system, with_schema_instruction
 
@@ -211,6 +212,7 @@ def _invoke(
         thinking="off",
         max_tokens=max_tokens,
         timeout=180.0,
+        feature=feature,
     )
 
 
@@ -671,6 +673,7 @@ def run_literature_short(
             scene_model,
             max_tokens=8192,
             cached_prefix=shared_prefix,
+            feature="feedback.literature.scene_map",
         )
         _timed_usage(params, "scene_map", scene_result, scene_model, started)
         _check_cost(params, max_cost)
@@ -713,6 +716,7 @@ def run_literature_short(
             rubric_model,
             max_tokens=8000,
             cached_prefix=shared_prefix,
+            feature="feedback.literature.rubric",
         )
         _timed_usage(params, "rubric", rubric_result, rubric_model, started)
         _check_cost(params, max_cost)
@@ -735,6 +739,7 @@ def run_literature_short(
                 rubric_model,
                 max_tokens=8000,
                 cached_prefix=shared_prefix,
+                feature="feedback.literature.rubric",
             )
             _timed_usage(params, "rubric_retry", retry, rubric_model, retry_started)
             _check_cost(params, max_cost)
@@ -794,6 +799,7 @@ def run_literature_short(
             report_model,
             max_tokens=8000,
             cached_prefix=shared_prefix,
+            feature="feedback.literature.report",
         )
         _timed_usage(params, "report", report_result, report_model, started)
         _check_cost(params, max_cost)

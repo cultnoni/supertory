@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+import ai_relay
 from env_loader import apply_bundled_defaults, get_env, load_all_dotenv, load_dotenv
 
 # Prefer .env (source / next to frozen exe / MEIPASS), then build-time defaults.
@@ -30,6 +31,13 @@ GEMINI_ERROR_CODES = (
     "network",
     "timeout",
     "unknown",
+    # AI 중계 창구가 돌려주는 코드(ai_relay.RELAY_ERROR_MESSAGES)
+    "login_required",
+    "feature_disabled",
+    "no_access",
+    "daily_limit",
+    "service_limit",
+    "bad_request",
 )
 NETWORK_USER_MESSAGE = "인터넷 연결이 필요해요. 연결을 확인한 뒤 다시 시도해 주세요."
 API_USER_MESSAGE = "AI 응답을 받지 못했어요. 잠시 후 다시 시도해 주세요."
@@ -99,6 +107,8 @@ class GeminiError(RuntimeError):
 
 
 def is_configured() -> bool:
+    if ai_relay.is_relay():
+        return True
     key = get_env("GEMINI_API_KEY")
     return bool(key) and key not in {"your_gemini_api_key_here", "changeme"}
 
@@ -114,16 +124,23 @@ def generate_text(
     temperature: float = 0.8,
     max_output_tokens: int = 2048,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    feature: str = "unknown",
 ) -> str:
-    """Call Gemini generateContent and return plain text."""
-    if not is_configured():
-        print(f"[gemini] {MISSING_KEY_DEV_HINT}", file=sys.stderr)
-        raise GeminiError(AUTH_USER_MESSAGE, code="auth")
-    api_key = get_env("GEMINI_API_KEY")
-    assert api_key is not None
+    """Call Gemini generateContent and return plain text.
 
-    model = model_name()
-    url = f"{API_BASE}/{model}:generateContent?key={api_key}"
+    relay 모드(배포본)는 AI 중계 창구를 거치고, direct 모드(개발)는 .env 키로 직접 부른다.
+    feature는 사용 기록용 이름표(`영역.기능`).
+    """
+    relay = ai_relay.is_relay()
+    url = ""
+    if not relay:
+        if not is_configured():
+            print(f"[gemini] {MISSING_KEY_DEV_HINT}", file=sys.stderr)
+            raise GeminiError(AUTH_USER_MESSAGE, code="auth")
+        api_key = get_env("GEMINI_API_KEY")
+        assert api_key is not None
+        model = model_name()
+        url = f"{API_BASE}/{model}:generateContent?key={api_key}"
 
     user_text = prompt.strip()
     if system:
@@ -146,16 +163,27 @@ def generate_text(
         }
 
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json; charset=utf-8"},
-        method="POST",
+    request = (
+        None
+        if relay
+        else urllib.request.Request(
+            url,
+            data=data,
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            method="POST",
+        )
     )
     wait = max(5.0, float(timeout or DEFAULT_TIMEOUT_SECONDS))
     try:
-        with urllib.request.urlopen(request, timeout=wait) as response:  # noqa: S310
-            raw = response.read().decode("utf-8")
+        if relay:
+            raw = json.dumps(
+                ai_relay.call_gemini(feature, payload, timeout=wait), ensure_ascii=False
+            )
+        else:
+            with urllib.request.urlopen(request, timeout=wait) as response:  # noqa: S310
+                raw = response.read().decode("utf-8")
+    except ai_relay.RelayError as error:
+        raise _gemini_error_from_relay(error) from error
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")
         header_retry = None
@@ -200,12 +228,28 @@ def generate_text(
                 temperature=temperature,
                 max_output_tokens=max_output_tokens,
                 timeout=wait,
+                feature=feature,
             )
         raise GeminiError(
             API_USER_MESSAGE,
             code="empty",
         )
     return text
+
+
+def _gemini_error_from_relay(error: "ai_relay.RelayError") -> GeminiError:
+    """창구 오류를 기존 GeminiError 코드로 옮긴다."""
+    if error.code in ai_relay.RELAY_CODES:
+        # http_status를 비워 두어 429 재시도 로직이 한도 초과를 다시 두드리지 않게 한다.
+        return GeminiError(str(error), code=error.code, retry_after=error.retry_after)
+    code, retry_after, message = classify_gemini_http_error(
+        error.provider_status or 0, error.detail or ""
+    )
+    _log_gemini_failure(code, error, detail=message, http_status=error.provider_status)
+    return GeminiError(
+        _user_message_for_code(code), code=code,
+        http_status=error.provider_status, retry_after=retry_after or error.retry_after,
+    )
 
 
 def classify_transport_error(error: BaseException) -> str:

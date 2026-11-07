@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 import app
 import gemini_client
@@ -85,6 +86,13 @@ CAPTURED_FREE_TIER_PER_DAY_BODY = """{
 
 
 class GeminiErrorClassificationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # 직접 호출 경로를 시험한다(키가 비어 있어도 relay 모드로 바뀌지 않게 고정).
+        patcher = mock.patch.dict("os.environ", {"SUPERTORY_AI_MODE": "direct"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+
     def test_429_per_day_quota_id_is_quota(self) -> None:
         code, retry_after, message = gemini_client.classify_gemini_http_error(
             429, DAILY_QUOTA_BODY

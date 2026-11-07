@@ -144,6 +144,7 @@ def extract_style(
         thinking="off",
         max_tokens=2000,
         timeout=120.0,
+        feature="feedback.literature.style",
     )
     parsed = result.get("parsed") if isinstance(result, dict) else None
     if not isinstance(parsed, dict):

@@ -3,10 +3,11 @@
 Output:
   backend-dist/supertory-server/supertory-server.exe  (+ _internal/)
 
-Also embeds GEMINI_MODEL and the Supabase pairing keys from the project .env
-into ``bundled_env.py`` so the frozen server works without a user-supplied
-.env. Paid AI keys (SECRET_AI_KEYS) stop the build unless
-SUPERTORY_ALLOW_BUNDLED_AI_KEYS=1 is set for a local-only test build.
+Also embeds GEMINI_MODEL and the Supabase keys (the relay and pairing need
+them) from the project .env into ``bundled_env.py``. Paid AI keys are never
+needed in the installer (it uses the AI relay); if .env has them the build
+stops, unless SUPERTORY_ALLOW_BUNDLED_AI_KEYS=1 is set for a local-only test
+build that embeds them.
 
 Usage (from repo root):
   python scripts/build_backend.py
@@ -27,14 +28,13 @@ SPEC = ROOT / "supertory-server.spec"
 SERVER_NAME = "supertory-server"
 BUNDLED_ENV_PY = ROOT / "bundled_env.py"
 
-# Keys copied from .env into the frozen fallback module.
+# Keys copied from .env into the frozen fallback module. AI keys are not here:
+# the installed app calls Gemini/Claude through the AI relay (ai_relay.py), and
+# the keys live only in the Supabase function secrets (docs/ai-relay-design.md).
 BUNDLE_KEYS = (
-    "GEMINI_API_KEY",
     "GEMINI_MODEL",
-    "ANTHROPIC_API_KEY",
     "SUPABASE_URL",
     "SUPABASE_ANON_KEY",
-    "PEXELS_API_KEY",
 )
 SUPABASE_KEYS = (
     "SUPABASE_URL",
@@ -93,7 +93,7 @@ def write_bundled_env() -> dict[str, str]:
     env_path = ROOT / ".env"
     parsed = _parse_env_file(env_path)
     selected: dict[str, str] = {}
-    for key in BUNDLE_KEYS:
+    for key in BUNDLE_KEYS + SECRET_AI_KEYS:
         value = (parsed.get(key) or os.environ.get(key) or "").strip()
         if value and value not in {
             "your_gemini_api_key_here",
@@ -109,7 +109,7 @@ def write_bundled_env() -> dict[str, str]:
             + ", ".join(blocked)
             + ")가 설치 파일 안에 심어집니다.\n"
             "설치 파일을 받은 사람 누구나 이 키를 꺼내 쓸 수 있습니다.\n"
-            "- 배포용 빌드: AI 중계 서버로 옮긴 뒤 빌드하세요.\n"
+            "- 배포용 빌드: .env에서 AI 키를 비우고 빌드하세요(설치본은 AI 중계 창구를 씁니다).\n"
             "- 내 컴퓨터에서만 쓸 시험 빌드라면: "
             f"{ALLOW_AI_KEYS_FLAG}=1 을 설정하고 다시 빌드하세요."
         )
@@ -120,29 +120,8 @@ def write_bundled_env() -> dict[str, str]:
             file=sys.stderr,
         )
 
-    if "GEMINI_API_KEY" not in selected:
-        print(
-            "WARNING: GEMINI_API_KEY not found in .env — frozen AI features will "
-            "need a user-supplied key.",
-            file=sys.stderr,
-        )
-    else:
-        print(
-            f"Embedding GEMINI_API_KEY into bundled_env.py "
-            f"(len={len(selected['GEMINI_API_KEY'])})."
-        )
-
-    if "ANTHROPIC_API_KEY" not in selected:
-        print(
-            "WARNING: ANTHROPIC_API_KEY not found in .env — frozen feedback "
-            "pipeline will need a user-supplied key.",
-            file=sys.stderr,
-        )
-    else:
-        print(
-            "Embedding ANTHROPIC_API_KEY into bundled_env.py "
-            f"(len={len(selected['ANTHROPIC_API_KEY'])})."
-        )
+    if not blocked:
+        print("AI keys are not embedded - the installed app uses the AI relay.")
 
     missing_supabase = [key for key in SUPABASE_KEYS if key not in selected]
     if missing_supabase:

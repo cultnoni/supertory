@@ -26,7 +26,7 @@ class BuildBackendGuardTests(unittest.TestCase):
         self.build = _load_build_backend()
         self.build.ROOT = self.root
         self.build.BUNDLED_ENV_PY = self.root / "bundled_env.py"
-        clean = {k: "" for k in self.build.BUNDLE_KEYS}
+        clean = {k: "" for k in self.build.BUNDLE_KEYS + self.build.SECRET_AI_KEYS}
         clean[self.build.ALLOW_AI_KEYS_FLAG] = ""
         self.env = mock.patch.dict(os.environ, clean)
         self.env.start()
@@ -56,6 +56,10 @@ class BuildBackendGuardTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {self.build.ALLOW_AI_KEYS_FLAG: "1"}):
             selected = self.build.write_bundled_env()
         self.assertIn("ANTHROPIC_API_KEY", selected)
+
+    def test_ai_keys_are_not_bundle_keys(self) -> None:
+        # 설치본은 AI 중계 창구를 쓰므로 AI 키를 기본으로 심지 않는다.
+        self.assertFalse(set(self.build.BUNDLE_KEYS) & set(self.build.SECRET_AI_KEYS))
 
 
 if __name__ == "__main__":

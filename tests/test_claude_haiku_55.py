@@ -26,6 +26,13 @@ class HaikuModelTests(unittest.TestCase):
 
 
 class HaikuRefusalFallbackTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # 직접 호출 경로를 시험한다(키가 비어 있어도 relay 모드로 바뀌지 않게 고정).
+        patcher = mock.patch.dict("os.environ", {"SUPERTORY_AI_MODE": "direct"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+
     def _body(self, stop_reason: str) -> dict:
         return {"stop_reason": stop_reason, "usage": {"input_tokens": 10, "output_tokens": 2}}
 
@@ -60,6 +67,13 @@ class HaikuRefusalFallbackTests(unittest.TestCase):
 
 
 class ClaudeAuthErrorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # 직접 호출 경로를 시험한다(키가 비어 있어도 relay 모드로 바뀌지 않게 고정).
+        patcher = mock.patch.dict("os.environ", {"SUPERTORY_AI_MODE": "direct"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+
     def test_raw_http_401_is_auth(self) -> None:
         import io
         import urllib.error
